@@ -16,11 +16,19 @@ Implemented so far:
     preflight.py -- PreflightFinding, PreflightReport, StyleInventory (plan item 2)
     refs.py      -- RefEntry, Citation, Name bibliography IR (plan item 7)
     reconcile.py -- ReconcileRecord, ReconciliationReport plain-text IR (item 14)
+    equations.py -- EquationRecord, EquationAuditResult, EquationCompileStatus,
+                    EquationWriteResult equation-audit IR (plan item 23)
 """
 
 from latextify.model.body import BodyConversionResult, FilterFinding
 from latextify.model.compile import CompileDiagnostic, CompileResult, DiagnosticSeverity
 from latextify.model.emit import EmitResult, EmitWarning
+from latextify.model.equations import (
+    EquationAuditResult,
+    EquationCompileStatus,
+    EquationRecord,
+    EquationWriteResult,
+)
 from latextify.model.figure import Figure, FigureSource
 from latextify.model.meta import Affiliation, Author, Meta
 from latextify.model.preflight import (
@@ -43,6 +51,10 @@ __all__ = [
     "DiagnosticSeverity",
     "EmitResult",
     "EmitWarning",
+    "EquationAuditResult",
+    "EquationCompileStatus",
+    "EquationRecord",
+    "EquationWriteResult",
     "Figure",
     "FigureSource",
     "FilterFinding",
