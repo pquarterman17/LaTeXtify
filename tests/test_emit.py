@@ -127,6 +127,76 @@ def test_figures_copied_and_renamed_by_number(tmp_path):
     assert copied == ["fig1.png", "fig2.png", "fig3.png"]
 
 
+def test_svg_override_lands_as_pdf_in_output_tree(tmp_path):
+    # plan item 15 done-when: "an SVG override lands as PDF in the output tree".
+    docx = _copy_fixture(tmp_path, FIGURES_DOCX)
+    figures_dir = tmp_path / "figures"
+    figures_dir.mkdir()
+    (figures_dir / "fig1.svg").write_text(
+        '<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10">'
+        '<rect width="10" height="10" fill="blue"/></svg>',
+        encoding="utf-8",
+    )
+
+    result = emit_project(docx, "revtex4-2", tmp_path / "output")
+
+    pdf_path = result.figures_dir / "fig1.pdf"
+    assert pdf_path.is_file()
+    assert pdf_path.read_bytes().startswith(b"%PDF-")
+    assert not (result.figures_dir / "fig1.svg").exists()
+
+    body = result.body_tex_path.read_text(encoding="utf-8")
+    assert "\\includegraphics{figures/fig1.pdf}" in body
+
+    # The Figure IR exposes what conversion occurred (plan item 15).
+    fig1 = next(f for f in result.figures if f.number == 1)
+    assert fig1.source.value == "override"
+    assert fig1.conversion_note is not None
+
+
+def test_figures_yaml_manifest_beats_folder_override_in_full_emit(tmp_path):
+    docx = _copy_fixture(tmp_path, FIGURES_DOCX)
+
+    figures_dir = tmp_path / "figures"
+    figures_dir.mkdir()
+    (figures_dir / "fig2.pdf").write_bytes(b"%PDF-1.4 folder override\n")
+
+    manifest_target = tmp_path / "manifest_fig2.png"
+    manifest_target.write_bytes(b"fake-png-manifest-override")
+    (tmp_path / "figures.yaml").write_text("2: manifest_fig2.png\n", encoding="utf-8")
+
+    result = emit_project(docx, "revtex4-2", tmp_path / "output")
+
+    fig2 = next(f for f in result.figures if f.number == 2)
+    assert fig2.source.value == "manifest"
+    assert fig2.resolved_path == manifest_target
+
+    copied_path = result.figures_dir / "fig2.png"
+    assert copied_path.is_file()
+    assert copied_path.read_bytes() == b"fake-png-manifest-override"
+    assert not (result.figures_dir / "fig2.pdf").exists()
+
+    body = result.body_tex_path.read_text(encoding="utf-8")
+    assert "\\includegraphics{figures/fig2.png}" in body
+
+
+def test_eps_override_without_ghostscript_warns_and_passes_through(tmp_path, monkeypatch):
+    from latextify.figures import convert as convert_mod
+
+    monkeypatch.setattr(convert_mod.shutil, "which", lambda name: None)
+
+    docx = _copy_fixture(tmp_path, FIGURES_DOCX)
+    figures_dir = tmp_path / "figures"
+    figures_dir.mkdir()
+    eps_source = figures_dir / "fig3.eps"
+    eps_source.write_text("%!PS-Adobe-3.0 EPSF-3.0\n%%BoundingBox: 0 0 1 1\n", encoding="utf-8")
+
+    result = emit_project(docx, "revtex4-2", tmp_path / "output")
+
+    assert (result.figures_dir / "fig3.eps").is_file()
+    assert any("Ghostscript" in w.message and "figure 3" in w.message for w in result.warnings)
+
+
 def test_wrapped_figure_anchor_resolves_without_duplicate_caption(tmp_path):
     # Figure 1 in figures.docx is promoted by pandoc into its own
     # \begin{figure}...\caption{...}...\end{figure} wrapper carrying a

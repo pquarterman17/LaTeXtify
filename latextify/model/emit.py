@@ -13,6 +13,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from latextify.model.figure import Figure
+
 
 @dataclass(frozen=True)
 class EmitWarning:
@@ -36,6 +38,10 @@ class EmitResult:
     exist and was written for the first time this run (the write-once
     contract); it is ``False`` on every subsequent run against the same
     output directory, even though every other path is regenerated.
+    ``figures`` carries the final, post-conversion ``Figure`` records
+    (plan item 15's ``convert_for_latex`` fills in ``conversion_note`` on
+    each one before this result is built) for the consolidated report
+    (plan item 16) to read.
     """
 
     output_dir: Path
@@ -49,4 +55,5 @@ class EmitResult:
     figures_dir: Path
     figure_count: int
     citation_count: int
+    figures: tuple[Figure, ...] = field(default_factory=tuple)
     warnings: tuple[EmitWarning, ...] = field(default_factory=tuple)

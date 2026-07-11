@@ -6,7 +6,9 @@ docstring of :mod:`latextify.emit` for the output tree contract:
     ingest.metadata_guess     -- Meta (title/authors/abstract/keywords)
     ingest.pandoc             -- body LaTeX with ``%%FIGURE:<n>%%`` /
                                   ``%%CITE:<idx>%%`` anchors unresolved
-    figures.extract/override  -- resolved Figure IR (embedded vs override)
+    figures.extract/override  -- resolved Figure IR (manifest/folder/embedded)
+    figures.convert           -- SVG/EPS -> PDF for LaTeX inclusion (item 15),
+                                  run here at copy time via ``_copy_figures``
     citations.fields/bib      -- Citation/RefEntry IR + a ``.bib`` file body
     templates.loader          -- per-journal preamble/metadata rendering
 
@@ -47,13 +49,14 @@ Citation linkage has two paths that both resolve to ``\\cite{...}``:
 from __future__ import annotations
 
 import re
-import shutil
 import tempfile
+from dataclasses import replace
 from pathlib import Path
 
 from latextify.citations.bib import entries_to_bib, escape_latex
 from latextify.citations.fields import extract_field_citations
 from latextify.emit.metadata import load_meta, write_metadata_tex
+from latextify.figures.convert import convert_for_latex
 from latextify.figures.extract import extract_figures
 from latextify.figures.override import resolve_overrides
 from latextify.ingest.citation_sentinels import SENTINEL_RE
@@ -140,7 +143,7 @@ def emit_project(
         media_dir = Path(tmp)
         body_result = convert_docx_to_body(docx_path, media_dir)
         figures = resolve_overrides(extract_figures(docx_path, media_dir), docx_path)
-        figure_files = _copy_figures(figures, figures_dir)
+        figure_files, figures, conversion_warnings = _copy_figures(figures, figures_dir)
 
     citation_result = extract_field_citations(docx_path)
     bib_text = entries_to_bib(citation_result.entries)
@@ -148,10 +151,14 @@ def emit_project(
     # pandoc's LaTeX writer emits CRLF on Windows; the bare-anchor regex below
     # matches literal "\n" boundaries, so normalize before resolving anchors.
     raw_tex = body_result.tex.replace("\r\n", "\n").replace("\r", "\n")
-    resolved_tex, warnings = _resolve_anchors(
+    resolved_tex, anchor_warnings = _resolve_anchors(
         raw_tex, figures, figure_files, citation_result.citations, journal.figure_env
     )
-    warnings += _citation_linkage_warning(citation_result.citations, resolved_tex)
+    warnings = (
+        conversion_warnings
+        + anchor_warnings
+        + _citation_linkage_warning(citation_result.citations, resolved_tex)
+    )
 
     preamble_text = _ensure_hyperref(journal.render_preamble(mode=citation_style))
     (generated_dir / "preamble.tex").write_text(preamble_text, encoding="utf-8")
@@ -181,28 +188,45 @@ def emit_project(
         figures_dir=figures_dir,
         figure_count=len(figures),
         citation_count=len(citation_result.citations),
+        figures=figures,
         warnings=warnings,
     )
 
 
 # --------------------------------------------------------------------------- #
-# Figure file copying
+# Figure file copying + vector conversion (plan items 5, 15)
 # --------------------------------------------------------------------------- #
 
 
-def _copy_figures(figures: tuple[Figure, ...], figures_dir: Path) -> dict[int, str]:
-    """Copy each figure's resolved file into ``figures_dir`` as ``fig<N><ext>``.
+def _copy_figures(
+    figures: tuple[Figure, ...], figures_dir: Path
+) -> tuple[dict[int, str], tuple[Figure, ...], tuple[EmitWarning, ...]]:
+    """Prepare each figure's resolved file for LaTeX inclusion in ``figures_dir``.
 
-    Returns a map of figure number -> the forward-slashed, LaTeX-relative
-    path (``figures/fig<N><ext>``) to embed in the body.
+    Delegates the actual copy-vs-convert decision to
+    :func:`latextify.figures.convert.convert_for_latex` (SVG->PDF, EPS->PDF
+    via Ghostscript or an actionable warning, PDF/PNG/JPG passthrough).
+
+    Returns a 3-tuple:
+        * a map of figure number -> the forward-slashed, LaTeX-relative path
+          (``figures/fig<N><ext>``) to embed in the body;
+        * the same figures, each carrying whatever ``conversion_note``
+          :func:`convert_for_latex` recorded (``None`` for plain passthrough);
+        * any conversion warnings (e.g. EPS with no Ghostscript available),
+          to be folded into the overall :class:`EmitResult.warnings`.
     """
     files: dict[int, str] = {}
+    updated: list[Figure] = []
+    warnings: list[EmitWarning] = []
     for figure in figures:
-        src = figure.resolved_path
-        dest_name = f"fig{figure.number}{src.suffix.lower()}"
-        shutil.copy2(src, figures_dir / dest_name)
-        files[figure.number] = f"figures/{dest_name}"
-    return files
+        outcome = convert_for_latex(figure.resolved_path, figures_dir, figure.number)
+        files[figure.number] = f"figures/{outcome.dest_path.name}"
+        if outcome.note is not None:
+            figure = replace(figure, conversion_note=outcome.note)
+        if outcome.warning is not None:
+            warnings.append(EmitWarning(message=f"figure {figure.number}: {outcome.warning}"))
+        updated.append(figure)
+    return files, tuple(updated), tuple(warnings)
 
 
 # --------------------------------------------------------------------------- #

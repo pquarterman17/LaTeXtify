@@ -32,13 +32,13 @@ class FigureSource(StrEnum):
     EMBEDDED -- the media file pandoc extracted from the docx (fallback).
     OVERRIDE -- a ``figures/fig<N>.<ext>`` folder-convention file found
         beside the source docx (plan item 9).
-
-    A manifest ("figures.yaml") tier lands in plan item 15 and will extend
-    this enum then; item 9 does not implement manifest resolution.
+    MANIFEST -- an explicit ``figures.yaml`` mapping entry beside the source
+        docx (plan item 15); beats OVERRIDE on conflict for the same number.
     """
 
     EMBEDDED = "embedded"
     OVERRIDE = "override"
+    MANIFEST = "manifest"
 
 
 @dataclass(frozen=True)
@@ -52,9 +52,17 @@ class Figure:
             none could be found).
         embedded_path: path to the media file pandoc extracted for this
             figure (``media/imageN.<ext>``).
-        override_path: path to a folder-convention override file, if one
-            was found for this figure number; ``None`` otherwise.
+        override_path: path to a folder-convention or ``figures.yaml``
+            manifest override file, if one was found for this figure number
+            (see :attr:`source` for which); ``None`` otherwise.
         source: which tier :attr:`resolved_path` came from.
+        conversion_note: set at emit time (plan item 15,
+            ``latextify.figures.convert``) when :attr:`resolved_path` needed
+            conversion for LaTeX inclusion (SVG->PDF, EPS->PDF via
+            Ghostscript). ``None`` when the resolved file passed through
+            unchanged. Surfaced here -- on the IR, not just as a transient
+            emit-time log line -- so the consolidated report (plan item 16)
+            can read it straight off the ``Figure`` record.
     """
 
     number: int
@@ -62,10 +70,14 @@ class Figure:
     embedded_path: Path
     override_path: Path | None = None
     source: FigureSource = FigureSource.EMBEDDED
+    conversion_note: str | None = None
 
     @property
     def resolved_path(self) -> Path:
-        """The file that should be used for this figure: override beats embedded."""
-        if self.source is FigureSource.OVERRIDE and self.override_path is not None:
+        """The file that should be used for this figure: manifest/override beat embedded."""
+        if (
+            self.source in (FigureSource.OVERRIDE, FigureSource.MANIFEST)
+            and self.override_path is not None
+        ):
             return self.override_path
         return self.embedded_path

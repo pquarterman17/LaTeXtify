@@ -11,7 +11,7 @@ Implemented so far:
     body.py      -- BodyConversionResult, FilterFinding (plan item 3)
     compile.py   -- CompileDiagnostic, CompileResult (plan item 6)
     emit.py      -- EmitResult, EmitWarning (plan item 5)
-    figure.py    -- Figure, FigureSource (plan item 9)
+    figure.py    -- Figure, FigureSource (plan items 9, 15)
     meta.py      -- Affiliation, Author, Meta paper.yaml/template IR (items 4+8)
     preflight.py -- PreflightFinding, PreflightReport, StyleInventory (plan item 2)
     refs.py      -- RefEntry, Citation, Name bibliography IR (plan item 7)
