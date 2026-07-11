@@ -120,6 +120,81 @@ def test_guess_meta_rejects_malformed_document_xml(tmp_path):
         guess_meta(bogus)
 
 
+def test_corresponding_email_not_stolen_from_abstract_text(tmp_path):
+    """A corresponding author with no explicit contact line before the
+    abstract must not have an unrelated email mentioned in the abstract body
+    (e.g. a data-availability statement) attributed to them -- especially
+    when the abstract happens to contain the word "correspondence"."""
+    docx_module = pytest.importorskip("docx")
+    doc = docx_module.Document()
+
+    title = doc.add_paragraph(style="Title")
+    title.add_run("A Study of Something Important")
+
+    authors = doc.add_paragraph()
+    authors.add_run("Jane Doe")
+    star = authors.add_run("*")
+    star.font.superscript = True
+
+    doc.add_paragraph("Department of Physics, University X")
+
+    doc.add_paragraph("Abstract")
+    doc.add_paragraph(
+        "We study something interesting. In correspondence with a related "
+        "dataset, raw data are available upon request from data@example.com."
+    )
+    doc.add_paragraph("Keywords: physics, science")
+
+    path = tmp_path / "abstract_email.docx"
+    doc.save(path)
+
+    result = guess_meta(path)
+    author = result.meta.authors[0]
+    assert author.corresponding is True
+    assert author.email is None, (
+        f"abstract email was incorrectly attributed to the corresponding "
+        f"author: {author.email!r}"
+    )
+    assert any("no nearby email" in msg for msg in result.checks.get("authors", []))
+
+
+def test_corresponding_email_regex_does_not_swallow_trailing_period():
+    """A sentence-final period immediately after the email must not be
+    captured as part of the address."""
+    docx_module = pytest.importorskip("docx")
+    doc = docx_module.Document()
+
+    title = doc.add_paragraph(style="Title")
+    title.add_run("A Study of Something Important")
+
+    authors = doc.add_paragraph()
+    authors.add_run("Jane Doe")
+    star = authors.add_run("*")
+    star.font.superscript = True
+
+    doc.add_paragraph("Department of Physics, University X")
+
+    corr = doc.add_paragraph()
+    marker = corr.add_run("*")
+    marker.font.superscript = True
+    # Sentence-final period directly after the email, no trailing space.
+    corr.add_run("Corresponding author: jane.doe@example.edu.")
+
+    doc.add_paragraph("Abstract")
+    doc.add_paragraph("We study something interesting.")
+    doc.add_paragraph("Keywords: physics, science")
+
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as tmp:
+        path = Path(tmp) / "trailing_period.docx"
+        doc.save(path)
+        result = guess_meta(path)
+
+    author = result.meta.authors[0]
+    assert author.email == "jane.doe@example.edu"
+
+
 def test_guess_low_confidence_flags_when_cues_are_missing(tmp_path):
     """A docx with no recognizable cues should guess conservatively and flag every field."""
     docx_module = pytest.importorskip("docx")

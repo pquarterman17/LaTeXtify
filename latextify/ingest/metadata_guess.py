@@ -49,7 +49,7 @@ _NSMAP = {"w": _W_NS}
 
 _ABSTRACT_HEADING_RE = re.compile(r"^abstract$", re.IGNORECASE)
 _KEYWORDS_RE = re.compile(r"^(?:keywords|key\s*words)\s*[:.]\s*(.*)$", re.IGNORECASE)
-_EMAIL_RE = re.compile(r"[\w.+-]+@[\w-]+\.[\w.-]+")
+_EMAIL_RE = re.compile(r"[\w.+-]+@(?:[\w-]+\.)+[\w-]+")
 _CORRESPONDING_RE = re.compile(r"correspond", re.IGNORECASE)
 _MARKER_SPLIT_RE = re.compile(r"[,\s]+")
 _AUTHOR_SEP_RE = re.compile(r"\s*(?:,|;|\band\b|&)\s*", re.IGNORECASE)
@@ -350,6 +350,23 @@ def _find_corresponding_email(paras: list[_Para]) -> str | None:
     return None
 
 
+def _title_page_end_index(paras: list[_Para]) -> int:
+    """Index of the first 'Abstract' heading paragraph, or ``len(paras)`` if none.
+
+    Bounds how far :func:`_find_corresponding_email` is allowed to search: the
+    corresponding-author contact line always lives in the title-page block
+    (title/authors/affiliations), never inside the abstract body -- scanning
+    past the heading risks matching an unrelated email mentioned in the
+    abstract text itself (e.g. a data-availability statement), especially
+    since abstracts often contain the word "correspondence" in an unrelated
+    sense (e.g. "in correspondence with prior work").
+    """
+    for i, p in enumerate(paras):
+        if _ABSTRACT_HEADING_RE.match(p.text.strip()):
+            return i
+    return len(paras)
+
+
 # --------------------------------------------------------------------------
 # public guess entry point
 # --------------------------------------------------------------------------
@@ -380,7 +397,12 @@ def guess_meta(docx_path: Path | str, *, max_paragraphs: int = 20) -> MetaGuess:
     author_checks = list(author_result.checks)
     corresponding_idxs = [i for i, a in enumerate(authors) if a.corresponding]
     if len(corresponding_idxs) == 1:
-        email = _find_corresponding_email(paras)
+        # Never search past the abstract heading -- the abstract body is not
+        # part of the title page and can easily contain an unrelated email
+        # (data availability, a mentioned prior study, ...) alongside the
+        # word "correspondence" in a sense that has nothing to do with the
+        # corresponding author.
+        email = _find_corresponding_email(paras[: _title_page_end_index(paras)])
         if email:
             authors[corresponding_idxs[0]] = replace(authors[corresponding_idxs[0]], email=email)
         else:
