@@ -1,12 +1,7 @@
 % Generated preamble -- regenerated every run. Do not edit; edit main.tex instead.
-%% if natbib_options
-\PassOptionsToPackage{\VAR{natbib_options|join(',')}}{natbib}
-%% endif
-%% if class_options
-\documentclass[\VAR{class_options|join(',')}]{\VAR{document_class}}
-%% else
-\documentclass{\VAR{document_class}}
-%% endif
+% elsarticle loads natbib itself; the citation mode is selected via CLASS
+% options (numbers / authoryear), so natbib_options are folded in here.
+\documentclass[\VAR{(class_options + natbib_options)|join(',')}]{\VAR{document_class}}
 %% for pkg in packages
 %% if pkg.options
 \usepackage[\VAR{pkg.options|join(',')}]{\VAR{pkg.name}}

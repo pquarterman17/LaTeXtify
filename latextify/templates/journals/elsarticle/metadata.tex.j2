@@ -1,6 +1,7 @@
 % Generated metadata -- regenerated every run.
-% Note: elsarticle requires \begin{document} before abstract/keywords blocks.
-% Those are handled by the user in main.tex or body.tex.
+% elsarticle front matter: this file is \input AFTER \begin{document} (see the
+% emitter's main.tex), and \end{frontmatter} runs \maketitle itself.
+\begin{frontmatter}
 \title{\VAR{meta.title}}
 %% for author in meta.authors
 %% if author.affiliations and author.corresponding
@@ -12,16 +13,24 @@
 %% else
 \author{\VAR{author.name}}
 %% endif
+%% if author.email
+\ead{\VAR{author.email}}
+%% endif
 %% endfor
 %% for aff in meta.affiliations
 \affiliation[\VAR{loop.index0}]{organization={\VAR{aff.name}}}
 %% endfor
-%% for author in meta.authors
-%% if author.corresponding
-\cortext[cor1]{\VAR{author.name} is the corresponding author.}
-%% if author.email
-\ead[cor1]{\VAR{author.email}}
+%% if meta.authors|selectattr('corresponding')|list
+\cortext[cor1]{Corresponding author}
 %% endif
+%% if meta.abstract
+\begin{abstract}
+\VAR{meta.abstract}
+\end{abstract}
 %% endif
-%% endfor
-\maketitle
+%% if meta.keywords
+\begin{keyword}
+\VAR{meta.keywords|join(' \\sep ')}
+\end{keyword}
+%% endif
+\end{frontmatter}

@@ -1,16 +1,20 @@
-# Elsevier elsarticle — author/affiliation grouping with dual citation modes.
+# Elsevier elsarticle — exercises the per-mode bibstyle feature: numeric
+# (elsarticle-num) and authoryear (elsarticle-harv).
 #
-# Exercises the per-mode bibstyle feature: numeric (elsarticle-num) and
-# authoryear (elsarticle-harv). The journal loads natbib internally with
-# class options or via \PassOptionsToPackage, hence natbib is NOT listed
-# in packages — only specified per mode in bib.modes[*].natbib_options.
+# natbib wiring (IMPORTANT, differs from REVTeX): elsarticle loads natbib
+# ITSELF via \RequirePackage[\@biboptions]{natbib}, and \@biboptions is set
+# by CLASS options — `numbers` (default) or `authoryear` (→ round,authoryear).
+# \PassOptionsToPackage{authoryear}{natbib} does NOT work here: the class's
+# own `numbers` option would merge in and win. So this journal's
+# preamble.tex.j2 renders bib.modes.<mode>.natbib_options into the
+# \documentclass option list instead of a \PassOptionsToPackage line.
 
-# \documentclass[<class_options>]{<class>}
+# \documentclass[<class_options> + <mode natbib_options>]{<class>}
 class: elsarticle
-class_options: [review]    # review mode for submission (preprint option)
+class_options: [review]    # review mode: 12pt, doublespaced submission layout
 
-# \usepackage[options]{name}, emitted in order. elsarticle loads natbib
-# internally, so natbib is NOT listed here — see bib.modes[*].natbib_options.
+# \usepackage[options]{name}, emitted in order. natbib is NOT listed here —
+# the class loads it; the mode option is injected via class options (above).
 packages:
   - name: amsmath
   - name: amssymb
@@ -19,28 +23,33 @@ packages:
   - name: hyperref
     options: [colorlinks=true, linkcolor=blue, citecolor=blue, urlcolor=blue]
 
-# Bibliography. elsarticle supports both numeric and authoryear modes.
-# - numeric: bibstyle elsarticle-num, no special natbib options (numbers is default)
-# - authoryear: bibstyle elsarticle-harv (Harvard-style), natbib authoryear option
+# Bibliography. elsarticle supports both numeric and authoryear modes — this
+# journal is why the manifest schema carries a per-mode bibstyle.
+# The natbib_options become elsarticle CLASS options (see header note).
 bib:
   default_mode: numeric
   modes:
     numeric:
       bibstyle: elsarticle-num
-      natbib_options: []
+      natbib_options: [numbers]      # class option → \RequirePackage[numbers]{natbib}
     authoryear:
       bibstyle: elsarticle-harv
-      natbib_options: [authoryear]
+      natbib_options: [authoryear]   # class option → \RequirePackage[round,authoryear]{natbib}
 
 # Informal name the emitter (plan item 5) maps to this journal's macro scheme.
 metadata_scheme: elsarticle
 
-# Float environments. Standard single-column figures.
+# Float environments. `review` is single-column; figure* kept for consistency.
 figure_env:
   single: figure
   wide: figure*
 
-# Class files to vendor. elsarticle.cls is in the Tectonic bundle but has
-# known issues with \maketitle hook processing (L3 compatibility). For now,
-# we don't vendor a replacement; this is documented as a known limitation.
-vendor: []
+# elsarticle.cls IS in the Tectonic bundle, but as v3.3 (2020/11/20), which
+# breaks at \maketitle under the bundle's LaTeX kernel: it references the
+# generic hook `env/\elsarticletitlealign/before` before \elsarticletitlealign
+# is defined ("Undefined control sequence ... __hook env/..."). v3.5
+# (2026/01/09, LPPL 1.3+; the pre-built runtime file from CTAN's TeX Live
+# tlnet archive, generated from elsarticle.dtx via docstrip) defines
+# \elsarticletitlealign at \AtBeginDocument and compiles cleanly. Staged
+# into the compile dir, it shadows the bundle's v3.3.
+vendor: [vendor/elsarticle.cls]

@@ -15,7 +15,11 @@ from pathlib import Path
 
 import pytest
 
-from latextify.compile.tectonic import compile_document, ensure_tectonic
+from latextify.compile.tectonic import (
+    TectonicNotAvailableError,
+    compile_document,
+    ensure_tectonic,
+)
 from latextify.model.meta import Affiliation, Author, Meta
 from latextify.templates import loader
 from latextify.templates.authors import group_consecutive_by_affiliation
@@ -101,11 +105,15 @@ def test_load_elsarticle_returns_validated_journal():
     assert [p.name for p in j.packages][:2] == ["amsmath", "amssymb"]
     assert j.default_mode == "numeric"
     assert j.bib_modes["numeric"].bibstyle == "elsarticle-num"
+    assert j.bib_modes["numeric"].natbib_options == ("numbers",)
     assert j.bib_modes["authoryear"].bibstyle == "elsarticle-harv"
     assert j.bib_modes["authoryear"].natbib_options == ("authoryear",)
     assert j.metadata_scheme == "elsarticle"
     assert j.figure_env.single == "figure"
     assert j.figure_env.wide == "figure*"
+    # v3.5 of the class is vendored to shadow the broken v3.3 in the bundle.
+    assert j.vendor == ("vendor/elsarticle.cls",)
+    assert (j.root / "vendor" / "elsarticle.cls").is_file()
 
 
 # --------------------------------------------------------------------------- #
@@ -247,60 +255,58 @@ def test_unsupported_citation_mode_lists_allowed_modes():
 
 
 # --------------------------------------------------------------------------- #
-# Tectonic compile test (item 10: verify elsarticle compiles)
+# Tectonic compile test (item 10: verify elsarticle compiles, both modes)
 # --------------------------------------------------------------------------- #
 
 
-@pytest.mark.skip(reason=(
-    "elsarticle.cls in Tectonic bundle has L3 hook compatibility issue with "
-    "\\maketitle (undefined __hook env/\\elsarticletitlealign/before). "
-    "Issue affects \\maketitle processing in preamble mode. Documented as "
-    "known limitation; user-written main.tex may workaround or vendor fixed cls."
-))
-def test_elsarticle_minimal_document_compiles(tmp_path):
-    """Create and compile a minimal elsarticle document.
+def _tectonic_available() -> bool:
+    try:
+        ensure_tectonic()
+        return True
+    except TectonicNotAvailableError:
+        return False
 
-    SKIPPED: Known issue with elsarticle.cls in Tectonic bundle.
-    The class file is present (not missing), but \\maketitle fails with
-    undefined L3 hook references. This is a version/compatibility issue
-    between elsarticle (v3.3, 2020/11/20) and the expl3 package in the
-    Tectonic bundle.
 
-    When this is resolved (either Tectonic bundle update or by vendoring a
-    compatible elsarticle.cls), this test will validate:
-    - Both numeric and authoryear modes compile
-    - The rendered preamble + metadata are valid LaTeX
+@pytest.mark.tectonic
+@pytest.mark.skipif(
+    not _tectonic_available(),
+    reason="no tectonic binary on PATH/cache and none could be downloaded",
+)
+@pytest.mark.parametrize("mode", ["numeric", "authoryear"])
+def test_elsarticle_document_compiles(tmp_path, mode):
+    """Rendered elsarticle preamble + frontmatter compiles to a real PDF.
+
+    The document is assembled exactly like the emitter's main.tex: preamble
+    before ``\\begin{document}``, metadata (the frontmatter environment) after
+    it. The journal's vendored elsarticle.cls v3.5 is staged via
+    ``compile_document(vendor_dir=...)`` — the bundle's own v3.3 fails at
+    ``\\maketitle`` with an undefined ``env/\\elsarticletitlealign/before``
+    hook, which v3.5 fixed (see the manifest's vendor note).
     """
     j = loader.load("elsarticle")
-    meta = two_author_meta()
-
-    # Create main.tex with preamble, metadata, and a minimal body
-    preamble_numeric = j.render_preamble(mode="numeric")
-    metadata = j.render_metadata(meta)
-
     tex_content = (
-        preamble_numeric
-        + "\n"
-        + metadata
-        + r"""
-\begin{document}
-This is a test document.
-\end{document}
-"""
+        j.render_preamble(mode=mode)
+        + "\\begin{document}\n"
+        + j.render_metadata(two_author_meta())
+        + "This is a test document.\n"
+        + "\\end{document}\n"
     )
 
     tex_file = tmp_path / "test.tex"
     tex_file.write_text(tex_content, encoding="utf-8")
 
-    # Compile with Tectonic
-    tectonic = ensure_tectonic()
-    result = compile_document(tex_file, tectonic_path=tectonic)
+    result = compile_document(
+        tex_file,
+        tectonic_path=ensure_tectonic(),
+        vendor_dir=j.root / "vendor",
+    )
 
-    # Assert compilation succeeded
     assert result.success, (
-        f"Compilation failed:\n"
+        f"Compilation failed (mode={mode}):\n"
         f"Return code: {result.returncode}\n"
         f"Log:\n{result.raw_log}"
     )
     assert result.pdf_path is not None
     assert result.pdf_path.is_file()
+    # Prove the vendored v3.5 (not the bundle's v3.3) was actually used.
+    assert "2026/01/09, 3.5: Elsevier Ltd" in result.raw_log
