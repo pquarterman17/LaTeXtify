@@ -177,14 +177,6 @@ by its context block.
     **Done when:** a full-pipeline fixture run emits report.md with all four
     sections populated; ordering is stable across runs; exit codes tested.
 
-18. **Citation style switching polish** — numeric ↔ author-year toggle
-    **Model:** Haiku 4.5 · **Depends on:** 4, 7 · **Touches:** `latextify/cli.py`, manifests
-    **Context:** `--citation-style numeric|authoryear` CLI flag; validate
-    against the journal manifest's `bib.modes` (error listing allowed modes
-    if unsupported — IEEE has no authoryear); selected mode changes bibstyle
-    + natbib options in the rendered preamble.
-    **Done when:** flag round-trips into the preamble for a journal with
-    both modes; unsupported combination errors clearly; test per path.
 
 ## Tier 3 — Nice-to-Have
 
@@ -210,6 +202,11 @@ by its context block.
 
 ## Completed
 
+- ~~**#18 Citation style switching polish**~~ (2026-07-11) — audit found the
+  items 4/5 architecture already re-run-switchable (\bibliographystyle lives
+  in regenerated preamble.tex, main.tex write-once); added `latextify
+  journals` command (lists journals + modes), clean CLI error surfacing for
+  unsupported modes, and 10 tests incl. the re-run style-switch proof.
 - ~~**#10 Elsevier template**~~ (2026-07-11) — elsarticle folder with BOTH
   bib modes (per-mode bibstyles elsarticle-num/-harv; natbib options must be
   CLASS options for this journal, folded into \documentclass by its own
