@@ -207,8 +207,13 @@ by its context block.
   regex swallowed trailing periods; `equations --pdf` crashed raw on
   compile timeout. 47 regression/stress tests lock in the not-a-bug
   verdicts (CJK keys, 600-citation perf ~0.04s, suffix cascade past 'z',
-  degenerate/huge docs, unicode paths). Deferred: figure-in-table-cell
-  desync (fix dispatched same day), #27 affiliation cross-order heuristic.
+  degenerate/huge docs, unicode paths). Follow-up fix landed same day:
+  figure-in-table-cell desync — extract_figures now counts via the same
+  doc.walk() traversal as plant_anchors (numbering cannot drift), in-table
+  figures carry Figure.in_table and resolve to a bare \includegraphics
+  (floats are illegal in table cells), proven by end-to-end compile +
+  both-orders numbering tests. Remaining deferral: #27 only. 538 tests,
+  0 xfail.
 - ~~**#26 IEEEtran fails on citation-free manuscripts**~~ (2026-07-11) —
   fixed in the bug-hunt wave: bibliography inclusion moved to regenerated
   `generated/bibliography.tex` (\bibliography line when entries exist,
