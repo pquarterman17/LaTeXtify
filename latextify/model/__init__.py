@@ -12,3 +12,7 @@ Planned types (plan items 2-9 populate them):
     RefEntry                   -- one bibliography entry (CSL-shaped fields)
     PreflightFinding           -- severity, location, message
 """
+
+# Re-exported for convenience (item 8); item 4 will unify with model/meta.py at merge time.
+from latextify.model.meta_sidecar import Author as Author  # noqa: E401
+from latextify.model.meta_sidecar import Meta as Meta
