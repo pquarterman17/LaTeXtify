@@ -11,14 +11,13 @@ Planned types (plan items 2-9 populate them):
     RefEntry                   -- one bibliography entry (CSL-shaped fields)
 
 Implemented so far:
-    compile.py      -- CompileDiagnostic, CompileResult (plan item 6)
-    meta_sidecar.py -- Author, Meta paper.yaml schema (plan item 8;
-                       to be unified with item 4's model/meta.py)
-    preflight.py    -- PreflightFinding, PreflightReport, StyleInventory (plan item 2)
+    compile.py   -- CompileDiagnostic, CompileResult (plan item 6)
+    meta.py      -- Affiliation, Author, Meta paper.yaml/template IR (items 4+8)
+    preflight.py -- PreflightFinding, PreflightReport, StyleInventory (plan item 2)
 """
 
 from latextify.model.compile import CompileDiagnostic, CompileResult, DiagnosticSeverity
-from latextify.model.meta_sidecar import Author, Meta
+from latextify.model.meta import Affiliation, Author, Meta
 from latextify.model.preflight import (
     Location,
     PreflightFinding,
@@ -28,6 +27,7 @@ from latextify.model.preflight import (
 )
 
 __all__ = [
+    "Affiliation",
     "Author",
     "CompileDiagnostic",
     "CompileResult",

@@ -1,0 +1,42 @@
+# REVTeX 4-2 (APS/AIP) — the worked example every other journal folder copies.
+#
+# To add a journal, clone this folder, edit these keys, and adjust the two
+# .tex.j2 templates. The loader (latextify/templates/loader.py) validates every
+# field below and names the offending field + journal on any error.
+
+# \documentclass[<class_options>]{<class>}
+class: revtex4-2
+class_options: [aps, prb, reprint]   # aps society, Phys. Rev. B, two-column reprint
+
+# \usepackage[options]{name}, emitted in order. REVTeX has natbib built in,
+# so natbib is NOT listed here.
+packages:
+  - name: amsmath
+  - name: amssymb
+  - name: graphicx
+  - name: bm
+  - name: hyperref
+    options: [colorlinks=true, linkcolor=blue, citecolor=blue, urlcolor=blue]
+  - name: doi   # auto-hyperlinks the `doi` bib field (plan item 7)
+
+# Bibliography. REVTeX/APS is numeric only — the author-year mode is omitted
+# because apsrev4-2 forbids it (this is the "omit a mode" case for item 18).
+bib:
+  default_mode: numeric
+  modes:
+    numeric:
+      bibstyle: apsrev4-2
+      natbib_options: []   # REVTeX manages natbib internally via class options
+
+# Informal name the emitter (plan item 5) maps to this journal's macro scheme.
+metadata_scheme: revtex
+
+# Float environments. `reprint` is two-column, so wide figures span with figure*.
+figure_env:
+  single: figure
+  wide: figure*
+
+# Class/style files to stage into the output tree when the Tectonic bundle
+# lacks them. REVTeX ships in the bundle, so nothing to vendor (verified by
+# plan item 6's smoke test).
+vendor: []

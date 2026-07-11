@@ -22,7 +22,7 @@ from latextify.ingest.metadata_guess import (
     render_paper_yaml,
     sidecar_path_for,
 )
-from latextify.model.meta_sidecar import Author, Meta
+from latextify.model.meta import Affiliation, Author, Meta
 
 FIXTURE = Path(__file__).parent / "fixtures" / "metadata_titlepage.docx"
 
@@ -61,16 +61,16 @@ def test_guess_quality_on_titlepage_fixture():
 
     assert [a.name for a in meta.authors] == ["Jane A. Doe", "John B. Smith"]
     doe, smith = meta.authors
-    assert doe.affiliations == (1,)
+    assert doe.affiliations == (0,)
     assert doe.corresponding is True
     assert doe.email == "jane.doe@example.edu"
-    assert smith.affiliations == (1, 2)
+    assert smith.affiliations == (0, 1)
     assert smith.corresponding is False
     assert smith.email is None
 
     assert meta.affiliations == (
-        "Department of Physics, University X, Springfield, USA",
-        "Institute of Materials Science, Example City, USA",
+        Affiliation(name="Department of Physics, University X, Springfield, USA"),
+        Affiliation(name="Institute of Materials Science, Example City, USA"),
     )
 
     assert "magnetometry" in meta.abstract
@@ -115,7 +115,7 @@ def test_render_paper_yaml_places_check_comment_before_field_and_round_trips():
     meta = Meta(
         title="Uncertain Title",
         authors=(Author(name="Solo Author"),),
-        affiliations=("Some Institute",),
+        affiliations=(Affiliation(name="Some Institute"),),
         abstract="",
         keywords=(),
     )
@@ -145,7 +145,7 @@ def test_render_paper_yaml_places_check_comment_before_field_and_round_trips():
 
 
 def test_render_paper_yaml_no_comments_when_no_checks():
-    meta = Meta(title="T", authors=(Author(name="A"),), affiliations=("X",))
+    meta = Meta(title="T", authors=(Author(name="A"),), affiliations=(Affiliation(name="X"),))
     text = render_paper_yaml(meta, {})
     assert "# CHECK" not in text
 
@@ -288,4 +288,4 @@ def test_load_meta_valid_file_round_trips(tmp_path):
     assert meta.authors[0].name == "Ada Lovelace"
     assert meta.authors[0].corresponding is True
     assert meta.authors[0].email == "ada@example.edu"
-    assert meta.authors[1].affiliations == (1, 2)
+    assert meta.authors[1].affiliations == (0, 1)  # YAML 1-based -> IR 0-based

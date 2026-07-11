@@ -35,7 +35,12 @@ from pathlib import Path
 
 import yaml
 
-from latextify.model.meta_sidecar import Author, Meta
+from latextify.model.meta import Affiliation, Author, Meta
+
+# IR convention (model/meta.py): Author.affiliations are 0-based indices into
+# Meta.affiliations. The paper.yaml FILE stays 1-based (matching the visible
+# superscript markers in the manuscript); conversion happens only here, at the
+# render/load boundary.
 
 DEFAULT_SIDECAR_NAME = "paper.yaml"
 
@@ -211,7 +216,7 @@ def _guess_authors(paras: list[_Para], start_idx: int) -> _AuthorGuessResult:
         for m in marker_list:
             if m.isalnum() and m not in affiliation_markers_order:
                 affiliation_markers_order.append(m)
-    marker_to_index = {m: n + 1 for n, m in enumerate(affiliation_markers_order)}
+    marker_to_index = {m: n for n, m in enumerate(affiliation_markers_order)}
 
     authors: list[Author] = []
     corresponding_names: list[str] = []
@@ -373,7 +378,7 @@ def guess_meta(docx_path: Path | str, *, max_paragraphs: int = 20) -> MetaGuess:
     meta = Meta(
         title=title,
         authors=tuple(authors),
-        affiliations=tuple(affiliations),
+        affiliations=tuple(Affiliation(name=a) for a in affiliations),
         abstract=abstract,
         keywords=tuple(keywords),
     )
@@ -463,7 +468,7 @@ def meta_from_yaml_data(data: object, *, source: str = DEFAULT_SIDECAR_NAME) -> 
                     f"{source}: field '{prefix}.affiliations[{j}]' references affiliation "
                     f"{aff_idx} but only {len(affiliations)} affiliation(s) are defined"
                 )
-            affs.append(aff_idx)
+            affs.append(aff_idx - 1)  # YAML is 1-based; the IR is 0-based
 
         email = raw.get("email")
         if email is not None and not isinstance(email, str):
@@ -493,7 +498,7 @@ def meta_from_yaml_data(data: object, *, source: str = DEFAULT_SIDECAR_NAME) -> 
     return Meta(
         title=title,
         authors=tuple(authors),
-        affiliations=tuple(affiliations),
+        affiliations=tuple(Affiliation(name=a) for a in affiliations),
         abstract=abstract,
         keywords=tuple(keywords),
     )
@@ -505,7 +510,7 @@ def meta_from_yaml_data(data: object, *, source: str = DEFAULT_SIDECAR_NAME) -> 
 
 
 def _author_to_dict(author: Author) -> dict:
-    data: dict = {"name": author.name, "affiliations": list(author.affiliations)}
+    data: dict = {"name": author.name, "affiliations": [i + 1 for i in author.affiliations]}
     if author.email:
         data["email"] = author.email
     if author.corresponding:
@@ -519,7 +524,7 @@ def render_paper_yaml(meta: Meta, checks: dict[str, list[str]] | None = None) ->
     doc = {
         "title": meta.title,
         "authors": [_author_to_dict(a) for a in meta.authors],
-        "affiliations": list(meta.affiliations),
+        "affiliations": [a.name for a in meta.affiliations],
         "abstract": meta.abstract,
         "keywords": list(meta.keywords),
     }

@@ -1,0 +1,22 @@
+% Generated metadata -- regenerated every run.
+\title{\VAR{meta.title}}
+%% for group in group_authors(meta.authors)
+%% for author in group.authors
+\author{\VAR{author.name}}
+%% if author.email
+\email{\VAR{author.email}}
+%% endif
+%% endfor
+%% for idx in group.affiliations
+\affiliation{\VAR{meta.affiliations[idx].name}}
+%% endfor
+%% endfor
+%% if meta.abstract
+\begin{abstract}
+\VAR{meta.abstract}
+\end{abstract}
+%% endif
+%% if meta.keywords
+\keywords{\VAR{meta.keywords|join(', ')}}
+%% endif
+\maketitle
