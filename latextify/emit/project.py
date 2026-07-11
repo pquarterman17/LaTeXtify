@@ -44,6 +44,15 @@ Citation linkage has two paths that both resolve to ``\\cite{...}``:
       node ``latextify.ingest.filters.plant_anchors`` sees; 1-based, so anchor
       ``idx`` pairs with ``citations[idx - 1]``. Dormant for field-coded
       documents but kept as it is harmless and future-proof.
+
+When ``extract_field_citations`` finds NO citation fields at all, the emitter
+falls back to plain-text reconstruction (plan item 14,
+:mod:`latextify.citations.plaintext`): it rebuilds the bibliography from the
+typed reference list via Crossref, drops that now-duplicate typed list from the
+body, and rewrites the literal in-text markers (``{[}12{]}``,
+``\\textsuperscript{...}``, ``(Smith et al., 2020)``) into ``\\cite{...}``.
+Unresolvable markers and low-confidence (``verify``) references degrade to
+``EmitWarning`` messages, never a crash.
 """
 
 from __future__ import annotations
@@ -55,6 +64,11 @@ from pathlib import Path
 
 from latextify.citations.bib import entries_to_bib, escape_latex
 from latextify.citations.fields import extract_field_citations
+from latextify.citations.plaintext import (
+    link_body_markers,
+    reconstruct_citations,
+    strip_reference_section,
+)
 from latextify.emit.metadata import load_meta, write_metadata_tex
 from latextify.figures.convert import convert_for_latex
 from latextify.figures.extract import extract_figures
@@ -63,7 +77,7 @@ from latextify.ingest.citation_sentinels import SENTINEL_RE
 from latextify.ingest.pandoc import convert_docx_to_body
 from latextify.model.emit import EmitResult, EmitWarning
 from latextify.model.figure import Figure
-from latextify.model.refs import Citation
+from latextify.model.refs import Citation, RefEntry
 from latextify.templates import loader as templates_loader
 from latextify.templates.loader import FigureEnv
 
@@ -104,6 +118,7 @@ def emit_project(
     *,
     citation_style: str | None = None,
     journals_dir: Path | None = None,
+    crossref_mailto: str | None = None,
 ) -> EmitResult:
     """Convert ``docx_path`` into a journal-ready LaTeX project.
 
@@ -124,6 +139,10 @@ def emit_project(
             journal doesn't support the requested mode.
         journals_dir: optional override of the journal registry root, for
             testing against a synthetic journal folder.
+        crossref_mailto: contact address sent to Crossref during plain-text
+            citation reconstruction (only used when the document has no citation
+            field codes). Defaults to the ``LATEXTIFY_CROSSREF_MAILTO`` env var
+            or a documented placeholder; override it with a real address.
 
     Returns:
         An :class:`~latextify.model.emit.EmitResult` naming every written
@@ -146,19 +165,30 @@ def emit_project(
         figure_files, figures, conversion_warnings = _copy_figures(figures, figures_dir)
 
     citation_result = extract_field_citations(docx_path)
-    bib_text = entries_to_bib(citation_result.entries)
 
-    # pandoc's LaTeX writer emits CRLF on Windows; the bare-anchor regex below
-    # matches literal "\n" boundaries, so normalize before resolving anchors.
+    # pandoc's LaTeX writer emits CRLF on Windows; downstream regexes match
+    # literal "\n" boundaries, so normalize before resolving anchors.
     raw_tex = body_result.tex.replace("\r\n", "\n").replace("\r", "\n")
     resolved_tex, anchor_warnings = _resolve_anchors(
         raw_tex, figures, figure_files, citation_result.citations, journal.figure_env
     )
-    warnings = (
-        conversion_warnings
-        + anchor_warnings
-        + _citation_linkage_warning(citation_result.citations, resolved_tex)
-    )
+    warnings = list(conversion_warnings) + list(anchor_warnings)
+
+    if citation_result.citations:
+        # Field-coded path (Zotero/Mendeley/...): body already carries sentinels
+        # /anchors resolved above; keep the extracted, keyed entries verbatim.
+        entries: list[RefEntry] = citation_result.entries
+        warnings.extend(_citation_linkage_warning(citation_result.citations, resolved_tex))
+        citation_count = len(citation_result.citations)
+    else:
+        # No field codes anywhere -> plain-text reconstruction safety net (item 14).
+        entries, resolved_tex, plaintext_warnings = _link_plaintext_citations(
+            docx_path, resolved_tex, crossref_mailto
+        )
+        warnings.extend(plaintext_warnings)
+        citation_count = resolved_tex.count("\\cite{")
+
+    bib_text = entries_to_bib(entries)
 
     preamble_text = _ensure_hyperref(journal.render_preamble(mode=citation_style))
     (generated_dir / "preamble.tex").write_text(preamble_text, encoding="utf-8")
@@ -187,9 +217,9 @@ def emit_project(
         bib_path=bib_path,
         figures_dir=figures_dir,
         figure_count=len(figures),
-        citation_count=len(citation_result.citations),
+        citation_count=citation_count,
         figures=figures,
-        warnings=warnings,
+        warnings=tuple(warnings),
     )
 
 
@@ -390,3 +420,48 @@ def _citation_linkage_warning(
             )
         ),
     )
+
+
+# --------------------------------------------------------------------------- #
+# Plain-text citation reconstruction (item 14) -- the no-field-codes fallback
+# --------------------------------------------------------------------------- #
+
+
+def _link_plaintext_citations(
+    docx_path: Path, tex: str, mailto: str | None
+) -> tuple[list[RefEntry], str, list[EmitWarning]]:
+    """Reconstruct a typed bibliography and link its in-text markers.
+
+    Returns the reconstructed ``.bib`` entries, the body with markers rewritten
+    to ``\\cite{...}`` and the duplicate typed reference list removed, and the
+    accumulated warnings (unresolved markers + low-confidence ``verify`` refs).
+    A document with no typed reference list yields no entries and an untouched
+    body -- there is nothing to reconstruct or link.
+    """
+    result = reconstruct_citations(docx_path, mailto=mailto)
+    if not result.has_reference_list:
+        return [], tex, []
+    tex = strip_reference_section(tex, result)
+    tex, messages = link_body_markers(tex, result)
+    warnings = [EmitWarning(message=message) for message in messages]
+    warnings.extend(_verify_warnings(result.records))
+    return result.entries, tex, warnings
+
+
+def _verify_warnings(records) -> list[EmitWarning]:
+    """One loud warning per below-threshold (``verify``) reconstructed reference."""
+    warnings: list[EmitWarning] = []
+    for record in records:
+        if not record.verify:
+            continue
+        number = f" [{record.ref_number}]" if record.ref_number is not None else ""
+        warnings.append(
+            EmitWarning(
+                message=(
+                    f"reference{number} could not be confidently matched to Crossref "
+                    f"(best score {record.score:.2f}); emitted from raw text -- verify "
+                    f"the references.bib entry '{record.key}'."
+                )
+            )
+        )
+    return warnings

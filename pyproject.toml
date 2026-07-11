@@ -63,4 +63,5 @@ select = ["E", "F", "I", "UP", "B"]
 testpaths = ["tests"]
 markers = [
     "tectonic: requires a real Tectonic binary (PATH/cache/download) and network access",
+    "network: hits a real network service (e.g. Crossref); skips gracefully offline",
 ]

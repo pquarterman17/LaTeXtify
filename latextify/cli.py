@@ -44,10 +44,22 @@ def convert(
         "--citation-style",
         help="Citation mode override: numeric|authoryear (journal-dependent).",
     ),
+    crossref_mailto: str = typer.Option(
+        None,
+        "--crossref-mailto",
+        help="Contact email sent to Crossref when reconstructing plain-text "
+        "citations (documents with no citation field codes). Recommended.",
+    ),
 ) -> None:
     """Convert DOCX_PATH into a journal-ready LaTeX project under output/<journal>/."""
     try:
-        result = emit_project(docx_path, journal, output, citation_style=citation_style)
+        result = emit_project(
+            docx_path,
+            journal,
+            output,
+            citation_style=citation_style,
+            crossref_mailto=crossref_mailto,
+        )
     except ManifestError as exc:
         typer.echo(f"error: {exc}", err=True)
         raise typer.Exit(code=1) from exc
