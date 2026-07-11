@@ -594,7 +594,10 @@ def test_metadata_escapes_latex_specials(journal_name):
     assert "5% doping & strain" not in out
     # Each special is neutralized.
     assert "5\\% doping \\& strain" in out
-    assert "H\\_2O \\#1 \\{x\\}" in out
+    # Braces escape as self-balanced \textbraceleft{}/\textbraceright{} (not
+    # \{ \}) so a lone brace can never desync BibTeX's depth-counting parser —
+    # the citations-area hardening of escape_latex, shared by this render path.
+    assert "H\\_2O \\#1 \\textbraceleft{}x\\textbraceright{}" in out
     assert "\\textasciitilde{}a \\textasciicircum{}b \\textbackslash{}d" in out
     # No bare specials remain in the title line specifically.
     title_line = next(line for line in out.splitlines() if "doping" in line)
