@@ -134,9 +134,11 @@ by its context block.
 
 - Pandoc fidelity ceiling: OMML equations convert well; complex tables and
   floating objects do not. Preflight (item 2) is the mitigation.
-- Tectonic vs journal classes: revtex4-2 and sn-jnl must be verified against
-  Tectonic's bundle early (item 6 sub-task) — fallback is vendoring class
-  files into `templates/journals/<name>/vendor/`.
+- Tectonic vs journal classes: revtex4-2 VERIFIED present in the Tectonic
+  bundle (2026-07-11, item 6) — compiles on demand, no vendoring needed for
+  REVTeX. sn-jnl (item 12) still expected absent; the vendoring path
+  (`templates/journals/<name>/vendor/` staged into the compile dir) is
+  implemented and tested, ready for it.
 - Crossref matching for hand-typed references is probabilistic; the
   reconciliation report (item 14) must make low-confidence matches loud.
 - pypandoc-binary pins a pandoc version; record it in the report so
@@ -144,7 +146,7 @@ by its context block.
 
 ### Dependency map
 
-- Item 1 done; items 2, 3, 4, 6, 7, 8 are parallelizable now
+- Items 1, 6 done; items 2, 3, 4, 7, 8 in flight (dispatched 2026-07-11)
 - Item 5 requires items 3 + 4
 - Item 9 requires item 3 (media extraction)
 - Items 10–12 require items 4 + 5 (registry + emitter proven on REVTeX)
@@ -227,23 +229,6 @@ by its context block.
    - [ ] Tree writer + write-once main.tex
    - [ ] Anchor resolution pass
    - [ ] Two-run edit-survival integration test
-
-6. **Tectonic compile wrapper** — auto-managed engine, parsed diagnostics
-   **Model:** Sonnet 5 · **Depends on:** — · **Touches:** `latextify/compile/tectonic.py`, `latextify/compile/logs.py`
-   **Context:** Detect `tectonic` on PATH; else download the release binary
-   for the platform into a cache dir (`platformdirs`) and use it. Invoke
-   `tectonic -X compile main.tex` with the output tree as cwd. Parse
-   stderr/log into structured errors/warnings (file, line, message). CRITICAL
-   early check: compile a hello-world revtex4-2 document — if the bundle
-   lacks the class, vendoring via `templates/journals/*/vendor/` is the
-   fallback and must be wired (vendor files copied into the output tree
-   before compile).
-   **Done when:** wrapper produces a PDF from a minimal revtex4-2 doc on
-   Windows; a doc with a planted error yields a structured diagnostic, not
-   raw log spew; missing-class path exercises vendoring.
-   - [ ] Binary detection/download + cache
-   - [ ] Compile invocation + vendored-file staging
-   - [ ] Log parser + revtex4-2 smoke test (the de-risk gate for the whole plan)
 
 7. **Zotero/Mendeley citation extraction** — field codes → CSL JSON → references.bib + linked cites
    **Model:** Opus 4.8 (flagship feature; complex-field encoding is fiddly) · **Depends on:** — · **Touches:** `latextify/citations/fields.py`, `zotero.py`, `mendeley.py`, `bib.py`
@@ -422,6 +407,12 @@ by its context block.
 
 ## Completed
 
+- ~~**#6 Tectonic compile wrapper**~~ (2026-07-11) — binary detection/download
+  + platformdirs cache, `tectonic -X compile` invocation, vendored-file
+  staging, log parser (structured diagnostics, terse + classic TeX formats).
+  DE-RISK FINDING: revtex4-2 IS in the Tectonic bundle — real PRB-style doc
+  compiled to PDF on Windows; vendoring fallback proven via planted
+  missing-class test. 26 new tests.
 - ~~**#1 Repo scaffolding**~~ (2026-07-11) — uv pyproject (deps + dev group,
   ruff, pytest), package skeleton with 8 subpackages whose `__init__.py`
   docstrings carry per-module context for executors, CLI stub with console
