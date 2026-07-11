@@ -59,6 +59,7 @@ from __future__ import annotations
 
 import re
 import tempfile
+from collections import Counter
 from dataclasses import replace
 from pathlib import Path
 
@@ -313,6 +314,21 @@ def _copy_figures(
     files: dict[int, str] = {}
     updated: list[Figure] = []
     warnings: list[EmitWarning] = []
+    # Two figures sharing a number would silently collapse: both copy to the
+    # same figures/fig<N>.* path (last write wins) and the number->path map
+    # keeps only one. extract_figures numbers sequentially so this shouldn't
+    # arise from the normal pipeline, but never drop a figure without a trace.
+    counts = Counter(figure.number for figure in figures)
+    for number in sorted(n for n, c in counts.items() if c > 1):
+        warnings.append(
+            EmitWarning(
+                message=(
+                    f"figure number {number} is used by {counts[number]} figures; only "
+                    f"the last is kept as figures/fig{number}.* -- check the source "
+                    "captions/numbering for a duplicate figure number."
+                )
+            )
+        )
     for figure in figures:
         outcome = convert_for_latex(figure.resolved_path, figures_dir, figure.number)
         files[figure.number] = f"figures/{outcome.dest_path.name}"

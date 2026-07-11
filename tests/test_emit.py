@@ -13,8 +13,9 @@ from pathlib import Path
 
 import pytest
 
-from latextify.emit.project import emit_project
+from latextify.emit.project import _copy_figures, emit_project
 from latextify.model import BodyConversionResult
+from latextify.model.figure import Figure
 
 FIXTURES = Path(__file__).parent / "fixtures"
 FIGURES_DOCX = FIXTURES / "figures.docx"
@@ -649,6 +650,43 @@ def test_migrated_main_tex_does_not_warn(tmp_path):
     result = emit_project(docx, "ieeetran", output_root)  # second run
     assert result.main_tex_written is False
     assert not any("bibliography" in w.message for w in result.warnings)
+
+
+# --------------------------------------------------------------------------- #
+# Figure edge cases + robust output paths
+# --------------------------------------------------------------------------- #
+
+
+def test_duplicate_figure_numbers_warn_instead_of_silently_collapsing(tmp_path):
+    # Two Figure records sharing a number would both copy to figures/fig2.* and
+    # the number->path map would keep only one -- a silent lost figure. The
+    # emitter must surface a warning rather than drop it without a trace.
+    src = tmp_path / "src"
+    src.mkdir()
+    (src / "a.png").write_bytes(b"AAA")
+    (src / "b.png").write_bytes(b"BBB")
+    figures = (
+        Figure(number=2, caption="first", embedded_path=src / "a.png"),
+        Figure(number=2, caption="second", embedded_path=src / "b.png"),
+    )
+    figures_dir = tmp_path / "out_figs"
+    figures_dir.mkdir()
+
+    _files, _updated, warnings = _copy_figures(figures, figures_dir)
+
+    assert any("figure number 2" in w.message and "duplicate" in w.message for w in warnings)
+
+
+def test_output_path_with_spaces_and_unicode(tmp_path):
+    # Emit into an output tree whose path has spaces and non-ASCII characters.
+    docx = _copy_fixture(tmp_path, CLEAN_DOCX)
+    weird_root = tmp_path / "out dir with spaces 中文 é"
+
+    result = emit_project(docx, "revtex4-2", weird_root)
+
+    assert result.output_dir.is_dir()
+    assert result.main_tex_path.is_file()
+    assert result.report_path is not None and result.report_path.is_file()
 
 
 @pytest.mark.tectonic
