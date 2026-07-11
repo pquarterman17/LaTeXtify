@@ -87,6 +87,154 @@ def test_guess_quality_on_titlepage_fixture():
     assert result.checks == {}
 
 
+def test_guess_meta_rejects_non_docx(tmp_path):
+    """A .txt renamed .docx is not a zip at all; must not leak zipfile.BadZipFile."""
+    bogus = tmp_path / "renamed.docx"
+    bogus.write_text("This is just plain text, not a docx.\n", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="not a valid .docx"):
+        guess_meta(bogus)
+
+
+def test_guess_meta_rejects_docx_missing_document_xml(tmp_path):
+    """A valid zip that isn't OOXML (no word/document.xml) must not leak KeyError."""
+    import zipfile
+
+    bogus = tmp_path / "notooxml.docx"
+    with zipfile.ZipFile(bogus, "w") as archive:
+        archive.writestr("hello.txt", "not a word document")
+
+    with pytest.raises(ValueError, match="not a valid .docx"):
+        guess_meta(bogus)
+
+
+def test_guess_meta_rejects_malformed_document_xml(tmp_path):
+    """Malformed XML must not leak a raw lxml.etree.XMLSyntaxError."""
+    import zipfile
+
+    bogus = tmp_path / "malformed.docx"
+    with zipfile.ZipFile(bogus, "w") as archive:
+        archive.writestr("word/document.xml", "<w:document><w:body><w:p>unterminated")
+
+    with pytest.raises(ValueError, match="not a valid .docx"):
+        guess_meta(bogus)
+
+
+def test_corresponding_email_not_stolen_from_abstract_text(tmp_path):
+    """A corresponding author with no explicit contact line before the
+    abstract must not have an unrelated email mentioned in the abstract body
+    (e.g. a data-availability statement) attributed to them -- especially
+    when the abstract happens to contain the word "correspondence"."""
+    docx_module = pytest.importorskip("docx")
+    doc = docx_module.Document()
+
+    title = doc.add_paragraph(style="Title")
+    title.add_run("A Study of Something Important")
+
+    authors = doc.add_paragraph()
+    authors.add_run("Jane Doe")
+    star = authors.add_run("*")
+    star.font.superscript = True
+
+    doc.add_paragraph("Department of Physics, University X")
+
+    doc.add_paragraph("Abstract")
+    doc.add_paragraph(
+        "We study something interesting. In correspondence with a related "
+        "dataset, raw data are available upon request from data@example.com."
+    )
+    doc.add_paragraph("Keywords: physics, science")
+
+    path = tmp_path / "abstract_email.docx"
+    doc.save(path)
+
+    result = guess_meta(path)
+    author = result.meta.authors[0]
+    assert author.corresponding is True
+    assert author.email is None, (
+        f"abstract email was incorrectly attributed to the corresponding "
+        f"author: {author.email!r}"
+    )
+    assert any("no nearby email" in msg for msg in result.checks.get("authors", []))
+
+
+def test_corresponding_email_regex_does_not_swallow_trailing_period():
+    """A sentence-final period immediately after the email must not be
+    captured as part of the address."""
+    docx_module = pytest.importorskip("docx")
+    doc = docx_module.Document()
+
+    title = doc.add_paragraph(style="Title")
+    title.add_run("A Study of Something Important")
+
+    authors = doc.add_paragraph()
+    authors.add_run("Jane Doe")
+    star = authors.add_run("*")
+    star.font.superscript = True
+
+    doc.add_paragraph("Department of Physics, University X")
+
+    corr = doc.add_paragraph()
+    marker = corr.add_run("*")
+    marker.font.superscript = True
+    # Sentence-final period directly after the email, no trailing space.
+    corr.add_run("Corresponding author: jane.doe@example.edu.")
+
+    doc.add_paragraph("Abstract")
+    doc.add_paragraph("We study something interesting.")
+    doc.add_paragraph("Keywords: physics, science")
+
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as tmp:
+        path = Path(tmp) / "trailing_period.docx"
+        doc.save(path)
+        result = guess_meta(path)
+
+    author = result.meta.authors[0]
+    assert author.email == "jane.doe@example.edu"
+
+
+def test_guessed_meta_never_references_out_of_range_affiliation(tmp_path):
+    """A superscript affiliation marker with no matching affiliation
+    paragraph (document jumps straight from the author line to the
+    Abstract heading) must not leave the guessed Meta pointing at an
+    affiliation index that doesn't exist -- meta_from_yaml_data would
+    reject exactly that shape, so an unguarded guess here would crash the
+    *next* run once it round-trips through paper.yaml."""
+    docx_module = pytest.importorskip("docx")
+    doc = docx_module.Document()
+
+    doc.add_paragraph(style="Title").add_run("A Study of Something")
+    authors = doc.add_paragraph()
+    authors.add_run("Jane Doe")
+    marker = authors.add_run("5")
+    marker.font.superscript = True
+
+    doc.add_paragraph("Abstract")
+    doc.add_paragraph("Some abstract text.")
+    doc.add_paragraph("Keywords: a, b")
+
+    path = tmp_path / "dangling_marker.docx"
+    doc.save(path)
+
+    result = guess_meta(path)
+    author = result.meta.authors[0]
+
+    # No affiliation paragraph existed at all -- the reference must be
+    # dropped, never left pointing past the (empty) affiliations tuple.
+    assert result.meta.affiliations == ()
+    assert all(idx < len(result.meta.affiliations) for idx in author.affiliations)
+    assert any("no matching" in msg for msg in result.checks.get("affiliations", []))
+
+    # The guess must itself be valid input to the same schema validator a
+    # hand-edited paper.yaml is held to -- prove the full write/reload
+    # round trip (what load_or_create_meta does on a second run) succeeds.
+    rendered = render_paper_yaml(result.meta, result.checks)
+    round_tripped = meta_from_yaml_data(yaml.safe_load(rendered))
+    assert round_tripped == result.meta
+
+
 def test_guess_low_confidence_flags_when_cues_are_missing(tmp_path):
     """A docx with no recognizable cues should guess conservatively and flag every field."""
     docx_module = pytest.importorskip("docx")

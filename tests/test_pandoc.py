@@ -34,6 +34,71 @@ def test_fixture_exists():
     )
 
 
+def test_figure_anchor_planted_for_image_nested_inside_a_table_cell(tmp_path):
+    """latextify.ingest.filters.plant_anchors walks the WHOLE document tree
+    (Doc.walk), so an Image nested inside a table cell is counted and
+    anchored exactly like a top-level one -- this is deliberate (see the
+    filters.py module docstring: plant_anchors runs before normalize_tables
+    specifically so a table-nested Image/Cite already became an anchor
+    before the cell is rendered to opaque LaTeX text, rather than being
+    silently dropped).
+
+    This is an in-territory (latextify.ingest) characterization test, not a
+    bug report on its own -- see
+    test_cli.py::test_image_in_table_cell_desyncs_with_figures_extract for
+    the OUT-OF-BOUNDS consequence (figures.extract only walks top-level
+    Para/Plain/Figure blocks, so it never produces a matching Figure record
+    for this same image -- a real bug, but its fix belongs in
+    latextify/figures/extract.py, outside this hunt's territory).
+    """
+    docx_module = pytest.importorskip("docx")
+    pil_image = pytest.importorskip("PIL.Image")
+
+    img_path = tmp_path / "dot.png"
+    pil_image.new("RGB", (4, 4), color="blue").save(img_path)
+
+    doc = docx_module.Document()
+    doc.add_paragraph("Intro text before the table.")
+    table = doc.add_table(rows=1, cols=2)
+    table.cell(0, 0).text = "Label"
+    run = table.cell(0, 1).paragraphs[0].add_run()
+    run.add_picture(str(img_path), width=None)
+    doc.add_paragraph("Outro text after the table.")
+
+    docx_path = tmp_path / "table_with_image.docx"
+    doc.save(docx_path)
+
+    result = convert_docx_to_body(docx_path, tmp_path / "media")
+
+    assert result.figure_count == 1
+    assert "%%FIGURE:1%%" in result.tex
+    # The anchor lands INSIDE the rendered table row, not as its own block --
+    # confirms the anchor is now opaque raw text inside a `&`-delimited cell,
+    # which is exactly what makes the downstream full-figure-environment
+    # resolution (latextify.emit.project) unsafe for this anchor.
+    assert "Label & %%FIGURE:1%%" in result.tex
+
+
+def test_convert_docx_to_body_rejects_docx_pandoc_cannot_parse(tmp_path):
+    """A .docx with well-formed word/document.xml but missing the surrounding
+    OOXML package parts (no [Content_Types].xml) passes preflight's direct
+    lxml reads, but pandoc's own docx reader chokes on it -- that must
+    surface as a clean, actionable ValueError, never a raw pypandoc
+    RuntimeError."""
+    import zipfile
+
+    docx_path = tmp_path / "broken_package.docx"
+    with zipfile.ZipFile(docx_path, "w") as archive:
+        archive.writestr(
+            "word/document.xml",
+            '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">'
+            "<w:body><w:p><w:r><w:t>Hello world</w:t></w:r></w:p></w:body></w:document>",
+        )
+
+    with pytest.raises(ValueError, match=r"(?i)pandoc"):
+        convert_docx_to_body(docx_path, tmp_path / "media")
+
+
 def test_returns_body_conversion_result(equations_result):
     assert isinstance(equations_result, BodyConversionResult)
     assert equations_result.media_dir.is_dir()
