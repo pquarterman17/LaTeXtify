@@ -296,8 +296,12 @@ def test_column_alignment_respects_explicit_pandoc_alignment():
     assert "\\begin{tabular}{l}" in tex
 
 
-def test_vmerge_table_left_untouched_with_a_finding():
-    # A rowspan>1 cell (Word's vMerge) makes this table pathological.
+def test_vmerge_table_degrades_to_booktabs_with_duplicated_content_and_a_finding():
+    # A rowspan>1 cell (Word's vMerge) makes this table pathological (plan
+    # item 25): it is no longer left for pandoc's own default table writer
+    # (that output doesn't compile in fragment mode -- see the module
+    # docstring) -- instead it's degraded to a booktabs table that duplicates
+    # the merged cell's content into every row it spanned.
     body = pf.TableBody(
         pf.TableRow(
             pf.TableCell(pf.Plain(pf.Str("1"))),
@@ -312,13 +316,27 @@ def test_vmerge_table_left_untouched_with_a_finding():
     assert len(findings) == 1
     assert "table 1" in findings[0].message
     assert "vertically merged cell (vMerge)" in findings[0].message
-    assert "falling back to pandoc's default table rendering" in findings[0].message
-    # Untouched: still a Table node, not replaced by a RawBlock.
-    assert isinstance(doc.content[0], pf.Table)
+    assert "verify the structure against the source document" in findings[0].message
+    # Reconstructed: a RawBlock, not left as a raw Table node.
+    assert isinstance(doc.content[0], pf.RawBlock)
+    tex = doc.content[0].text
+    assert "\\multirow" not in tex  # ours duplicates instead of using multirow
+    assert "\\longtable" not in tex
+    assert "1 & 10 \\\\" in tex
+    assert "2 & 10 \\\\" in tex  # the merged cell's content duplicated, not dropped
+    assert "[table structure simplified -- verify against source]" in tex
 
 
-def test_nested_table_flagged_once_and_not_independently_transformed():
-    inner = pf.Table(pf.TableBody(pf.TableRow(pf.TableCell(pf.Plain(pf.Str("inner"))))))
+def test_nested_table_flattened_into_the_enclosing_tables_cell():
+    # A nested table (plan item 25) can't become a second tabular inside a
+    # cell (not legal LaTeX), so its content is flattened to plain text
+    # instead -- content survives, the nested structure does not.
+    inner = pf.Table(
+        pf.TableBody(
+            pf.TableRow(pf.TableCell(pf.Plain(pf.Str("inner1")))),
+            pf.TableRow(pf.TableCell(pf.Plain(pf.Str("inner2")))),
+        )
+    )
     outer = pf.Table(pf.TableBody(pf.TableRow(pf.TableCell(inner))))
     doc = pf.Doc(outer, api_version=(1, 23, 1))
     doc, findings = normalize_tables(doc)
@@ -326,12 +344,15 @@ def test_nested_table_flagged_once_and_not_independently_transformed():
     assert len(findings) == 1
     assert "table 1" in findings[0].message
     assert "nested table" in findings[0].message
-    # The outer table is untouched, and so -- transitively -- is the inner
-    # one nested inside its cell (never independently turned into a
-    # RawBlock, which would be an illegal float inside a table cell).
-    assert isinstance(doc.content[0], pf.Table)
-    inner_cell_content = doc.content[0].content[0].content[0].content[0].content[0]
-    assert isinstance(inner_cell_content, pf.Table)
+    # Reconstructed once, as a single RawBlock -- the inner table is never
+    # independently turned into its own RawBlock (which would be an illegal
+    # float inside the outer table's cell).
+    assert isinstance(doc.content[0], pf.RawBlock)
+    tex = doc.content[0].text
+    assert "inner1" in tex
+    assert "inner2" in tex
+    assert "\\begin{tabular}" in tex
+    assert tex.count("\\begin{tabular}") == 1  # only the outer table's own
 
 
 def test_sibling_clean_table_unaffected_by_a_pathological_table():
@@ -347,10 +368,16 @@ def test_sibling_clean_table_unaffected_by_a_pathological_table():
     doc = pf.Doc(pathological, clean, api_version=(1, 23, 1))
     doc, findings = normalize_tables(doc)
 
+    # Reference: the clean table's own conversion in isolation, to prove
+    # processing a pathological sibling first doesn't perturb it byte-for-byte.
+    reference_doc = pf.Doc(_simple_table(), api_version=(1, 23, 1))
+    reference_doc, _ = normalize_tables(reference_doc)
+
     assert len(findings) == 1
     assert "table 1" in findings[0].message  # the pathological one, first in doc order
-    assert isinstance(doc.content[0], pf.Table)  # left alone
+    assert isinstance(doc.content[0], pf.RawBlock)  # degraded, not left alone
     assert isinstance(doc.content[1], pf.RawBlock)  # the clean sibling still converts
+    assert doc.content[1].text == reference_doc.content[0].text
 
 
 def test_doc_without_tables_is_untouched_and_finding_free():
