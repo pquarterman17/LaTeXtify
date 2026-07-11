@@ -17,6 +17,7 @@ dependencies = [
 [dependency-groups]
 dev = [
     "pytest>=8.0",
+    "python-docx>=1.2.0",  # generate .docx test fixtures (fixture-only, not runtime)
     "ruff>=0.5",
 ]
 
