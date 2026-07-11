@@ -146,13 +146,13 @@ by its context block.
 
 ### Dependency map
 
-- TIER 1 COMPLETE (items 1-9 + 24); TIER 2 wave A COMPLETE (items 10-15,
-  17, all 2026-07-11): four journal families compile (sn-jnl + elsarticle
-  via vendoring), all four citation sources extract AND link, figure
-  manifest/vector conversion, booktabs tables
-- Remaining Tier 2: items 16 + 18 (wave B — both touch cli.py, run last);
-  item 16 also owns wiring compile into the CLI (--pdf flag, exit codes,
-  journal.vendor → compile_document vendor_dir — flagged by items 10/12)
+- TIERS 1 AND 2 COMPLETE (items 1-18 + 24, all 2026-07-11): four journal
+  families compile (sn-jnl + elsarticle via vendoring), four citation
+  sources extract AND link with style switching, figures with vector
+  conversion, booktabs tables, per-run report.md, `latextify convert --pdf`
+  end to end
+- Remaining: Tier 3 only (items 19-23, 25 — GUI, batch, SI, more journals,
+  equation audit, pathological-table compile gap)
 - Item 5 requires items 3 + 4
 - Item 9 requires item 3 (media extraction)
 - Items 10–12 require items 4 + 5 (registry + emitter proven on REVTeX)
@@ -167,15 +167,6 @@ by its context block.
 
 ## Tier 2 — Medium Impact
 
-16. **Consolidated conversion report** — report.md per run
-    **Model:** Haiku 4.5 · **Depends on:** 2, 6, 7, 9 · **Touches:** `latextify/report/`
-    **Context:** Every stage already produces finding/record dataclasses
-    (see `report/__init__.py` for the section list). This item is
-    aggregation + deterministic markdown rendering (stable ordering so
-    diffs are meaningful) + exit-code policy: nonzero when any
-    error-severity finding or compile error exists.
-    **Done when:** a full-pipeline fixture run emits report.md with all four
-    sections populated; ordering is stable across runs; exit codes tested.
 
 
 ## Tier 3 — Nice-to-Have
@@ -202,6 +193,14 @@ by its context block.
 
 ## Completed
 
+- ~~**#16 Consolidated conversion report + CLI compile**~~ (2026-07-11) —
+  report/render.py (deterministic report.md: preflight, citations incl.
+  ReconcileRecord confidence/verify flags, figure sources + conversion
+  notes, compile diagnostics; empty sections say "None"), preflight wired
+  into emit_project (EmitResult.report_path additive), CLI --pdf (compile
+  via ensure_tectonic with journal.vendor staging — closes the items 10/12
+  wiring gap) + --report/--no-report + exit-code policy. 18 tests incl.
+  real --pdf CLI compile.
 - ~~**#18 Citation style switching polish**~~ (2026-07-11) — audit found the
   items 4/5 architecture already re-run-switchable (\bibliographystyle lives
   in regenerated preamble.tex, main.tex write-once); added `latextify
