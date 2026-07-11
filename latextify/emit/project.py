@@ -89,9 +89,28 @@ _MAIN_TEX_TEMPLATE = (
     "\\begin{document}\n"
     "\\input{generated/metadata}\n"
     "\\input{generated/body}\n"
-    "\\bibliography{references}\n"
+    "\\input{generated/bibliography}\n"
     "\\end{document}\n"
 )
+
+# Bibliography inclusion lives in a regenerated file (plan item 26), NOT
+# directly in the write-once main.tex, so a citation-free manuscript emits no
+# ``\bibliography`` line at all and still compiles under classes whose
+# ``\thebibliography`` redefinition errors on an empty reference list
+# (IEEEtran: "Something's wrong -- perhaps a missing \item"). When references
+# exist the line is written; when they don't, only a self-explaining comment is.
+_BIBLIOGRAPHY_LINE = "\\bibliography{references}\n"
+_BIBLIOGRAPHY_EMPTY = (
+    "% This manuscript has no citations, so no \\bibliography line is emitted.\n"
+    "% Regenerated every run: a \\bibliography{references} line reappears here\n"
+    "% automatically once citations are found. Emitting an empty \\bibliography\n"
+    "% makes some classes -- notably IEEEtran -- error at \\end{thebibliography}.\n"
+)
+# A pre-item-26 main.tex called ``\bibliography`` directly. main.tex is
+# user-owned/write-once so we cannot rewrite it; detect the legacy line (not
+# commented out, and distinct from the new ``\input{generated/bibliography}``)
+# to advise the one-line migration instead.
+_DIRECT_BIBLIOGRAPHY_RE = re.compile(r"(?m)^[^%\n]*\\bibliography\{")
 
 _HYPERREF_RE = re.compile(r"\\usepackage(?:\[[^\]]*\])?\{hyperref\}")
 _DEFAULT_HYPERREF_LINE = (
@@ -218,10 +237,15 @@ def emit_project(
     bib_path = output_dir / "references.bib"
     bib_path.write_text(bib_text, encoding="utf-8")
 
+    bibliography_tex = _BIBLIOGRAPHY_LINE if bib_text.strip() else _BIBLIOGRAPHY_EMPTY
+    (generated_dir / "bibliography.tex").write_text(bibliography_tex, encoding="utf-8")
+
     main_tex_path = output_dir / "main.tex"
     main_tex_written = not main_tex_path.exists()
     if main_tex_written:
         main_tex_path.write_text(_MAIN_TEX_TEMPLATE, encoding="utf-8")
+    else:
+        warnings.extend(_legacy_bibliography_warning(main_tex_path))
 
     # Generate consolidated report (item 16).
     report_path: Path | None = None
@@ -312,6 +336,44 @@ def _ensure_hyperref(preamble_text: str) -> str:
     if not preamble_text.endswith("\n"):
         preamble_text += "\n"
     return preamble_text + _DEFAULT_HYPERREF_LINE
+
+
+# --------------------------------------------------------------------------- #
+# Backward-compat: pre-item-26 main.tex with a direct \bibliography call
+# --------------------------------------------------------------------------- #
+
+
+def _legacy_bibliography_warning(main_tex_path: Path) -> list[EmitWarning]:
+    """Advise migrating a pre-item-26 main.tex off its direct ``\\bibliography`` call.
+
+    New projects ``\\input{generated/bibliography}`` so a citation-free
+    manuscript emits no ``\\bibliography`` line and still compiles under
+    IEEEtran (plan item 26). A ``main.tex`` written before that change is
+    user-owned and write-once -- it still carries the direct
+    ``\\bibliography{references}`` line, which breaks citation-free IEEEtran
+    compiles -- so surface a one-line-edit warning rather than silently
+    leaving it broken. Returns no warning once the file has been migrated (it
+    then contains the ``\\input{generated/bibliography}`` include).
+    """
+    try:
+        existing = main_tex_path.read_text(encoding="utf-8")
+    except OSError:
+        return []
+    if "\\input{generated/bibliography}" in existing:
+        return []
+    if _DIRECT_BIBLIOGRAPHY_RE.search(existing):
+        return [
+            EmitWarning(
+                message=(
+                    "main.tex calls \\bibliography{references} directly; new projects "
+                    "\\input{generated/bibliography} instead so citation-free manuscripts "
+                    "compile (an empty \\bibliography breaks IEEEtran). Replace the "
+                    "\\bibliography{references} line in main.tex with "
+                    "\\input{generated/bibliography}."
+                )
+            )
+        ]
+    return []
 
 
 # --------------------------------------------------------------------------- #

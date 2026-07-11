@@ -20,6 +20,7 @@ FIXTURES = Path(__file__).parent / "fixtures"
 FIGURES_DOCX = FIXTURES / "figures.docx"
 ZOTERO_DOCX = FIXTURES / "zotero_cited.docx"
 METADATA_DOCX = FIXTURES / "metadata_titlepage.docx"
+CLEAN_DOCX = FIXTURES / "clean.docx"  # citation-free, figure-free manuscript
 
 
 def _copy_fixture(tmp_path: Path, src: Path) -> Path:
@@ -55,7 +56,11 @@ def test_main_tex_inputs_generated_files_and_bibliography(tmp_path):
     assert "\\input{generated/preamble}" in main_tex
     assert "\\input{generated/metadata}" in main_tex
     assert "\\input{generated/body}" in main_tex
-    assert "\\bibliography{references}" in main_tex
+    # Plan item 26: the bibliography is included via a regenerated file, NOT a
+    # direct \bibliography call in write-once main.tex, so citation-free
+    # manuscripts compile under IEEEtran.
+    assert "\\input{generated/bibliography}" in main_tex
+    assert "\\bibliography{references}" not in main_tex
     assert "\\begin{document}" in main_tex
     assert "\\end{document}" in main_tex
 
@@ -524,3 +529,144 @@ def test_report_stable_across_runs(tmp_path):
         return "\n".join(line for line in lines if "Generated:" not in line)
 
     assert normalize_report(report1) == normalize_report(report2)
+
+
+# --------------------------------------------------------------------------- #
+# Bibliography include -- citation-free manuscripts must compile (plan item 26)
+# --------------------------------------------------------------------------- #
+
+
+def _tectonic_available() -> bool:
+    from latextify.compile.tectonic import TectonicNotAvailableError, ensure_tectonic
+
+    try:
+        ensure_tectonic()
+        return True
+    except TectonicNotAvailableError:
+        return False
+
+
+def test_bibliography_include_is_a_generated_file_not_in_main_tex(tmp_path):
+    # main.tex is write-once; the \bibliography inclusion must live in the
+    # regenerated generated/bibliography.tex so it can be omitted for a
+    # citation-free document (plan item 26).
+    docx = _copy_fixture(tmp_path, CLEAN_DOCX)
+    result = emit_project(docx, "ieeetran", tmp_path / "output")
+
+    main_tex = result.main_tex_path.read_text(encoding="utf-8")
+    assert "\\input{generated/bibliography}" in main_tex
+    assert "\\bibliography{references}" not in main_tex
+
+    bib_include = result.output_dir / "generated" / "bibliography.tex"
+    assert bib_include.is_file()
+
+
+def test_generated_bibliography_omits_the_line_when_no_citations(tmp_path):
+    # clean.docx has no citations -> references.bib is empty -> the generated
+    # bibliography include must NOT contain a \bibliography command (an empty
+    # \bibliography breaks IEEEtran's \thebibliography).
+    docx = _copy_fixture(tmp_path, CLEAN_DOCX)
+    result = emit_project(docx, "ieeetran", tmp_path / "output")
+
+    assert result.bib_path.read_text(encoding="utf-8").strip() == ""
+    bib_include = (result.output_dir / "generated" / "bibliography.tex").read_text(
+        encoding="utf-8"
+    )
+    # No *active* (uncommented) \bibliography command -- every line is a comment.
+    assert not any(
+        line.lstrip().startswith("\\bibliography") for line in bib_include.splitlines()
+    )
+    assert all(
+        line.lstrip().startswith("%") or not line.strip()
+        for line in bib_include.splitlines()
+    )
+
+
+def test_generated_bibliography_has_the_line_when_citations_exist(tmp_path):
+    # A field-coded document DOES have references -> the include carries the
+    # real \bibliography{references} line so BibTeX runs as before.
+    docx = _copy_fixture(tmp_path, ZOTERO_DOCX)
+    result = emit_project(docx, "revtex4-2", tmp_path / "output")
+
+    assert result.bib_path.read_text(encoding="utf-8").strip() != ""
+    bib_include = (result.output_dir / "generated" / "bibliography.tex").read_text(
+        encoding="utf-8"
+    )
+    assert bib_include.strip() == "\\bibliography{references}"
+
+
+def test_bibliography_include_regenerates_when_citations_appear_on_rerun(tmp_path):
+    # Deleting/regenerating generated/ must flip the include appropriately; the
+    # include is regenerated content, so a re-run always reflects current refs.
+    docx = _copy_fixture(tmp_path, ZOTERO_DOCX)
+    output_root = tmp_path / "output"
+    result = emit_project(docx, "revtex4-2", output_root)
+    bib_include_path = result.output_dir / "generated" / "bibliography.tex"
+
+    # Corrupt the regenerated include; a second run must overwrite it.
+    bib_include_path.write_text("CORRUPT", encoding="utf-8")
+    result2 = emit_project(docx, "revtex4-2", output_root)
+    assert result2.main_tex_written is False
+    assert bib_include_path.read_text(encoding="utf-8").strip() == "\\bibliography{references}"
+
+
+def test_legacy_main_tex_with_direct_bibliography_warns(tmp_path):
+    # Backward compat: a pre-item-26 main.tex still carries a direct
+    # \bibliography{references} line. main.tex is write-once so we cannot
+    # rewrite it -- emit_project must surface a one-line-edit warning.
+    docx = _copy_fixture(tmp_path, CLEAN_DOCX)
+    output_root = tmp_path / "output"
+    output_dir = output_root / "ieeetran"
+    output_dir.mkdir(parents=True)
+    legacy_main = (
+        "\\input{generated/preamble}\n"
+        "\\begin{document}\n"
+        "\\input{generated/metadata}\n"
+        "\\input{generated/body}\n"
+        "\\bibliography{references}\n"
+        "\\end{document}\n"
+    )
+    (output_dir / "main.tex").write_text(legacy_main, encoding="utf-8")
+
+    result = emit_project(docx, "ieeetran", output_root)
+
+    assert result.main_tex_written is False
+    # The legacy main.tex is preserved untouched (write-once contract).
+    assert (output_dir / "main.tex").read_text(encoding="utf-8") == legacy_main
+    assert any(
+        "\\input{generated/bibliography}" in w.message and "IEEEtran" in w.message
+        for w in result.warnings
+    )
+
+
+def test_migrated_main_tex_does_not_warn(tmp_path):
+    # A main.tex already using the new include must NOT trigger the migration
+    # warning on subsequent runs.
+    docx = _copy_fixture(tmp_path, CLEAN_DOCX)
+    output_root = tmp_path / "output"
+    emit_project(docx, "ieeetran", output_root)  # writes new-style main.tex
+
+    result = emit_project(docx, "ieeetran", output_root)  # second run
+    assert result.main_tex_written is False
+    assert not any("bibliography" in w.message for w in result.warnings)
+
+
+@pytest.mark.tectonic
+@pytest.mark.skipif(
+    not _tectonic_available(),
+    reason="no tectonic binary on PATH/cache and none could be downloaded",
+)
+def test_citation_free_manuscript_compiles_under_ieeetran(tmp_path):
+    # Plan item 26 core done-when: a citation-free manuscript targeting IEEE
+    # compiles to a real PDF (previously failed with "Something's wrong --
+    # perhaps a missing \item" at \end{thebibliography}).
+    from latextify.compile.tectonic import compile_document, ensure_tectonic
+
+    docx = _copy_fixture(tmp_path, CLEAN_DOCX)
+    result = emit_project(docx, "ieeetran", tmp_path / "output", report=False)
+
+    compile_result = compile_document(result.main_tex_path, tectonic_path=ensure_tectonic())
+    assert compile_result.success, compile_result.raw_log
+    assert compile_result.pdf_path is not None
+    assert compile_result.pdf_path.is_file()
+    assert compile_result.pdf_path.stat().st_size > 0

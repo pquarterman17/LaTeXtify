@@ -8,6 +8,9 @@ Output contract (plan item 5) — the generated/manual split:
             preamble.tex   -- regenerated every run from the journal template
             metadata.tex   -- regenerated every run (title/authors/abstract)
             body.tex       -- regenerated every run from the converted body
+            bibliography.tex -- regenerated every run: the \\bibliography line
+                              when references exist, a comment when none do, so
+                              citation-free manuscripts compile (plan item 26)
         figures/           -- resolved figure files
         references.bib     -- regenerated every run
         report.md          -- per-run conversion report
