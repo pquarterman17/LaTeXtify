@@ -10,6 +10,12 @@ authors *globally* by affiliation set (``group_globally_by_affiliation``,
 registered as the ``group_authors_global`` Jinja global) rather than by
 consecutive run -- see the 3-author/2-affiliation golden case below, where
 authors 1 and 3 share an affiliation but author 2 sits between them.
+
+Item 10 (elsarticle) adds: dual citation-mode preamble rendering (numeric +
+authoryear with natbib options folded into the class options), elsarticle
+frontmatter metadata with affiliation indices and corresponding-author markup,
+and a Tectonic compile test that proves the vendored v3.5 class shadows the
+bundle's broken v3.3.
 """
 
 from __future__ import annotations
@@ -412,3 +418,91 @@ def test_ieeetran_rendered_project_compiles_via_tectonic(tmp_path):
     assert result.pdf_path is not None
     assert result.pdf_path.is_file()
     assert result.pdf_path.stat().st_size > 0
+
+
+# --------------------------------------------------------------------------- #
+# elsarticle journal folder (plan item 10)
+# --------------------------------------------------------------------------- #
+
+
+def test_available_lists_elsarticle():
+    assert "elsarticle" in loader.available()
+
+
+def test_load_elsarticle_returns_validated_journal():
+    j = loader.load("elsarticle")
+    assert j.name == "elsarticle"
+    assert j.document_class == "elsarticle"
+    assert j.class_options == ("review",)
+    assert [p.name for p in j.packages][:2] == ["amsmath", "amssymb"]
+    assert j.default_mode == "numeric"
+    assert j.bib_modes["numeric"].bibstyle == "elsarticle-num"
+    assert j.bib_modes["numeric"].natbib_options == ("numbers",)
+    assert j.bib_modes["authoryear"].bibstyle == "elsarticle-harv"
+    assert j.bib_modes["authoryear"].natbib_options == ("authoryear",)
+    assert j.metadata_scheme == "elsarticle"
+    assert j.figure_env.single == "figure"
+    assert j.figure_env.wide == "figure*"
+    # v3.5 of the class is vendored to shadow the broken v3.3 in the bundle.
+    assert j.vendor == ("vendor/elsarticle.cls",)
+    assert (j.root / "vendor" / "elsarticle.cls").is_file()
+
+
+def test_rendered_elsarticle_preamble_numeric_matches_golden():
+    j = loader.load("elsarticle")
+    expected = (GOLDEN / "elsarticle_preamble_numeric.tex").read_text(encoding="utf-8")
+    assert j.render_preamble(mode="numeric") == expected
+
+
+def test_rendered_elsarticle_preamble_authoryear_matches_golden():
+    j = loader.load("elsarticle")
+    expected = (GOLDEN / "elsarticle_preamble_authoryear.tex").read_text(encoding="utf-8")
+    assert j.render_preamble(mode="authoryear") == expected
+
+
+def test_rendered_elsarticle_metadata_matches_golden():
+    j = loader.load("elsarticle")
+    expected = (GOLDEN / "elsarticle_metadata.tex").read_text(encoding="utf-8")
+    assert j.render_metadata(two_author_meta()) == expected
+
+
+@requires_tectonic
+@skip_without_tectonic
+@pytest.mark.parametrize("mode", ["numeric", "authoryear"])
+def test_elsarticle_document_compiles(tmp_path, mode):
+    """Rendered elsarticle preamble + frontmatter compiles to a real PDF.
+
+    The document is assembled exactly like the emitter's main.tex: preamble
+    before ``\\begin{document}``, metadata (the frontmatter environment) after
+    it. The journal's vendored elsarticle.cls v3.5 is staged via
+    ``compile_document(vendor_dir=...)`` — the bundle's own v3.3 fails at
+    ``\\maketitle`` with an undefined ``env/\\elsarticletitlealign/before``
+    hook, which v3.5 fixed (see the manifest's vendor note).
+    """
+    j = loader.load("elsarticle")
+    tex_content = (
+        j.render_preamble(mode=mode)
+        + "\\begin{document}\n"
+        + j.render_metadata(two_author_meta())
+        + "This is a test document.\n"
+        + "\\end{document}\n"
+    )
+
+    tex_file = tmp_path / "test.tex"
+    tex_file.write_text(tex_content, encoding="utf-8")
+
+    result = compile_document(
+        tex_file,
+        tectonic_path=ensure_tectonic(),
+        vendor_dir=j.root / "vendor",
+    )
+
+    assert result.success, (
+        f"Compilation failed (mode={mode}):\n"
+        f"Return code: {result.returncode}\n"
+        f"Log:\n{result.raw_log}"
+    )
+    assert result.pdf_path is not None
+    assert result.pdf_path.is_file()
+    # Prove the vendored v3.5 (not the bundle's v3.3) was actually used.
+    assert "2026/01/09, 3.5: Elsevier Ltd" in result.raw_log
