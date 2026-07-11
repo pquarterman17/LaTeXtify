@@ -80,6 +80,14 @@ def convert(
     except ManifestError as exc:
         typer.echo(f"error: {exc}", err=True)
         raise typer.Exit(code=1) from exc
+    except ValueError as exc:
+        # Every ingest-boundary module (preflight, metadata_guess, pandoc)
+        # raises a clean ValueError naming the problem for a corrupt or
+        # unsupported .docx -- never let it surface as a raw, unhandled
+        # traceback here (ManifestError is itself a ValueError subclass, so
+        # this branch also covers it defensively).
+        typer.echo(f"error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
 
     typer.echo(f"wrote {result.output_dir}")
     if not result.main_tex_written:

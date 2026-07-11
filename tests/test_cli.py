@@ -68,6 +68,90 @@ def test_convert_missing_docx_exits_nonzero():
 
 
 # --------------------------------------------------------------------------- #
+# Corrupt / wrong inputs at the CLI boundary: clean errors, never a raw
+# traceback (result.exception must be None -- a real terminal run would
+# otherwise print a full Python stack trace instead of "error: ...").
+# --------------------------------------------------------------------------- #
+
+
+def test_convert_txt_renamed_to_docx_exits_cleanly(tmp_path):
+    bogus = tmp_path / "renamed.docx"
+    bogus.write_text("This is just plain text, not a docx.\n", encoding="utf-8")
+
+    result = _invoke_convert(bogus, "revtex4-2", tmp_path / "output")
+
+    assert result.exit_code != 0
+    assert result.exception is None or isinstance(result.exception, SystemExit), (
+        f"raw traceback leaked: {result.exception!r}"
+    )
+    assert "error:" in result.output
+
+
+def test_convert_zip_missing_document_xml_exits_cleanly(tmp_path):
+    import zipfile
+
+    bogus = tmp_path / "notooxml.docx"
+    with zipfile.ZipFile(bogus, "w") as archive:
+        archive.writestr("hello.txt", "not a word document")
+
+    result = _invoke_convert(bogus, "revtex4-2", tmp_path / "output")
+
+    assert result.exit_code != 0
+    assert result.exception is None or isinstance(result.exception, SystemExit), (
+        f"raw traceback leaked: {result.exception!r}"
+    )
+    assert "error:" in result.output
+
+
+def test_convert_malformed_document_xml_exits_cleanly(tmp_path):
+    import zipfile
+
+    bogus = tmp_path / "malformed.docx"
+    with zipfile.ZipFile(bogus, "w") as archive:
+        archive.writestr("word/document.xml", "<w:document><w:body><w:p>unterminated")
+
+    result = _invoke_convert(bogus, "revtex4-2", tmp_path / "output")
+
+    assert result.exit_code != 0
+    assert result.exception is None or isinstance(result.exception, SystemExit), (
+        f"raw traceback leaked: {result.exception!r}"
+    )
+    assert "error:" in result.output
+
+
+def test_equations_zip_missing_document_xml_exits_cleanly(tmp_path):
+    import zipfile
+
+    bogus = tmp_path / "notooxml.docx"
+    with zipfile.ZipFile(bogus, "w") as archive:
+        archive.writestr("hello.txt", "not a word document")
+
+    result = runner.invoke(app, ["equations", str(bogus), "--output", str(tmp_path / "out")])
+
+    assert result.exit_code != 0
+    assert result.exception is None or isinstance(result.exception, SystemExit), (
+        f"raw traceback leaked: {result.exception!r}"
+    )
+    assert "error:" in result.output
+
+
+def test_equations_malformed_document_xml_exits_cleanly(tmp_path):
+    import zipfile
+
+    bogus = tmp_path / "malformed.docx"
+    with zipfile.ZipFile(bogus, "w") as archive:
+        archive.writestr("word/document.xml", "<w:document><w:body><w:p>unterminated")
+
+    result = runner.invoke(app, ["equations", str(bogus), "--output", str(tmp_path / "out")])
+
+    assert result.exit_code != 0
+    assert result.exception is None or isinstance(result.exception, SystemExit), (
+        f"raw traceback leaked: {result.exception!r}"
+    )
+    assert "error:" in result.output
+
+
+# --------------------------------------------------------------------------- #
 # Citation style switching (plan item 18)
 # --------------------------------------------------------------------------- #
 
