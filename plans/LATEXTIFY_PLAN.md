@@ -179,7 +179,6 @@ by its context block.
 
 22. **Additional journals** — ACS (achemso), IOP (iopart), Wiley — pure journal folders copying items 10-12 patterns. **Model:** Haiku 4.5.
 
-23. **Equation audit tooling** — side-by-side render comparison of Word equation vs converted LaTeX for equation-heavy papers. **Model:** Sonnet 5.
 
 25. **Pathological-table fallback doesn't compile** (found by item 17) —
     pandoc's default rendering for vMerge/nested tables emits `longtable` +
@@ -193,7 +192,14 @@ by its context block.
 
 ## Completed
 
-- ~~**#16 Consolidated conversion report + CLI compile**~~ (2026-07-11) —
+- ~~**#23 Equation audit tooling**~~ (2026-07-11) — `latextify equations
+  paper.docx [--pdf]`: raw OMML walk paired with pandoc's converted LaTeX
+  per equation (index/kind/snippet), equations_audit.md + numbered
+  audit.pdf; combined-compile-then-isolate strategy so one broken equation
+  gets marked FAILED (verbatim) without killing the audit; count-mismatch
+  flag for dropped/merged equations. FINDING: matrices/cases/eqArr all
+  convert cleanly on pandoc 3.9 — the real hazard is blank abandoned
+  equations, which now surface as "(empty)" instead of vanishing. 29 tests. —
   report/render.py (deterministic report.md: preflight, citations incl.
   ReconcileRecord confidence/verify flags, figure sources + conversion
   notes, compile diagnostics; empty sections say "None"), preflight wired
