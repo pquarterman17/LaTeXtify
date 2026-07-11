@@ -1,9 +1,11 @@
 """Render the consolidated conversion report as markdown.
 
-Aggregates findings from every stage (preflight, citations, figures, compile)
-into one deterministic report.md. Sections are ordered, content sorted within
-each section, and empty sections display "none" rather than disappearing so
-diffs are meaningful across runs.
+Aggregates findings from every stage (preflight, citations, figures, compile,
+and emit-stage warnings) into one deterministic report.md. Sections are
+ordered, content sorted within each section, and empty sections display "none"
+rather than disappearing so diffs are meaningful across runs. All free text
+(messages, captions, diagnostics) is flattened to a single line before
+insertion so a stray newline can't inject broken markdown structure.
 """
 
 from __future__ import annotations
@@ -15,6 +17,17 @@ from latextify.model.compile import CompileResult
 from latextify.model.emit import EmitResult
 from latextify.model.preflight import PreflightReport
 from latextify.model.reconcile import ReconciliationReport
+
+
+def _flatten(text: str) -> str:
+    """Collapse line breaks so one record stays one markdown line/quote.
+
+    Messages, captions, and diagnostics are arbitrary user/pipeline text; a
+    raw newline would split a ``- ``/``> `` item across lines and mangle the
+    report's structure (markdown-format injection). Newlines become single
+    spaces; other spacing is preserved.
+    """
+    return text.replace("\r\n", " ").replace("\r", " ").replace("\n", " ")
 
 
 def render_report(
@@ -57,7 +70,7 @@ def render_report(
             lines.append(
                 f"**[{finding.severity.upper()}]** "
                 f"({finding.detector}, ¶{finding.location.paragraph_index}): "
-                f"{finding.message}\n"
+                f"{_flatten(finding.message)}\n"
             )
             if finding.location.text_snippet:
                 # Indent snippet so it reads as a quote
@@ -113,7 +126,7 @@ def render_report(
             conv_note = f" — {figure.conversion_note}" if figure.conversion_note else ""
             lines.append(f"**Fig {figure.number}** ({source_label}){conv_note}\n")
             if figure.caption:
-                lines.append(f"> {figure.caption}\n")
+                lines.append(f"> {_flatten(figure.caption)}\n")
     else:
         lines.append("_None_\n")
 
@@ -143,11 +156,22 @@ def render_report(
                     if diag.line:
                         loc += f":{diag.line}"
                     loc += ")"
-                lines.append(f"**[{sev}]{loc}:** {diag.message}\n")
+                lines.append(f"**[{sev}]{loc}:** {_flatten(diag.message)}\n")
         else:
             lines.append("No diagnostics available.\n")
     else:
         lines.append("_Not compiled_ (use `--pdf` to compile).\n")
+
+    # Emit-stage warnings (anchor resolution, figure conversion, citation
+    # linkage gaps, bibliography migration). Aggregated here so the report is
+    # the single consolidated record -- previously EmitResult.warnings never
+    # reached report.md at all. Sorted for stable diffs across runs.
+    lines.append("\n## Warnings\n")
+    if emit_result and emit_result.warnings:
+        for message in sorted(_flatten(w.message) for w in emit_result.warnings):
+            lines.append(f"- {message}\n")
+    else:
+        lines.append("_None_\n")
 
     return "".join(lines)
 

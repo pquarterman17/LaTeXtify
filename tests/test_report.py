@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from latextify.model.compile import CompileDiagnostic, CompileResult, DiagnosticSeverity
-from latextify.model.emit import EmitResult
+from latextify.model.emit import EmitResult, EmitWarning
 from latextify.model.figure import Figure, FigureSource
 from latextify.model.preflight import (
     Location,
@@ -16,6 +16,25 @@ from latextify.model.preflight import (
 )
 from latextify.model.reconcile import ReconcileRecord, ReconciliationReport
 from latextify.report.render import render_report
+
+
+def _emit_result(**overrides):
+    """An EmitResult with sensible defaults; override any field per test."""
+    defaults = dict(
+        output_dir=Path("/tmp"),
+        journal_name="test",
+        main_tex_path=Path("/tmp/main.tex"),
+        main_tex_written=True,
+        preamble_tex_path=Path("/tmp/gen/preamble.tex"),
+        metadata_tex_path=Path("/tmp/gen/metadata.tex"),
+        body_tex_path=Path("/tmp/gen/body.tex"),
+        bib_path=Path("/tmp/references.bib"),
+        figures_dir=Path("/tmp/figures"),
+        figure_count=0,
+        citation_count=0,
+    )
+    defaults.update(overrides)
+    return EmitResult(**defaults)
 
 
 class TestRenderReportEmptySections:
@@ -262,6 +281,104 @@ class TestCompilationReporting:
         # Check that diagnostics are present
         assert "Undefined control sequence" in report_text
         assert "preamble.tex:10" in report_text
+
+
+class TestWarningsReporting:
+    """Emit-stage warnings must reach the consolidated report (previously dropped)."""
+
+    def test_warnings_rendered_in_report(self):
+        emit = _emit_result(
+            warnings=(
+                EmitWarning(message="figure 3: Ghostscript not found; install it."),
+                EmitWarning(message="unresolved figure anchor for figure 99"),
+            ),
+        )
+        report_text = render_report(emit_result=emit)
+        assert "## Warnings" in report_text
+        assert "Ghostscript not found" in report_text
+        assert "unresolved figure anchor for figure 99" in report_text
+
+    def test_warnings_none_when_empty(self):
+        report_text = render_report(emit_result=_emit_result(warnings=()))
+        assert "## Warnings\n_None_" in report_text
+
+    def test_warnings_none_when_no_emit_result(self):
+        report_text = render_report()
+        assert "## Warnings\n_None_" in report_text
+
+    def test_warnings_sorted_for_stable_diffs(self):
+        emit = _emit_result(
+            warnings=(
+                EmitWarning(message="zeta warning"),
+                EmitWarning(message="alpha warning"),
+            ),
+        )
+        report_text = render_report(emit_result=emit)
+        assert report_text.index("alpha warning") < report_text.index("zeta warning")
+
+    def test_newline_in_warning_does_not_break_list_structure(self):
+        # Markdown-injection guard: a newline-laden message stays one bullet.
+        emit = _emit_result(
+            warnings=(EmitWarning(message="line one\n- fake bullet\nline three"),),
+        )
+        report_text = render_report(emit_result=emit)
+        warnings_section = report_text.split("## Warnings", 1)[1]
+        # Exactly one list item in the Warnings section (no injected bullet).
+        assert warnings_section.count("\n- ") == 1
+        assert "line one - fake bullet line three" in report_text
+
+    def test_very_long_message_does_not_crash(self):
+        emit = _emit_result(warnings=(EmitWarning(message="x" * 20000),))
+        report_text = render_report(emit_result=emit)
+        assert "x" * 20000 in report_text
+
+
+class TestInjectionHardening:
+    """Newlines in preflight/compile/figure text must not mangle the report."""
+
+    def test_newline_in_preflight_message_flattened(self):
+        findings = (
+            PreflightFinding(
+                severity=Severity.ERROR,
+                detector="d",
+                location=Location(paragraph_index=1, text_snippet=""),
+                message="bad thing\n## Injected Heading\nmore",
+            ),
+        )
+        styles = StyleInventory(frozenset(), False, False)
+        report_text = render_report(
+            preflight=PreflightReport(findings=findings, styles=styles)
+        )
+        # The injected heading must not become a real report heading.
+        assert "\n## Injected Heading" not in report_text
+        assert "bad thing ## Injected Heading more" in report_text
+
+    def test_newline_in_figure_caption_flattened(self):
+        figures = (
+            Figure(
+                number=1,
+                caption="cap line 1\ncap line 2",
+                embedded_path=Path("media/image1.png"),
+                source=FigureSource.EMBEDDED,
+            ),
+        )
+        report_text = render_report(emit_result=_emit_result(figure_count=1, figures=figures))
+        assert "cap line 1 cap line 2" in report_text
+
+
+class TestZeroOfEverything:
+    """A run with nothing to report must still produce a full, stable report."""
+
+    def test_all_none_arguments(self):
+        report_text = render_report()
+        for section in (
+            "## Preflight Findings",
+            "## Citation Extraction",
+            "## Figures",
+            "## Compilation",
+            "## Warnings",
+        ):
+            assert section in report_text
 
 
 class TestReportStability:
