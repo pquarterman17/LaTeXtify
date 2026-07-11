@@ -4,10 +4,10 @@ Current surface (plan item 5's minimal wiring; items 16/18 extend this):
 
     latextify convert paper.docx --journal revtex4-2 [--output output] \\
         [--citation-style numeric|authoryear]
+    latextify journals              # list registered journal templates (item 18)
 
 Planned (later items):
 
-    latextify journals              # list registered journal templates
     latextify preflight paper.docx  # validation report only, no conversion
 """
 
@@ -18,6 +18,7 @@ from pathlib import Path
 import typer
 
 from latextify.emit.project import emit_project
+from latextify.templates import loader
 from latextify.templates.loader import ManifestError
 
 app = typer.Typer(add_completion=False, no_args_is_help=True)
@@ -69,6 +70,24 @@ def convert(
         typer.echo("main.tex already existed -- left untouched (edit it directly)")
     for warning in result.warnings:
         typer.echo(f"warning: {warning.message}")
+
+
+@app.command()
+def journals() -> None:
+    """List registered journal templates with their available citation modes."""
+    discovered = loader.discover()
+    if not discovered:
+        typer.echo("No journals registered.")
+        return
+
+    for journal_name in sorted(discovered.keys()):
+        try:
+            journal = loader.load(journal_name)
+            modes = sorted(journal.bib_modes.keys())
+            modes_str = ", ".join(modes)
+            typer.echo(f"{journal_name}: {modes_str}")
+        except ManifestError as exc:
+            typer.echo(f"{journal_name}: error loading manifest: {exc}", err=True)
 
 
 def main() -> None:

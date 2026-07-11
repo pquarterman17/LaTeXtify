@@ -63,3 +63,160 @@ def test_convert_missing_docx_exits_nonzero():
         app, ["convert", "does-not-exist.docx", "--journal", "revtex4-2"]
     )
     assert result.exit_code != 0
+
+
+# --------------------------------------------------------------------------- #
+# Citation style switching (plan item 18)
+# --------------------------------------------------------------------------- #
+
+
+def test_convert_with_citation_style_numeric_writes_project(tmp_path):
+    """Test that --citation-style numeric works with elsarticle."""
+    docx = tmp_path / "figures.docx"
+    shutil.copy(FIGURES_DOCX, docx)
+    output = tmp_path / "output"
+
+    result = runner.invoke(
+        app,
+        [
+            "convert",
+            str(docx),
+            "--journal",
+            "elsarticle",
+            "--output",
+            str(output),
+            "--citation-style",
+            "numeric",
+        ],
+    )
+
+    assert result.exit_code == 0
+    preamble = (output / "elsarticle" / "generated" / "preamble.tex").read_text()
+    assert "elsarticle-num" in preamble
+
+
+def test_convert_with_citation_style_authoryear_writes_project(tmp_path):
+    """Test that --citation-style authoryear works with elsarticle."""
+    docx = tmp_path / "figures.docx"
+    shutil.copy(FIGURES_DOCX, docx)
+    output = tmp_path / "output"
+
+    result = runner.invoke(
+        app,
+        [
+            "convert",
+            str(docx),
+            "--journal",
+            "elsarticle",
+            "--output",
+            str(output),
+            "--citation-style",
+            "authoryear",
+        ],
+    )
+
+    assert result.exit_code == 0
+    preamble = (output / "elsarticle" / "generated" / "preamble.tex").read_text()
+    assert "elsarticle-harv" in preamble
+
+
+def test_convert_unsupported_citation_style_exits_nonzero_with_clear_error(tmp_path):
+    """Unsupported citation style (ieeetran + authoryear) should error clearly."""
+    docx = tmp_path / "figures.docx"
+    shutil.copy(FIGURES_DOCX, docx)
+
+    result = runner.invoke(
+        app,
+        [
+            "convert",
+            str(docx),
+            "--journal",
+            "ieeetran",
+            "--citation-style",
+            "authoryear",
+        ],
+    )
+
+    assert result.exit_code != 0
+    # Error message should name the journal and list allowed modes
+    assert "ieeetran" in result.output
+    assert "authoryear" in result.output
+    assert "numeric" in result.output
+
+
+def test_convert_citation_style_switch_on_rerun(tmp_path):
+    """Re-running with a different citation style switches the preamble, not main.tex."""
+    docx = tmp_path / "figures.docx"
+    shutil.copy(FIGURES_DOCX, docx)
+    output = tmp_path / "output"
+
+    # First run: numeric
+    result1 = runner.invoke(
+        app,
+        [
+            "convert",
+            str(docx),
+            "--journal",
+            "elsarticle",
+            "--output",
+            str(output),
+            "--citation-style",
+            "numeric",
+        ],
+    )
+    assert result1.exit_code == 0
+
+    preamble_numeric = (output / "elsarticle" / "generated" / "preamble.tex").read_text()
+    assert "elsarticle-num" in preamble_numeric
+
+    # Second run: authoryear into same output dir
+    result2 = runner.invoke(
+        app,
+        [
+            "convert",
+            str(docx),
+            "--journal",
+            "elsarticle",
+            "--output",
+            str(output),
+            "--citation-style",
+            "authoryear",
+        ],
+    )
+    assert result2.exit_code == 0
+    assert "already existed" in result2.output  # main.tex untouched
+
+    preamble_authoryear = (output / "elsarticle" / "generated" / "preamble.tex").read_text()
+    assert "elsarticle-harv" in preamble_authoryear
+    assert "elsarticle-num" not in preamble_authoryear
+
+
+def test_journals_command_lists_available_journals():
+    """The `journals` command should list all registered journals and their modes."""
+    result = runner.invoke(app, ["journals"])
+
+    assert result.exit_code == 0
+    # Should list at least revtex4-2, elsarticle, ieeetran, sn-jnl
+    assert "revtex4-2" in result.output
+    assert "elsarticle" in result.output
+    assert "ieeetran" in result.output
+    assert "sn-jnl" in result.output
+
+
+def test_journals_command_lists_correct_modes():
+    """The `journals` command should list the correct citation modes per journal."""
+    result = runner.invoke(app, ["journals"])
+
+    assert result.exit_code == 0
+    # revtex4-2 is numeric-only
+    assert "revtex4-2: numeric" in result.output
+    # elsarticle is dual-mode
+    assert "elsarticle:" in result.output
+    line = next(
+        out_line for out_line in result.output.split("\n")
+        if out_line.startswith("elsarticle:")
+    )
+    assert "authoryear" in line
+    assert "numeric" in line
+    # ieeetran is numeric-only
+    assert "ieeetran: numeric" in result.output

@@ -222,6 +222,53 @@ def test_unsupported_citation_mode_lists_allowed_modes():
 
 
 # --------------------------------------------------------------------------- #
+# Citation style switching (plan item 18)
+# --------------------------------------------------------------------------- #
+
+
+def test_elsarticle_dual_mode_preambles_differ():
+    """Verify that elsarticle's numeric and authoryear modes render different preambles."""
+    j = loader.load("elsarticle")
+    numeric_preamble = j.render_preamble(mode="numeric")
+    authoryear_preamble = j.render_preamble(mode="authoryear")
+
+    # Both should render, but the bibstyles should differ
+    assert "elsarticle-num" in numeric_preamble
+    assert "elsarticle-harv" in authoryear_preamble
+    assert "elsarticle-num" not in authoryear_preamble
+    assert "elsarticle-harv" not in numeric_preamble
+
+
+def test_elsarticle_natbib_options_in_numeric_mode():
+    """Numeric mode should have 'numbers' in natbib options (as class option)."""
+    j = loader.load("elsarticle")
+    numeric_preamble = j.render_preamble(mode="numeric")
+    # elsarticle folds natbib options into \documentclass
+    assert "numbers" in numeric_preamble
+
+
+def test_elsarticle_natbib_options_in_authoryear_mode():
+    """Authoryear mode should have 'authoryear' in natbib options (as class option)."""
+    j = loader.load("elsarticle")
+    authoryear_preamble = j.render_preamble(mode="authoryear")
+    # elsarticle folds natbib options into \documentclass
+    assert "authoryear" in authoryear_preamble
+
+
+def test_ieeetran_unsupported_authoryear_mode():
+    """IEEE Transactions only supports numeric mode."""
+    j = loader.load("ieeetran")
+    assert "authoryear" not in j.bib_modes
+    assert "numeric" in j.bib_modes
+    with pytest.raises(ManifestError) as exc:
+        j.render_preamble(mode="authoryear")
+    msg = str(exc.value)
+    assert "authoryear" in msg
+    assert "numeric" in msg
+    assert "ieeetran" in msg
+
+
+# --------------------------------------------------------------------------- #
 # IEEEtran journal folder (plan item 11)
 # --------------------------------------------------------------------------- #
 
