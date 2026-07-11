@@ -27,17 +27,79 @@ Applied in this order:
        resolved content once they have it; anchors that reach
        ``generated/body.tex`` unresolved are a bug in those later stages,
        not here.
-    4. :func:`normalize_tables` -- replace "clean" Table nodes with a
-       hand-assembled booktabs (``\\toprule``/``\\midrule``/``\\bottomrule``,
-       no vertical rules) ``RawBlock``. Runs *after* :func:`plant_anchors` so
-       any Image/Cite nested inside a table cell (a figure icon in a cell, a
-       citation in a caption) has already become a ``%%FIGURE``/``%%CITE``
-       anchor before the cell is rendered to LaTeX text -- if it ran first,
-       anchors inside tables would silently never be planted once the Table
-       node is replaced by opaque raw text. Tables with a vertically merged
-       cell (Word's ``vMerge``, surfaced by pandoc as ``TableCell.rowspan >
-       1``) or a nested table are never reconstructed -- see the function
-       docstring for the fallback behavior.
+    4. :func:`normalize_tables` -- replace EVERY Table node (clean or
+       pathological) with a hand-assembled booktabs
+       (``\\toprule``/``\\midrule``/``\\bottomrule``, no vertical rules)
+       ``RawBlock``. Runs *after* :func:`plant_anchors` so any Image/Cite
+       nested inside a table cell (a figure icon in a cell, a citation in a
+       caption) has already become a ``%%FIGURE``/``%%CITE`` anchor before the
+       cell is rendered to LaTeX text -- if it ran first, anchors inside
+       tables would silently never be planted once the Table node is replaced
+       by opaque raw text. Tables with a vertically merged cell (Word's
+       ``vMerge``, surfaced by pandoc as ``TableCell.rowspan > 1``) or a
+       nested table cannot be reconstructed *faithfully* -- see plan item 25
+       and the function docstring for why they are instead degraded to a
+       structure-losing-but-content-preserving booktabs table with a bold
+       in-document note, rather than left for pandoc's own default table
+       writer (item 17's original fallback, retired by item 25 -- see below).
+
+ITEM 25 FINDING (pathological-table compile gap, fixed 2026-07-11): item 17's
+original fallback left a pathological table's Table AST node completely
+untouched, so pandoc's own default LaTeX writer rendered it downstream. That
+writer unconditionally emits ``longtable`` + ``\\multirow`` + ``\\real{}``
+(from ``calc``) + ``array``'s column specifiers -- packages/macros pandoc
+only *defines* in its own ``--standalone`` template preamble, never in
+fragment-mode output (which is what this project always requests, since it
+supplies its own journal preambles). Verified empirically (real Tectonic
+compiles, see tests/test_tables.py's tectonic-marked tests): a manuscript
+with a pathological table failed identically in ALL FOUR journals with
+``! LaTeX Error: Environment longtable undefined.`` -- item 17's own
+compile-harness test had to slice the pathological table's section out of
+the body specifically to route around this, which was the tell.
+
+Two fix candidates were evaluated:
+    (a) inject pandoc's own longtable-support preamble subset
+        (``\\usepackage{longtable,array}``, ``\\newcounter{none}``,
+        ``\\usepackage{multirow}``, ``\\usepackage{calc}``) into the
+        generated preamble. This DOES preserve real merge fidelity
+        (``\\multirow`` renders the actual vMerge) and was verified to
+        compile for elsarticle (single-column), sn-jnl (single-column), and
+        even revtex4-2's two-column ``reprint`` mode -- REVTeX4-2 turns out
+        to carry its own longtable compatibility shim (`Class revtex4-2
+        Info: Patching unrecognized longtable package. (Proceeding with
+        fingers crossed)`` in the compile log) that happens to make it work.
+        It FAILS for ieeetran's genuine two-column ``journal`` mode with
+        ``Package longtable Error: longtable not in 1-column mode.`` --
+        longtable is fundamentally incompatible with LaTeX's native
+        ``twocolumn`` typesetting, and IEEEtran (unlike REVTeX) has no
+        compatibility patch for it.
+    (b) degrade the pathological table to a best-effort booktabs
+        reconstruction that ignores the merge/nesting structure instead of
+        attempting it: a vertically merged cell's content is duplicated into
+        every row it originally spanned (never blanked -- content must never
+        silently vanish); a nested table's content is flattened to
+        semicolon/slash-joined plain text (a second ``tabular``/``longtable``
+        nested inside a cell is not legal LaTeX regardless of which packages
+        are loaded, so this is not merely a style choice). A bold
+        ``\\textbf{[table structure simplified -- verify against source]}``
+        note is appended immediately after the table.
+
+(b) was chosen, applied UNCONDITIONALLY for every pathological table
+regardless of target journal, rather than a per-journal hybrid of (a) for the
+three journals it happens to work for and (b) only for ieeetran. Reasoning:
+whether (a) compiles is entirely a function of an incidental implementation
+detail of the journal's own ``.cls`` file (does it happen to patch
+``longtable`` for two-column compatibility, as REVTeX does and IEEEtran does
+not) -- encoding that as a manifest flag would mean guessing wrong for any
+future two-column journal whose class does NOT carry a similar patch (most
+won't), silently reintroducing this exact compile failure for it. (b) alone
+needs no extra packages (the existing unconditional ``booktabs`` load from
+item 17 is sufficient), never touches ``longtable`` at all, and therefore has
+no two-column exposure for ANY journal, present or future. The tradeoff --
+losing real merge/nesting structure in the three journals where (a) would
+have preserved it -- was judged acceptable given the plan's own framing:
+content surviving is the hard requirement, faithful merge structure is not
+(readers are pointed at the source .docx via the in-document note instead).
 
 Every function here mutates the ``panflute.Doc`` in place (via ``Doc.walk``)
 and also returns it, so callers can chain: ``doc = normalize_headings(doc)``.
@@ -337,17 +399,19 @@ def _is_nested_table(table: pf.Table) -> bool:
 
 
 def _pathology_reason(table: pf.Table) -> str | None:
-    """Why ``table`` must NOT be reconstructed, or ``None`` if it's clean.
+    """Why ``table`` needs the degraded reconstruction path, or ``None`` if clean.
 
     Two disqualifying conditions, per plan item 17: a vertically merged cell
     (Word's ``vMerge``, surfaced by pandoc as ``TableCell.rowspan > 1``
-    anywhere in the table), or a nested table. Either makes booktabs
-    reconstruction unsafe to attempt (rowspan has no direct booktabs
-    equivalent without \\multirow, which this filter deliberately does not
-    attempt to reconstruct; a nested table can't be flattened into a single
-    ``tabular`` without losing structure) -- so the whole table is left
-    untouched for pandoc's own default table writer to render instead of
-    risking silent corruption.
+    anywhere in the table), or a nested table. Neither has a direct booktabs
+    equivalent (rowspan needs ``\\multirow``; a nested table can't become a
+    second ``tabular``/``longtable`` inside a cell -- that's not legal LaTeX
+    regardless of which packages are loaded) -- so a *faithful*
+    reconstruction is unsafe to attempt. :func:`_degraded_table_to_latex`
+    handles both by discarding the merge/nesting structure while keeping
+    every piece of cell content (see plan item 25 and the module docstring's
+    fix (a)-vs-(b) writeup for why item 17's original "leave it for pandoc's
+    default writer" fallback was retired).
     """
     found_rowspan = False
     found_nested = False
@@ -367,32 +431,262 @@ def _pathology_reason(table: pf.Table) -> str | None:
     return None
 
 
-def normalize_tables(doc: pf.Doc) -> tuple[pf.Doc, list[FilterFinding]]:
-    """Replace clean Table nodes with hand-assembled booktabs LaTeX.
+# ---------------------------------------------------------------------------
+# Degraded reconstruction for pathological tables (plan item 25)
+# ---------------------------------------------------------------------------
 
-    "Clean" means: no vertically merged cell and no nested table anywhere in
-    it (see :func:`_pathology_reason`). A clean table is replaced outright by
-    a ``RawBlock`` containing a ``table``/``tabular`` float using
+_DEGRADED_TABLE_NOTE = "[table structure simplified -- verify against source]"
+
+
+def _flatten_nested_table_text(table: pf.Table) -> str:
+    """Plain-text flatten of a nested table: cells ``"; "``-joined, rows
+    ``" / "``-joined.
+
+    Used only when a pathological table's cell itself contains a nested
+    Table AST node -- a second ``tabular``/``longtable`` inside a cell is not
+    legal LaTeX, so the nested table can never be rendered as a table again
+    here; every leaf of its content is kept as plain text instead (structure
+    lost, content preserved, matching the vMerge-duplication degrade below).
+    ``pf.stringify`` recurses through arbitrarily nested content on its own,
+    so a table nested inside *this* nested table's own cells is handled for
+    free without any extra recursion here.
+    """
+    rows = list(table.head.content)
+    for body in table.content:
+        rows.extend(body.head)
+        rows.extend(body.content)
+    rows.extend(table.foot.content)
+
+    row_texts = []
+    for row in rows:
+        cell_texts = [pf.stringify(cell).strip() for cell in row.content]
+        joined = "; ".join(text for text in cell_texts if text)
+        if joined:
+            row_texts.append(joined)
+    return " / ".join(row_texts)
+
+
+def _degraded_blocks_to_latex(blocks: list, api_version) -> str:
+    """Like :func:`_blocks_to_latex`, but first replaces any nested Table
+    descendant with flattened plain text (see
+    :func:`_flatten_nested_table_text`).
+
+    Only used by the degraded-reconstruction path: the clean-table path
+    (:func:`_blocks_to_latex`) never encounters a nested table to begin with
+    -- :func:`_pathology_reason` already excludes any table that has one.
+    """
+    if not blocks:
+        return ""
+    sub_doc = pf.Doc(*blocks, api_version=api_version)
+
+    def flatten(elem: pf.Element, doc: pf.Doc) -> pf.Para | None:
+        if isinstance(elem, pf.Table):
+            return pf.Para(pf.Str(_flatten_nested_table_text(elem)))
+        return None
+
+    sub_doc = sub_doc.walk(flatten)
+    buf = io.StringIO()
+    pf.dump(sub_doc, buf)
+    tex = pypandoc.convert_text(buf.getvalue(), to="latex", format="json")
+    lines = [line for line in tex.replace("\r\n", "\n").split("\n") if line.strip()]
+    return " ".join(lines).strip()
+
+
+@dataclass
+class _GridSlot:
+    """One column-aligned slot in a degraded table's row expansion.
+
+    ``cell`` is the real :class:`panflute.TableCell` that starts here, or
+    ``None`` if this slot is a carried-over duplicate of a vertically merged
+    cell from an earlier row (in which case ``carried_from`` names the
+    original cell whose content is being duplicated, never re-rendered).
+    """
+
+    col: int
+    colspan: int
+    cell: pf.TableCell | None
+    carried_from: pf.TableCell | None = None
+
+
+def _expand_grid_rows(rows: list[pf.TableRow], ncols: int) -> list[list[_GridSlot]]:
+    """Expand each row to ``ncols`` worth of slots, carrying a rowspan cell's
+    reference into every row it originally covered.
+
+    Word's vMerge means pandoc's AST omits a cell entirely at any row/column
+    position the merge covers past the first, so a naive left-to-right walk
+    of ``row.content`` desyncs from the true column index after the first
+    vMerge (the next real cell in a covered row actually belongs to a later
+    column than its position in ``row.content`` suggests). This keeps
+    "column N" meaning the same logical column across every row by tracking,
+    per column, how many more rows a rowspan cell still covers and
+    re-emitting a reference to it (never a fresh copy of the content --
+    callers duplicate the referenced cell's own rendered text) at each of
+    those rows.
+    """
+    pending: dict[int, tuple[pf.TableCell, int]] = {}
+    expanded: list[list[_GridSlot]] = []
+    for row in rows:
+        cells = iter(row.content)
+        col = 0
+        slots: list[_GridSlot] = []
+        while col < ncols:
+            if col in pending:
+                source, remaining = pending[col]
+                slots.append(
+                    _GridSlot(col=col, colspan=source.colspan, cell=None, carried_from=source)
+                )
+                remaining -= 1
+                if remaining > 0:
+                    pending[col] = (source, remaining)
+                else:
+                    del pending[col]
+                col += source.colspan
+                continue
+            cell = next(cells, None)
+            if cell is None:
+                break  # malformed/shorter-than-expected row -- stop, never loop forever
+            if cell.rowspan > 1:
+                pending[col] = (cell, cell.rowspan - 1)
+            slots.append(_GridSlot(col=col, colspan=cell.colspan, cell=cell))
+            col += cell.colspan
+        expanded.append(slots)
+    return expanded
+
+
+def _degraded_column_alignment_letters(table: pf.Table, body_rows: list[pf.TableRow]) -> list[str]:
+    """Like :func:`_column_alignment_letters`, but grid-aware (via
+    :func:`_expand_grid_rows`) so the numeric-vote stays attributed to the
+    correct column even after a vertical merge desyncs raw cell order from
+    column index (see that function's docstring)."""
+    numeric = [0] * table.cols
+    total = [0] * table.cols
+    for slots in _expand_grid_rows(body_rows, table.cols):
+        for slot in slots:
+            if slot.colspan != 1 or slot.col >= table.cols:
+                continue
+            source = slot.cell if slot.cell is not None else slot.carried_from
+            text = pf.stringify(source).strip()
+            if not text:
+                continue
+            total[slot.col] += 1
+            if _NUMERIC_CELL_RE.match(text):
+                numeric[slot.col] += 1
+
+    letters = []
+    for i in range(table.cols):
+        explicit_align = table.colspec[i][0]
+        if explicit_align in _PANDOC_ALIGN_TO_LATEX:
+            letters.append(_PANDOC_ALIGN_TO_LATEX[explicit_align])
+        elif total[i] and numeric[i] * 2 > total[i]:
+            letters.append("r")
+        else:
+            letters.append("l")
+    return letters
+
+
+def _degraded_row_to_latex(
+    slots: list[_GridSlot], api_version, cache: dict[int, str]
+) -> str:
+    """Render one row's grid slots to a LaTeX table row, memoizing each real
+    cell's rendered text by ``id()`` so a vertically merged cell is only run
+    through pandoc once even though its text is duplicated into every row it
+    spans."""
+    parts = []
+    for slot in slots:
+        source = slot.cell if slot.cell is not None else slot.carried_from
+        key = id(source)
+        if key not in cache:
+            cache[key] = _degraded_blocks_to_latex(list(source.content), api_version)
+        text = cache[key]
+        if slot.colspan > 1:
+            align = _PANDOC_ALIGN_TO_LATEX.get(source.alignment, "c")
+            parts.append(f"\\multicolumn{{{slot.colspan}}}{{{align}}}{{{text}}}")
+        else:
+            parts.append(text)
+    return " & ".join(parts) + " \\\\"
+
+
+def _degraded_table_to_latex(table: pf.Table, api_version) -> str:
+    """Best-effort booktabs reconstruction of a pathological table (item 25).
+
+    Ignores the merge/nesting structure that made ``table`` pathological
+    instead of leaving it for pandoc's own default (fragment-mode-incompatible
+    -- see the module docstring) table writer:
+
+        * a vertically merged cell's content is duplicated into every row it
+          originally spanned, instead of ``\\multirow`` (see
+          :func:`_expand_grid_rows`/:func:`_degraded_row_to_latex`);
+        * a nested table's content is flattened to plain text instead of a
+          second (illegal) nested ``tabular``/``longtable`` (see
+          :func:`_degraded_blocks_to_latex`).
+
+    No cell content is ever dropped -- only the merge/nesting STRUCTURE is --
+    and a bold in-document note (:data:`_DEGRADED_TABLE_NOTE`) is appended
+    immediately after the table so a reader (and the report) knows to check
+    the source .docx for the original structure. Needs nothing beyond
+    ``booktabs`` (already unconditional in every journal manifest since item
+    17): no ``longtable``, ``multirow``, ``array``, or ``calc``, so this has
+    no two-column compile exposure in any journal (see the module docstring's
+    fix (a)-vs-(b) writeup).
+    """
+    header_rows = list(table.head.content)
+    body_rows = _table_body_rows(table)
+
+    letters = _degraded_column_alignment_letters(table, body_rows)
+    caption_tex = _degraded_blocks_to_latex(list(table.caption.content), api_version)
+
+    cache: dict[int, str] = {}
+    lines = ["\\begin{table}[htbp]", "\\centering"]
+    if caption_tex:
+        lines.append(f"\\caption{{{caption_tex}}}")
+    lines.append(f"\\begin{{tabular}}{{{''.join(letters)}}}")
+    lines.append("\\toprule")
+    for slots in _expand_grid_rows(header_rows, table.cols):
+        lines.append(_degraded_row_to_latex(slots, api_version, cache))
+    if header_rows:
+        lines.append("\\midrule")
+    for slots in _expand_grid_rows(body_rows, table.cols):
+        lines.append(_degraded_row_to_latex(slots, api_version, cache))
+    lines.append("\\bottomrule")
+    lines.append("\\end{tabular}")
+    lines.append("\\end{table}")
+    lines.append("")
+    lines.append(f"\\noindent\\textbf{{{_DEGRADED_TABLE_NOTE}}}")
+    return "\n".join(lines)
+
+
+def normalize_tables(doc: pf.Doc) -> tuple[pf.Doc, list[FilterFinding]]:
+    """Replace every Table node with hand-assembled booktabs LaTeX.
+
+    "Clean" tables (no vertically merged cell, no nested table anywhere in
+    them -- see :func:`_pathology_reason`) are replaced outright by a
+    ``RawBlock`` containing a ``table``/``tabular`` float using
     ``\\toprule``/``\\midrule``/``\\bottomrule`` and no vertical rules;
     columns are right-aligned when numeric-majority, else left-aligned
     (pandoc's own colspec alignment wins when present); a horizontal span
     (Word's ``gridSpan``) becomes ``\\multicolumn``.
 
-    A table that fails the pathology check is left completely untouched (so
-    pandoc's own default table writer renders it downstream) and a
+    A table that fails the pathology check is reconstructed by
+    :func:`_degraded_table_to_latex` instead -- a booktabs table that
+    discards the merge/nesting structure but keeps every piece of cell
+    content, plus a bold in-document note -- and a
     :class:`~latextify.model.FilterFinding` is recorded naming the table by
     its 1-based document-order index, e.g. ``"table 2: has a vertically
-    merged cell (vMerge); not reconstructed -- falling back to pandoc's
-    default table rendering"``. Never attempts a partial reconstruction --
-    the whole table, unresolved-anchors-and-all, is pandoc's problem again.
+    merged cell (vMerge); merge/nesting structure could not be safely
+    reconstructed -- emitted as a simplified table with merged cells
+    duplicated and a bold in-document note; verify the structure against the
+    source document"``. See plan item 25 and the module docstring for why
+    this replaced item 17's original "leave it for pandoc's own default table
+    writer" fallback (that output doesn't compile in fragment mode).
 
     Tables nested inside another table's cell are never independently
     counted, transformed, or reported on: the nested table already makes its
     *enclosing* table pathological (see :func:`_pathology_reason`'s nested-
-    table check), and turning the inner one into a raw ``table`` float would
-    plant an illegal float environment inside the outer table's cell content
-    once the outer table falls back to pandoc's normal (non-raw-block)
-    rendering.
+    table check), and the enclosing table's own degraded reconstruction is
+    what flattens it (via :func:`_degraded_blocks_to_latex`) -- the nested
+    Table AST node must still be intact when the enclosing table's action
+    fires, which ``Doc.walk``'s post-order traversal guarantees (a nested
+    table's own action always fires first and is a no-op here).
 
     Mutates ``doc`` in place; also returns it (with findings) for chaining.
     """
@@ -413,12 +707,16 @@ def normalize_tables(doc: pf.Doc) -> tuple[pf.Doc, list[FilterFinding]]:
             findings.append(
                 FilterFinding(
                     message=(
-                        f"table {index}: {reason}; not reconstructed -- "
-                        "falling back to pandoc's default table rendering"
+                        f"table {index}: {reason}; merge/nesting structure "
+                        "could not be safely reconstructed -- emitted as a "
+                        "simplified table with merged cells duplicated and a "
+                        "bold in-document note; verify the structure against "
+                        "the source document"
                     )
                 )
             )
-            return None
+            tex = _degraded_table_to_latex(elem, doc.api_version)
+            return pf.RawBlock(tex, format="latex")
 
         tex = _table_to_latex(elem, doc.api_version)
         return pf.RawBlock(tex, format="latex")

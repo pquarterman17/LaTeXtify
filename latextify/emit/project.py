@@ -180,7 +180,12 @@ def emit_project(
     resolved_tex, anchor_warnings = _resolve_anchors(
         raw_tex, figures, figure_files, citation_result.citations, journal.figure_env
     )
-    warnings = list(conversion_warnings) + list(anchor_warnings)
+    # body_result.findings (heading clamps, table-normalization degradations --
+    # item 25) previously never left convert_docx_to_body's own return value;
+    # surfaced here so they reach EmitResult.warnings / the CLI / report.md
+    # like every other stage's findings do.
+    body_warnings = [EmitWarning(message=finding.message) for finding in body_result.findings]
+    warnings = body_warnings + list(conversion_warnings) + list(anchor_warnings)
 
     reconciliation: ReconciliationReport | None = None
     if citation_result.citations:
