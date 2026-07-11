@@ -20,6 +20,7 @@ packages:
   - name: amssymb
   - name: graphicx
   - name: bm
+  - name: booktabs  # table normalization (plan item 17) emits booktabs rules
   - name: hyperref
     options: [colorlinks=true, linkcolor=blue, citecolor=blue, urlcolor=blue]
 

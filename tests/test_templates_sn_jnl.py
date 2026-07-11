@@ -83,7 +83,7 @@ def test_load_sn_jnl_returns_validated_journal():
     assert j.name == "sn-jnl"
     assert j.document_class == "sn-jnl"
     assert j.class_options == ("pdflatex",)
-    assert [p.name for p in j.packages] == ["amsmath", "amssymb", "graphicx", "bm"]
+    assert [p.name for p in j.packages] == ["amsmath", "amssymb", "graphicx", "bm", "booktabs"]
     assert j.default_mode == "numeric"
     assert j.bib_modes["numeric"].bibstyle == "sn-mathphys-num"
     assert j.bib_modes["authoryear"].bibstyle == "sn-mathphys-ay"

@@ -94,7 +94,10 @@ def test_body_compiles_in_minimal_article_harness(equations_result, tmp_path):
         "\\end{document}\n"
     )
     tex_path = tmp_path / "harness.tex"
-    tex_path.write_text(harness, encoding="utf-8")
+    # newline="" stops text-mode translation turning pandoc's CRLF output into
+    # \r\r\n on Windows, which TeX reads as phantom blank lines (breaks fragile
+    # environments like longtable; harmless for plain paragraphs).
+    tex_path.write_text(harness, encoding="utf-8", newline="")
 
     tectonic_path = ensure_tectonic()
     proc = subprocess.run(
