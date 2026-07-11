@@ -57,21 +57,35 @@ def convert_docx_to_body(docx_path: Path | str, media_dir: Path | str) -> BodyCo
     # Plant citation sentinels into a throwaway copy first (see module
     # docstring); pandoc only reads the file, so the temp dir can go away as
     # soon as the AST is captured.
-    with tempfile.TemporaryDirectory(prefix="latextify-cite-") as cite_tmp:
-        prepared_docx = plant_citation_sentinels(docx_path, cite_tmp)
-        ast_json = pypandoc.convert_file(
-            str(prepared_docx),
-            to="json",
-            format="docx",
-            extra_args=["--extract-media", str(media_dir)],
-        )
-    doc = pf.load(io.StringIO(ast_json))
+    try:
+        with tempfile.TemporaryDirectory(prefix="latextify-cite-") as cite_tmp:
+            prepared_docx = plant_citation_sentinels(docx_path, cite_tmp)
+            ast_json = pypandoc.convert_file(
+                str(prepared_docx),
+                to="json",
+                format="docx",
+                extra_args=["--extract-media", str(media_dir)],
+            )
+        doc = pf.load(io.StringIO(ast_json))
 
-    result = apply_all(doc)
+        result = apply_all(doc)
 
-    filtered_json = io.StringIO()
-    pf.dump(result.doc, filtered_json)
-    tex = pypandoc.convert_text(filtered_json.getvalue(), to="latex", format="json")
+        filtered_json = io.StringIO()
+        pf.dump(result.doc, filtered_json)
+        tex = pypandoc.convert_text(filtered_json.getvalue(), to="latex", format="json")
+    except (RuntimeError, OSError) as exc:
+        # preflight only validates word/document.xml and word/styles.xml
+        # directly with lxml (see latextify.ingest.preflight); a .docx can
+        # pass that check yet still have a structurally broken OOXML package
+        # (missing [Content_Types].xml, a corrupt relationship, ...) that
+        # only pandoc's own docx reader notices. Never let that raw
+        # pypandoc/subprocess failure reach the caller -- wrap it at this
+        # ingest boundary the same way a bad zip or malformed XML is wrapped.
+        raise ValueError(
+            f"{docx_path}: pandoc failed to convert this document (it may be "
+            f"corrupt or use a docx package structure pandoc's reader can't "
+            f"parse): {exc}"
+        ) from exc
 
     return BodyConversionResult(
         tex=tex,

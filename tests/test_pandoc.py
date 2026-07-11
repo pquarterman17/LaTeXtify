@@ -34,6 +34,26 @@ def test_fixture_exists():
     )
 
 
+def test_convert_docx_to_body_rejects_docx_pandoc_cannot_parse(tmp_path):
+    """A .docx with well-formed word/document.xml but missing the surrounding
+    OOXML package parts (no [Content_Types].xml) passes preflight's direct
+    lxml reads, but pandoc's own docx reader chokes on it -- that must
+    surface as a clean, actionable ValueError, never a raw pypandoc
+    RuntimeError."""
+    import zipfile
+
+    docx_path = tmp_path / "broken_package.docx"
+    with zipfile.ZipFile(docx_path, "w") as archive:
+        archive.writestr(
+            "word/document.xml",
+            '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">'
+            "<w:body><w:p><w:r><w:t>Hello world</w:t></w:r></w:p></w:body></w:document>",
+        )
+
+    with pytest.raises(ValueError, match=r"(?i)pandoc"):
+        convert_docx_to_body(docx_path, tmp_path / "media")
+
+
 def test_returns_body_conversion_result(equations_result):
     assert isinstance(equations_result, BodyConversionResult)
     assert equations_result.media_dir.is_dir()
