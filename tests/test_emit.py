@@ -460,3 +460,67 @@ def test_unknown_journal_raises_manifest_error(tmp_path):
     docx = _copy_fixture(tmp_path, FIGURES_DOCX)
     with pytest.raises(ManifestError):
         emit_project(docx, "no-such-journal", tmp_path / "output")
+
+
+# --------------------------------------------------------------------------- #
+# Consolidated report generation (plan item 16)
+# --------------------------------------------------------------------------- #
+
+
+def test_report_md_written_by_default(tmp_path):
+    docx = _copy_fixture(tmp_path, ZOTERO_DOCX)
+    result = emit_project(docx, "revtex4-2", tmp_path / "output")
+
+    assert result.report_path is not None
+    assert result.report_path.is_file()
+    assert result.report_path.name == "report.md"
+
+
+def test_report_skipped_when_report_false(tmp_path):
+    docx = _copy_fixture(tmp_path, ZOTERO_DOCX)
+    result = emit_project(docx, "revtex4-2", tmp_path / "output", report=False)
+
+    assert result.report_path is None
+    assert not (result.output_dir / "report.md").exists()
+
+
+def test_report_contains_all_sections(tmp_path):
+    # Use a fixture that exercises multiple stages: preflight, figures, citations.
+    docx = _copy_fixture(tmp_path, FIGURES_DOCX)
+    result = emit_project(docx, "revtex4-2", tmp_path / "output")
+
+    report_text = result.report_path.read_text(encoding="utf-8")
+
+    # Report should have all four major sections
+    assert "## Preflight Findings" in report_text
+    assert "## Citation Extraction" in report_text
+    assert "## Figures" in report_text
+    assert "## Compilation" in report_text
+
+    # Figures section should mention the embedded figures
+    assert "Fig 1" in report_text
+    assert "Fig 2" in report_text
+    assert "Fig 3" in report_text
+
+    # Compilation should say "not compiled"
+    assert "Not compiled" in report_text
+
+
+def test_report_stable_across_runs(tmp_path):
+    docx = _copy_fixture(tmp_path, FIGURES_DOCX)
+    result1 = emit_project(docx, "revtex4-2", tmp_path / "output1")
+    report1 = result1.report_path.read_text(encoding="utf-8")
+
+    # Manually copy the docx fixture again for a second run
+    docx2 = _copy_fixture(tmp_path, FIGURES_DOCX)
+    docx2.rename(tmp_path / "figures2.docx")
+    result2 = emit_project(tmp_path / "figures2.docx", "revtex4-2", tmp_path / "output2")
+    report2 = result2.report_path.read_text(encoding="utf-8")
+
+    # The reports should be identical except for timestamps (which we ignore for this check).
+    # Extract non-timestamp parts for comparison.
+    def normalize_report(text):
+        lines = text.split("\n")
+        return "\n".join(line for line in lines if "Generated:" not in line)
+
+    assert normalize_report(report1) == normalize_report(report2)

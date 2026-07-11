@@ -75,9 +75,12 @@ from latextify.figures.extract import extract_figures
 from latextify.figures.override import resolve_overrides
 from latextify.ingest.citation_sentinels import SENTINEL_RE
 from latextify.ingest.pandoc import convert_docx_to_body
+from latextify.ingest.preflight import run_preflight
 from latextify.model.emit import EmitResult, EmitWarning
 from latextify.model.figure import Figure
+from latextify.model.reconcile import ReconciliationReport
 from latextify.model.refs import Citation, RefEntry
+from latextify.report.render import write_report
 from latextify.templates import loader as templates_loader
 from latextify.templates.loader import FigureEnv
 
@@ -119,6 +122,7 @@ def emit_project(
     citation_style: str | None = None,
     journals_dir: Path | None = None,
     crossref_mailto: str | None = None,
+    report: bool = True,
 ) -> EmitResult:
     """Convert ``docx_path`` into a journal-ready LaTeX project.
 
@@ -143,6 +147,7 @@ def emit_project(
             citation reconstruction (only used when the document has no citation
             field codes). Defaults to the ``LATEXTIFY_CROSSREF_MAILTO`` env var
             or a documented placeholder; override it with a real address.
+        report: if True (default), generate report.md; if False, skip it.
 
     Returns:
         An :class:`~latextify.model.emit.EmitResult` naming every written
@@ -154,6 +159,9 @@ def emit_project(
     figures_dir = output_dir / "figures"
     generated_dir.mkdir(parents=True, exist_ok=True)
     figures_dir.mkdir(parents=True, exist_ok=True)
+
+    # Preflight: inventory and flag unsupported constructs before any conversion.
+    preflight_report = run_preflight(docx_path)
 
     journal = templates_loader.load(journal_name, journals_dir=journals_dir)
     meta = load_meta(docx_path)
@@ -174,6 +182,7 @@ def emit_project(
     )
     warnings = list(conversion_warnings) + list(anchor_warnings)
 
+    reconciliation: ReconciliationReport | None = None
     if citation_result.citations:
         # Field-coded path (Zotero/Mendeley/...): body already carries sentinels
         # /anchors resolved above; keep the extracted, keyed entries verbatim.
@@ -182,11 +191,14 @@ def emit_project(
         citation_count = len(citation_result.citations)
     else:
         # No field codes anywhere -> plain-text reconstruction safety net (item 14).
-        entries, resolved_tex, plaintext_warnings = _link_plaintext_citations(
+        entries, resolved_tex, plaintext_warnings, plaintext_records = _link_plaintext_citations(
             docx_path, resolved_tex, crossref_mailto
         )
         warnings.extend(plaintext_warnings)
         citation_count = resolved_tex.count("\\cite{")
+        # Capture reconciliation records for the report (item 16).
+        if plaintext_records:
+            reconciliation = ReconciliationReport(records=plaintext_records)
 
     bib_text = entries_to_bib(entries)
 
@@ -206,7 +218,18 @@ def emit_project(
     if main_tex_written:
         main_tex_path.write_text(_MAIN_TEX_TEMPLATE, encoding="utf-8")
 
-    return EmitResult(
+    # Generate consolidated report (item 16).
+    report_path: Path | None = None
+    if report:
+        report_path = write_report(
+            output_dir / "report.md",
+            preflight=preflight_report,
+            emit_result=None,  # Will be filled below after EmitResult is constructed
+            reconciliation=reconciliation,
+            compile_result=None,  # Only added if --pdf is used (item 16 CLI wiring)
+        )
+
+    result = EmitResult(
         output_dir=output_dir,
         journal_name=journal_name,
         main_tex_path=main_tex_path,
@@ -220,7 +243,20 @@ def emit_project(
         citation_count=citation_count,
         figures=figures,
         warnings=tuple(warnings),
+        report_path=report_path,
     )
+
+    # Rewrite report with emit_result included (now that we have the full result).
+    if report:
+        report_path = write_report(
+            output_dir / "report.md",
+            preflight=preflight_report,
+            emit_result=result,
+            reconciliation=reconciliation,
+            compile_result=None,
+        )
+
+    return result
 
 
 # --------------------------------------------------------------------------- #
@@ -429,23 +465,24 @@ def _citation_linkage_warning(
 
 def _link_plaintext_citations(
     docx_path: Path, tex: str, mailto: str | None
-) -> tuple[list[RefEntry], str, list[EmitWarning]]:
+) -> tuple[list[RefEntry], str, list[EmitWarning], tuple]:
     """Reconstruct a typed bibliography and link its in-text markers.
 
     Returns the reconstructed ``.bib`` entries, the body with markers rewritten
-    to ``\\cite{...}`` and the duplicate typed reference list removed, and the
-    accumulated warnings (unresolved markers + low-confidence ``verify`` refs).
+    to ``\\cite{...}`` and the duplicate typed reference list removed, the
+    accumulated warnings (unresolved markers + low-confidence ``verify`` refs),
+    and the reconciliation records for the report.
     A document with no typed reference list yields no entries and an untouched
     body -- there is nothing to reconstruct or link.
     """
     result = reconstruct_citations(docx_path, mailto=mailto)
     if not result.has_reference_list:
-        return [], tex, []
+        return [], tex, [], ()
     tex = strip_reference_section(tex, result)
     tex, messages = link_body_markers(tex, result)
     warnings = [EmitWarning(message=message) for message in messages]
     warnings.extend(_verify_warnings(result.records))
-    return result.entries, tex, warnings
+    return result.entries, tex, warnings, result.records
 
 
 def _verify_warnings(records) -> list[EmitWarning]:
