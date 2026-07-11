@@ -11,7 +11,6 @@ import shutil
 from pathlib import Path
 
 import pytest
-
 from typer.testing import CliRunner
 
 from latextify.cli import app
