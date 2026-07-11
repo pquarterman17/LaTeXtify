@@ -11,4 +11,11 @@ Planned types (plan items 2-9 populate them):
     Citation                   -- in-text anchor -> list of citation keys
     RefEntry                   -- one bibliography entry (CSL-shaped fields)
     PreflightFinding           -- severity, location, message
+
+Implemented so far:
+    compile.py -- CompileDiagnostic, CompileResult (plan item 6)
 """
+
+from latextify.model.compile import CompileDiagnostic, CompileResult, DiagnosticSeverity
+
+__all__ = ["CompileDiagnostic", "CompileResult", "DiagnosticSeverity"]

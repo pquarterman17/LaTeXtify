@@ -130,6 +130,7 @@ dependencies = [
     { name = "jinja2" },
     { name = "lxml" },
     { name = "panflute" },
+    { name = "platformdirs" },
     { name = "pypandoc-binary" },
     { name = "pyyaml" },
     { name = "rapidfuzz" },
@@ -148,6 +149,7 @@ requires-dist = [
     { name = "jinja2", specifier = ">=3.1" },
     { name = "lxml", specifier = ">=5.0" },
     { name = "panflute", specifier = ">=2.3" },
+    { name = "platformdirs", specifier = ">=4.0" },
     { name = "pypandoc-binary", specifier = ">=1.13" },
     { name = "pyyaml", specifier = ">=6.0" },
     { name = "rapidfuzz", specifier = ">=3.0" },
@@ -377,6 +379,15 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/b7/91/b659923bea127e51bc1b279c3afb3724cae116893ddba7ae498a97496693/panflute-2.3.1.tar.gz", hash = "sha256:5f1bd02a34ef3982ee025ec5b58fb3a6eedfc31d994b8ae39d8dc9915a2d8f1f", size = 44829, upload-time = "2024-03-20T05:47:41.374Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/bf/dd/49f5d0aa985c14218da8759ec4a93390b683c92fd9081d5b96383d48db6e/panflute-2.3.1-py3-none-any.whl", hash = "sha256:e44afd875b7b17ffebbbe58282849df06d9f1b20a45a2f933cd51bdcf4e89130", size = 36714, upload-time = "2024-03-20T05:47:38.375Z" },
+]
+
+[[package]]
+name = "platformdirs"
+version = "4.10.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/d7/47/e4501f49c178ae1d9f4a75073fda4204f52647993f075a9db4d14930e0c5/platformdirs-4.10.0.tar.gz", hash = "sha256:31e761a6a0ca04faf7353ea759bdba55652be214725111e5aac52dfa29d4bef7", size = 31224, upload-time = "2026-05-28T03:32:53.587Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/81/e6/cd9575ac904136b3cbf7aa7ee819ef86eedb7274e46f230e94ea4342e729/platformdirs-4.10.0-py3-none-any.whl", hash = "sha256:fb516cdb12eb0d857d0cd85a7c57cea4d060bee4578d6cf5a14dfdf8cbf8784a", size = 22743, upload-time = "2026-05-28T03:32:52.175Z" },
 ]
 
 [[package]]
