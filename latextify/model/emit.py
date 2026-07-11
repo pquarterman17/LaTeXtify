@@ -42,6 +42,7 @@ class EmitResult:
     (plan item 15's ``convert_for_latex`` fills in ``conversion_note`` on
     each one before this result is built) for the consolidated report
     (plan item 16) to read.
+    ``report_path`` is the path to the consolidated report.md (added by item 16).
     """
 
     output_dir: Path
@@ -57,3 +58,4 @@ class EmitResult:
     citation_count: int
     figures: tuple[Figure, ...] = field(default_factory=tuple)
     warnings: tuple[EmitWarning, ...] = field(default_factory=tuple)
+    report_path: Path | None = None

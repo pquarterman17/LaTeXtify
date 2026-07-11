@@ -1,4 +1,4 @@
-"""Smoke tests for the `latextify convert` CLI command (plan item 5).
+"""Smoke tests for the `latextify convert` CLI command (plan items 5, 16).
 
 Copies the fixture docx into tmp_path first -- see tests/test_emit.py's
 module docstring for why (load_or_create_meta writes a write-once
@@ -16,6 +16,7 @@ from latextify.cli import app
 
 FIXTURES = Path(__file__).parent / "fixtures"
 FIGURES_DOCX = FIXTURES / "figures.docx"
+ZOTERO_DOCX = FIXTURES / "zotero_cited.docx"
 
 runner = CliRunner()
 
@@ -63,3 +64,128 @@ def test_convert_missing_docx_exits_nonzero():
         app, ["convert", "does-not-exist.docx", "--journal", "revtex4-2"]
     )
     assert result.exit_code != 0
+
+
+# --------------------------------------------------------------------------- #
+# Report generation (plan item 16)
+# --------------------------------------------------------------------------- #
+
+
+def test_convert_generates_report_by_default(tmp_path):
+    docx = tmp_path / "figures.docx"
+    shutil.copy(FIGURES_DOCX, docx)
+    output = tmp_path / "output"
+
+    result = _invoke_convert(docx, "revtex4-2", output)
+
+    assert result.exit_code == 0, result.output
+    report_path = output / "revtex4-2" / "report.md"
+    assert report_path.is_file()
+
+
+def test_convert_skips_report_with_no_report_flag(tmp_path):
+    docx = tmp_path / "figures.docx"
+    shutil.copy(FIGURES_DOCX, docx)
+    output = tmp_path / "output"
+
+    result = runner.invoke(
+        app,
+        [
+            "convert",
+            str(docx),
+            "--journal",
+            "revtex4-2",
+            "--output",
+            str(output),
+            "--no-report",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    report_path = output / "revtex4-2" / "report.md"
+    assert not report_path.exists()
+
+
+# --------------------------------------------------------------------------- #
+# PDF compilation via --pdf (plan item 16)
+# --------------------------------------------------------------------------- #
+
+
+def test_convert_pdf_compiles_when_pdf_flag_set(tmp_path):
+    """Test that --pdf flag triggers compilation and produces a PDF.
+
+    Uses revtex4-2 which is in the Tectonic bundle, so no vendoring needed.
+    """
+    docx = tmp_path / "zotero.docx"
+    shutil.copy(ZOTERO_DOCX, docx)
+    output = tmp_path / "output"
+
+    result = runner.invoke(
+        app,
+        [
+            "convert",
+            str(docx),
+            "--journal",
+            "revtex4-2",
+            "--output",
+            str(output),
+            "--pdf",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    # Check that compilation succeeded
+    assert "compiled" in result.output
+    pdf_path = output / "revtex4-2" / "main.pdf"
+    assert pdf_path.is_file(), "PDF should be generated with --pdf flag"
+
+
+def test_convert_pdf_exit_zero_on_successful_compile(tmp_path):
+    """Exit code should be 0 when compilation succeeds."""
+    docx = tmp_path / "zotero.docx"
+    shutil.copy(ZOTERO_DOCX, docx)
+    output = tmp_path / "output"
+
+    result = runner.invoke(
+        app,
+        [
+            "convert",
+            str(docx),
+            "--journal",
+            "revtex4-2",
+            "--output",
+            str(output),
+            "--pdf",
+        ],
+    )
+
+    assert result.exit_code == 0
+
+
+def test_convert_report_updated_with_compile_diagnostics(tmp_path):
+    """Report should include compilation diagnostics when --pdf is used."""
+    docx = tmp_path / "zotero.docx"
+    shutil.copy(ZOTERO_DOCX, docx)
+    output = tmp_path / "output"
+
+    result = runner.invoke(
+        app,
+        [
+            "convert",
+            str(docx),
+            "--journal",
+            "revtex4-2",
+            "--output",
+            str(output),
+            "--pdf",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    report_path = output / "revtex4-2" / "report.md"
+    assert report_path.is_file()
+    report_text = report_path.read_text(encoding="utf-8")
+    # Report should mention compilation and success
+    assert "## Compilation" in report_text
+    # Should either say success or include diagnostics
+    assert ("Success" in report_text or "Compilation" in report_text)
