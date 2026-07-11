@@ -180,17 +180,20 @@ by its context block.
 22. **Additional journals** — ACS (achemso), IOP (iopart), Wiley — pure journal folders copying items 10-12 patterns. **Model:** Haiku 4.5.
 
 
-26. **IEEEtran fails on citation-free manuscripts** (found by item 25) —
-    `main.tex` unconditionally includes `\bibliography{references}`; with an
-    empty references.bib, IEEEtran's `\thebibliography` redefinition errors
-    ("perhaps a missing \item"). Any citation-free document targeting IEEE
-    fails to compile. Fix direction: bibliography inclusion must move into
-    regenerated content (e.g. a generated include that is empty when there
-    are zero entries) since main.tex is write-once. **Model:** Sonnet 5.
-    **Depends on:** — (assigned to the 2026-07-11 bug-hunt wave).
 
 ## Completed
 
+- ~~**#26 IEEEtran fails on citation-free manuscripts**~~ (2026-07-11) —
+  fixed in the bug-hunt wave: bibliography inclusion moved to regenerated
+  `generated/bibliography.tex` (\bibliography line when entries exist,
+  self-explaining comment when none); new main.tex template \inputs it;
+  pre-existing main.tex files preserved with a one-line-migration
+  EmitWarning. Proven by real clean.docx→ieeetran→PDF compile. Same wave
+  also fixed: metadata LaTeX-specials escaping at the render boundary (all
+  four journals — compile-breaker for real titles), uniform MetadataError
+  for out-of-range affiliation indices, EmitResult.warnings actually
+  reaching report.md + markdown-injection sanitization, duplicate-figure-
+  number silent overwrite. 481 tests total.
 - ~~**#25 Pathological-table fallback doesn't compile**~~ (2026-07-11) —
   reproduced in all four journals (`longtable undefined`); macro-injection
   fix (a) evaluated empirically: works for elsarticle/sn-jnl/revtex4-2
