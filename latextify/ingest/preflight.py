@@ -62,7 +62,12 @@ def _read_member_xml(docx_path: str | Path, member: str) -> etree._Element | Non
         if member not in archive.namelist():
             return None
         with archive.open(member) as fh:
-            return etree.parse(fh).getroot()
+            try:
+                return etree.parse(fh).getroot()
+            except etree.XMLSyntaxError as exc:
+                raise ValueError(
+                    f"{docx_path}: not a valid .docx (malformed XML in {member}: {exc})"
+                ) from exc
 
 
 def _paragraph_text(paragraph: etree._Element) -> str:

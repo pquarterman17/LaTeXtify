@@ -87,8 +87,21 @@ def _qn(tag: str) -> str:
 def _read_document_root(docx_path: Path):
     from lxml import etree
 
-    with zipfile.ZipFile(docx_path) as zf, zf.open("word/document.xml") as fh:
-        return etree.parse(fh).getroot()
+    try:
+        archive = zipfile.ZipFile(docx_path)
+    except (zipfile.BadZipFile, OSError) as exc:
+        raise ValueError(f"{docx_path}: not a valid .docx ({exc})") from exc
+    with archive:
+        if "word/document.xml" not in archive.namelist():
+            raise ValueError(f"{docx_path}: not a valid .docx (missing word/document.xml)")
+        with archive.open("word/document.xml") as fh:
+            try:
+                return etree.parse(fh).getroot()
+            except etree.XMLSyntaxError as exc:
+                raise ValueError(
+                    f"{docx_path}: not a valid .docx "
+                    f"(malformed XML in word/document.xml: {exc})"
+                ) from exc
 
 
 def _extract_paragraphs(root, limit: int) -> list[_Para]:

@@ -85,8 +85,16 @@ def _read_document_root(docx_path: Path | str) -> etree._Element:
     except (zipfile.BadZipFile, OSError) as exc:
         raise ValueError(f"{docx_path}: not a valid .docx ({exc})") from exc
     with archive:
+        if "word/document.xml" not in archive.namelist():
+            raise ValueError(f"{docx_path}: not a valid .docx (missing word/document.xml)")
         with archive.open("word/document.xml") as fh:
-            return etree.parse(fh).getroot()
+            try:
+                return etree.parse(fh).getroot()
+            except etree.XMLSyntaxError as exc:
+                raise ValueError(
+                    f"{docx_path}: not a valid .docx "
+                    f"(malformed XML in word/document.xml: {exc})"
+                ) from exc
 
 
 def _enclosing_paragraph(element: etree._Element) -> etree._Element | None:

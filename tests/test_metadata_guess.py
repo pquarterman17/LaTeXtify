@@ -87,6 +87,39 @@ def test_guess_quality_on_titlepage_fixture():
     assert result.checks == {}
 
 
+def test_guess_meta_rejects_non_docx(tmp_path):
+    """A .txt renamed .docx is not a zip at all; must not leak zipfile.BadZipFile."""
+    bogus = tmp_path / "renamed.docx"
+    bogus.write_text("This is just plain text, not a docx.\n", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="not a valid .docx"):
+        guess_meta(bogus)
+
+
+def test_guess_meta_rejects_docx_missing_document_xml(tmp_path):
+    """A valid zip that isn't OOXML (no word/document.xml) must not leak KeyError."""
+    import zipfile
+
+    bogus = tmp_path / "notooxml.docx"
+    with zipfile.ZipFile(bogus, "w") as archive:
+        archive.writestr("hello.txt", "not a word document")
+
+    with pytest.raises(ValueError, match="not a valid .docx"):
+        guess_meta(bogus)
+
+
+def test_guess_meta_rejects_malformed_document_xml(tmp_path):
+    """Malformed XML must not leak a raw lxml.etree.XMLSyntaxError."""
+    import zipfile
+
+    bogus = tmp_path / "malformed.docx"
+    with zipfile.ZipFile(bogus, "w") as archive:
+        archive.writestr("word/document.xml", "<w:document><w:body><w:p>unterminated")
+
+    with pytest.raises(ValueError, match="not a valid .docx"):
+        guess_meta(bogus)
+
+
 def test_guess_low_confidence_flags_when_cues_are_missing(tmp_path):
     """A docx with no recognizable cues should guess conservatively and flag every field."""
     docx_module = pytest.importorskip("docx")

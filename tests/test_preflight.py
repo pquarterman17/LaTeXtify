@@ -145,3 +145,43 @@ def test_run_preflight_rejects_non_docx(tmp_path):
 
     with pytest.raises(ValueError, match="not a valid .docx"):
         run_preflight(bogus)
+
+
+def test_run_preflight_rejects_txt_renamed_to_docx(tmp_path):
+    """A plain-text file with a .docx extension is not a zip at all."""
+    bogus = tmp_path / "renamed.docx"
+    bogus.write_text("This is just plain text, not a docx.\n", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="not a valid .docx"):
+        run_preflight(bogus)
+
+
+def test_run_preflight_rejects_truncated_zip(tmp_path):
+    """A zip that was cut off mid-write must not surface a raw zipfile traceback."""
+    import zipfile
+
+    real = tmp_path / "real.zip"
+    with zipfile.ZipFile(real, "w") as archive:
+        archive.writestr(
+            "word/document.xml",
+            "<w:document xmlns:w='x'><w:body><w:p/></w:body></w:document>",
+        )
+    data = real.read_bytes()
+    truncated = tmp_path / "truncated.docx"
+    truncated.write_bytes(data[: len(data) // 2])
+
+    with pytest.raises(ValueError, match="not a valid .docx"):
+        run_preflight(truncated)
+
+
+def test_run_preflight_rejects_malformed_document_xml(tmp_path):
+    """Malformed XML in word/document.xml must raise a clean ValueError, never
+    a raw lxml.etree.XMLSyntaxError."""
+    import zipfile
+
+    bogus = tmp_path / "malformed.docx"
+    with zipfile.ZipFile(bogus, "w") as archive:
+        archive.writestr("word/document.xml", "<w:document><w:body><w:p>unterminated")
+
+    with pytest.raises(ValueError, match="not a valid .docx"):
+        run_preflight(bogus)

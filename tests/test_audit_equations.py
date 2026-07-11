@@ -38,6 +38,43 @@ def test_fixture_exists():
     )
 
 
+# --------------------------------------------------------------------------- #
+# Corrupt / wrong inputs: clean errors, never a raw traceback
+# --------------------------------------------------------------------------- #
+
+
+def test_extract_equations_rejects_non_docx(tmp_path):
+    bogus = tmp_path / "renamed.docx"
+    bogus.write_text("This is just plain text, not a docx.\n", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="not a valid .docx"):
+        extract_equations(bogus)
+
+
+def test_extract_equations_rejects_docx_missing_document_xml(tmp_path):
+    """A valid zip that isn't OOXML (no word/document.xml) must not leak KeyError."""
+    import zipfile
+
+    bogus = tmp_path / "notooxml.docx"
+    with zipfile.ZipFile(bogus, "w") as archive:
+        archive.writestr("hello.txt", "not a word document")
+
+    with pytest.raises(ValueError, match="not a valid .docx"):
+        extract_equations(bogus)
+
+
+def test_extract_equations_rejects_malformed_document_xml(tmp_path):
+    """Malformed XML must not leak a raw lxml.etree.XMLSyntaxError."""
+    import zipfile
+
+    bogus = tmp_path / "malformed.docx"
+    with zipfile.ZipFile(bogus, "w") as archive:
+        archive.writestr("word/document.xml", "<w:document><w:body><w:p>unterminated")
+
+    with pytest.raises(ValueError, match="not a valid .docx"):
+        extract_equations(bogus)
+
+
 @pytest.fixture(scope="module")
 def result() -> EquationAuditResult:
     return extract_equations(EQUATIONS_DOCX)
