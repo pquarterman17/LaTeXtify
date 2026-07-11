@@ -82,6 +82,26 @@ def _is_heading_paragraph(text: str) -> bool:
     return bool(_HEADING_RE.match(text)) and len(text.strip()) <= 40
 
 
+def _has_list_numbering(paragraph) -> bool:
+    """True when a paragraph carries real Word list numbering (``w:numPr``).
+
+    Word's "Numbering" toolbar button records list membership this way; the
+    displayed "1.", "2.", ... is rendered by Word from the list definition and
+    never appears as literal text in any ``w:t`` run, unlike a typed "1. Smith
+    ..." reference (which :data:`_LIST_NUMBER_RE` already handles). A
+    ``w:numId`` of ``"0"`` is Word's own convention for "numbering removed
+    from this paragraph" and does not count.
+    """
+    p_pr = paragraph.find(_q("pPr"))
+    if p_pr is None:
+        return False
+    num_pr = p_pr.find(_q("numPr"))
+    if num_pr is None:
+        return False
+    num_id = num_pr.find(_q("numId"))
+    return num_id is None or num_id.get(_q("val")) != "0"
+
+
 @dataclass
 class ReferenceList:
     """The typed reference list segmented from a document."""
@@ -118,6 +138,7 @@ def segment_reference_list(docx_path: Path | str) -> ReferenceList:
         return ReferenceList(heading=None)
 
     references: list[ReferenceItem] = []
+    auto_number = 0
     for paragraph in paragraphs[heading_index + 1 :]:
         text = _paragraph_text(paragraph).strip()
         if not text:
@@ -127,6 +148,12 @@ def segment_reference_list(docx_path: Path | str) -> ReferenceList:
             number = int(match.group(1) or match.group(2))
             body = text[match.end() :].strip()
             references.append(ReferenceItem(text=body, number=number))
+        elif _has_list_numbering(paragraph):
+            # Word's own auto-numbering: no typed digits to parse, so assign
+            # sequential numbers in document order (a fresh Word list always
+            # starts at 1 and increments by 1, matching what the reader sees).
+            auto_number += 1
+            references.append(ReferenceItem(text=text, number=auto_number))
         else:
             references.append(ReferenceItem(text=text, number=None))
 

@@ -7,6 +7,7 @@ files with python-docx.
 
 from __future__ import annotations
 
+import zipfile
 from pathlib import Path
 
 from docx import Document
@@ -18,6 +19,65 @@ from latextify.citations.plaintext import (
     segment_reference_list,
     strip_reference_section,
 )
+
+W = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+
+_CONTENT_TYPES = (
+    '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+    '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
+    '<Default Extension="rels" '
+    'ContentType="application/vnd.openxmlformats-package.relationships+xml"/>'
+    '<Default Extension="xml" ContentType="application/xml"/>'
+    '<Override PartName="/word/document.xml" '
+    'ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>'
+    "</Types>"
+)
+_ROOT_RELS = (
+    '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+    '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+    '<Relationship Id="rId1" '
+    'Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" '
+    'Target="word/document.xml"/>'
+    "</Relationships>"
+)
+
+
+def _numbered_paragraph(text: str) -> str:
+    """A paragraph carrying real Word list numbering (``w:pPr/w:numPr``).
+
+    This is what Word's "Numbering" toolbar button produces: the displayed
+    "1." is rendered by Word from the list definition, never typed as text --
+    unlike ``_make_docx``'s ``f"{i}. {ref}"`` convenience below, which types
+    the digits literally and does not exercise this path.
+    """
+    return (
+        "<w:p><w:pPr><w:numPr><w:ilvl w:val=\"0\"/><w:numId w:val=\"1\"/></w:numPr></w:pPr>"
+        f'<w:r><w:t xml:space="preserve">{text}</w:t></w:r></w:p>'
+    )
+
+
+def _plain_paragraph(text: str) -> str:
+    return f'<w:p><w:r><w:t xml:space="preserve">{text}</w:t></w:r></w:p>'
+
+
+def _heading_paragraph(text: str) -> str:
+    return (
+        '<w:p><w:pPr><w:pStyle w:val="Heading1"/></w:pPr>'
+        f'<w:r><w:t xml:space="preserve">{text}</w:t></w:r></w:p>'
+    )
+
+
+def _build_raw_docx(path: Path, body_paragraphs: list[str]) -> Path:
+    body = "".join(body_paragraphs) + '<w:sectPr><w:pgSz w:w="12240" w:h="15840"/></w:sectPr>'
+    document_xml = (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        f'<w:document xmlns:w="{W}"><w:body>{body}</w:body></w:document>'
+    )
+    with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr("[Content_Types].xml", _CONTENT_TYPES)
+        archive.writestr("_rels/.rels", _ROOT_RELS)
+        archive.writestr("word/document.xml", document_xml)
+    return path
 
 # --------------------------------------------------------------------------- #
 # numeric range expansion
@@ -132,6 +192,60 @@ def test_segment_skips_empty_paragraphs(tmp_path):
     doc.save(path)
     reflist = segment_reference_list(path)
     assert [r.number for r in reflist.references] == [1, 2]
+
+
+def test_segment_word_native_numbered_list(tmp_path):
+    # Real Word list numbering (w:numPr) -- the toolbar "Numbering" button --
+    # displays "1.", "2.", ... without ever putting that text in a w:t run.
+    # Without recognizing w:numPr, every reference gets number=None and every
+    # in-text numeric marker in the body fails to link (keys_by_number stays
+    # empty), which is a much more common real-world case than typed digits.
+    docx = _build_raw_docx(
+        tmp_path / "numpr.docx",
+        [
+            _heading_paragraph("References"),
+            _numbered_paragraph("Smith, A. First paper. J. A 1 (2020)."),
+            _numbered_paragraph("Jones, B. Second paper. J. B 2 (2019)."),
+            _numbered_paragraph("Doe, C. Third paper. J. C 3 (2018)."),
+        ],
+    )
+    reflist = segment_reference_list(docx)
+    assert reflist.found
+    assert [r.number for r in reflist.references] == [1, 2, 3]
+    assert reflist.references[0].text.startswith("Smith")
+    assert reflist.references[1].text.startswith("Jones")
+
+
+def test_segment_word_native_numbered_list_mixed_with_typed_number(tmp_path):
+    # A typed leading number always wins over the numPr-based sequential
+    # fallback, even inside an otherwise auto-numbered list.
+    docx = _build_raw_docx(
+        tmp_path / "mixed.docx",
+        [
+            _heading_paragraph("References"),
+            _numbered_paragraph("Smith, A. First paper. (2020)."),
+            "<w:p><w:pPr><w:numPr><w:ilvl w:val=\"0\"/><w:numId w:val=\"1\"/></w:numPr></w:pPr>"
+            '<w:r><w:t xml:space="preserve">99. Jones, B. Second paper. (2019).</w:t></w:r></w:p>',
+        ],
+    )
+    reflist = segment_reference_list(docx)
+    assert [r.number for r in reflist.references] == [1, 99]
+    assert reflist.references[1].text.startswith("Jones")
+
+
+def test_segment_plain_paragraphs_without_numpr_still_unnumbered(tmp_path):
+    # No regression: ordinary (non-list, non-typed-number) paragraphs keep
+    # number=None, same as before w:numPr recognition was added.
+    docx = _build_raw_docx(
+        tmp_path / "plain.docx",
+        [
+            _heading_paragraph("References"),
+            _plain_paragraph("Smith, A. First paper. (2020)."),
+            _plain_paragraph("Jones, B. Second paper. (2019)."),
+        ],
+    )
+    reflist = segment_reference_list(docx)
+    assert [r.number for r in reflist.references] == [None, None]
 
 
 # --------------------------------------------------------------------------- #
