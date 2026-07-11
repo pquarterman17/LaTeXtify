@@ -14,6 +14,7 @@ import pypandoc
 
 from latextify.ingest.filters import (
     normalize_headings,
+    normalize_tables,
     plant_anchors,
     strip_word_junk,
 )
@@ -196,3 +197,164 @@ def test_anchors_survive_latex_emission_unescaped():
 
     # document order
     assert tex.index("%%FIGURE:1%%") < tex.index("%%CITE:1%%") < tex.index("%%FIGURE:2%%")
+
+
+# ---------------------------
+# normalize_tables
+# ---------------------------
+
+
+def _simple_table(*, header: bool = True) -> pf.Table:
+    """A clean 2-column table: text ID column, numeric-majority value column."""
+    body_rows = [
+        pf.TableRow(pf.TableCell(pf.Plain(pf.Str("A"))), pf.TableCell(pf.Plain(pf.Str("3.14")))),
+        pf.TableRow(pf.TableCell(pf.Plain(pf.Str("B"))), pf.TableCell(pf.Plain(pf.Str("-2.5")))),
+    ]
+    head = None
+    if header:
+        head = pf.TableHead(
+            pf.TableRow(
+                pf.TableCell(pf.Plain(pf.Str("Sample"))),
+                pf.TableCell(pf.Plain(pf.Str("Value"))),
+            )
+        )
+    return pf.Table(pf.TableBody(*body_rows), head=head)
+
+
+def test_clean_table_becomes_a_single_rawblock():
+    doc = pf.Doc(_simple_table(), api_version=(1, 23, 1))
+    doc, findings = normalize_tables(doc)
+
+    assert findings == []
+    assert len(doc.content) == 1
+    assert isinstance(doc.content[0], pf.RawBlock)
+    assert doc.content[0].format == "latex"
+
+
+def test_clean_table_uses_booktabs_rules_and_no_vertical_bars():
+    doc = pf.Doc(_simple_table(), api_version=(1, 23, 1))
+    doc, _ = normalize_tables(doc)
+    tex = doc.content[0].text
+
+    assert "\\toprule" in tex
+    assert "\\midrule" in tex
+    assert "\\bottomrule" in tex
+    assert "|" not in tex  # no vertical rules anywhere, incl. the column spec
+    assert "\\begin{tabular}{lr}" in tex  # text col left, numeric-majority col right
+    assert "Sample & Value \\\\" in tex
+    assert "A & 3.14 \\\\" in tex
+    assert "B & -2.5 \\\\" in tex
+
+
+def test_clean_table_without_header_row_skips_midrule():
+    doc = pf.Doc(_simple_table(header=False), api_version=(1, 23, 1))
+    doc, findings = normalize_tables(doc)
+
+    assert findings == []
+    tex = doc.content[0].text
+    assert "\\midrule" not in tex
+    assert "\\toprule" in tex
+    assert "\\bottomrule" in tex
+
+
+def test_horizontal_merge_becomes_multicolumn():
+    header = pf.TableHead(
+        pf.TableRow(
+            pf.TableCell(pf.Plain(pf.Str("Run"))),
+            pf.TableCell(pf.Plain(pf.Str("Measurement")), colspan=2),
+        )
+    )
+    body = pf.TableBody(
+        pf.TableRow(
+            pf.TableCell(pf.Plain(pf.Str("1"))),
+            pf.TableCell(pf.Plain(pf.Str("10"))),
+            pf.TableCell(pf.Plain(pf.Str("K"))),
+        )
+    )
+    table = pf.Table(body, head=header)
+    doc = pf.Doc(table, api_version=(1, 23, 1))
+    doc, findings = normalize_tables(doc)
+
+    assert findings == []
+    tex = doc.content[0].text
+    assert "\\multicolumn{2}{c}{Measurement}" in tex
+
+
+def test_column_alignment_respects_explicit_pandoc_alignment():
+    # All-numeric column, but pandoc's own colspec says AlignLeft -- that
+    # must win over the numeric-majority inference (which would say right).
+    body = pf.TableBody(
+        pf.TableRow(pf.TableCell(pf.Plain(pf.Str("1")))),
+        pf.TableRow(pf.TableCell(pf.Plain(pf.Str("2")))),
+    )
+    table = pf.Table(body, colspec=[("AlignLeft", "ColWidthDefault")])
+    doc = pf.Doc(table, api_version=(1, 23, 1))
+    doc, findings = normalize_tables(doc)
+
+    assert findings == []
+    tex = doc.content[0].text
+    assert "\\begin{tabular}{l}" in tex
+
+
+def test_vmerge_table_left_untouched_with_a_finding():
+    # A rowspan>1 cell (Word's vMerge) makes this table pathological.
+    body = pf.TableBody(
+        pf.TableRow(
+            pf.TableCell(pf.Plain(pf.Str("1"))),
+            pf.TableCell(pf.Plain(pf.Str("10")), rowspan=2),
+        ),
+        pf.TableRow(pf.TableCell(pf.Plain(pf.Str("2")))),
+    )
+    table = pf.Table(body)
+    doc = pf.Doc(table, api_version=(1, 23, 1))
+    doc, findings = normalize_tables(doc)
+
+    assert len(findings) == 1
+    assert "table 1" in findings[0].message
+    assert "vertically merged cell (vMerge)" in findings[0].message
+    assert "falling back to pandoc's default table rendering" in findings[0].message
+    # Untouched: still a Table node, not replaced by a RawBlock.
+    assert isinstance(doc.content[0], pf.Table)
+
+
+def test_nested_table_flagged_once_and_not_independently_transformed():
+    inner = pf.Table(pf.TableBody(pf.TableRow(pf.TableCell(pf.Plain(pf.Str("inner"))))))
+    outer = pf.Table(pf.TableBody(pf.TableRow(pf.TableCell(inner))))
+    doc = pf.Doc(outer, api_version=(1, 23, 1))
+    doc, findings = normalize_tables(doc)
+
+    assert len(findings) == 1
+    assert "table 1" in findings[0].message
+    assert "nested table" in findings[0].message
+    # The outer table is untouched, and so -- transitively -- is the inner
+    # one nested inside its cell (never independently turned into a
+    # RawBlock, which would be an illegal float inside a table cell).
+    assert isinstance(doc.content[0], pf.Table)
+    inner_cell_content = doc.content[0].content[0].content[0].content[0].content[0]
+    assert isinstance(inner_cell_content, pf.Table)
+
+
+def test_sibling_clean_table_unaffected_by_a_pathological_table():
+    vmerge_body = pf.TableBody(
+        pf.TableRow(
+            pf.TableCell(pf.Plain(pf.Str("1"))),
+            pf.TableCell(pf.Plain(pf.Str("x")), rowspan=2),
+        ),
+        pf.TableRow(pf.TableCell(pf.Plain(pf.Str("2")))),
+    )
+    pathological = pf.Table(vmerge_body)
+    clean = _simple_table()
+    doc = pf.Doc(pathological, clean, api_version=(1, 23, 1))
+    doc, findings = normalize_tables(doc)
+
+    assert len(findings) == 1
+    assert "table 1" in findings[0].message  # the pathological one, first in doc order
+    assert isinstance(doc.content[0], pf.Table)  # left alone
+    assert isinstance(doc.content[1], pf.RawBlock)  # the clean sibling still converts
+
+
+def test_doc_without_tables_is_untouched_and_finding_free():
+    doc = pf.Doc(pf.Para(pf.Str("no tables here")))
+    doc, findings = normalize_tables(doc)
+    assert findings == []
+    assert isinstance(doc.content[0], pf.Para)
