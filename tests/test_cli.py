@@ -309,6 +309,76 @@ def test_journals_command_lists_correct_modes():
 
 
 # --------------------------------------------------------------------------- #
+# OUT-OF-BOUNDS FINDING (reported, not fixed -- see docstring):
+# figures.extract / emit.project desync with an image nested in a table cell
+# --------------------------------------------------------------------------- #
+
+
+@pytest.mark.xfail(
+    reason=(
+        "OUT-OF-BOUNDS BUG (not fixed by this hunt -- belongs to "
+        "latextify/figures/extract.py + latextify/emit/project.py, both "
+        "outside this hunt's territory). "
+        "latextify.ingest.filters.plant_anchors (in-territory) walks the "
+        "WHOLE document tree, so an Image nested inside a table cell gets a "
+        "%%FIGURE:<n>%% anchor and is counted in "
+        "BodyConversionResult.figure_count -- deliberately, per the "
+        "filters.py module docstring. But "
+        "latextify.figures.extract.extract_figures only iterates "
+        "doc.content (TOP-LEVEL blocks) and extract_figures._find_image "
+        "only descends into Para/Plain/Figure blocks -- never Table -- so "
+        "it silently never produces a Figure record for that same image. "
+        "extract.py's own docstring even documents the assumption this "
+        "violates: 'for the flat paragraph structure real manuscripts use "
+        "(one image per paragraph, no images nested inside other block "
+        "containers), both traversals visit images in the same order and "
+        "therefore agree on numbers' -- an image in a table cell breaks "
+        "exactly that assumption. The visible symptom: the anchor resolves "
+        "to a permanent 'unresolved figure anchor' EmitWarning + a literal "
+        "'[UNRESOLVED FIGURE 1]' placeholder injected into the table cell "
+        "(verified by running latextify.emit.project.emit_project "
+        "directly). Fix needs figures/extract.py to also walk into Table "
+        "cells (or a documented, deliberate decision to exclude "
+        "table-nested images from plant_anchors' count too, keeping both "
+        "stages' assumptions in sync) -- either way, a change to code "
+        "outside this hunt's territory."
+    ),
+    strict=True,
+)
+def test_image_in_table_cell_desyncs_with_figures_extract(tmp_path):
+    docx_module = pytest.importorskip("docx")
+    pil_image = pytest.importorskip("PIL.Image")
+
+    img_path = tmp_path / "dot.png"
+    pil_image.new("RGB", (4, 4), color="blue").save(img_path)
+
+    doc = docx_module.Document()
+    doc.add_paragraph(style="Title").add_run("Table With Embedded Image")
+    doc.add_paragraph("Intro text before the table.")
+    table = doc.add_table(rows=1, cols=2)
+    table.cell(0, 0).text = "Label"
+    run = table.cell(0, 1).paragraphs[0].add_run()
+    run.add_picture(str(img_path), width=None)
+    doc.add_paragraph("Outro text after the table.")
+
+    docx_path = tmp_path / "table_with_image.docx"
+    doc.save(docx_path)
+
+    result = _invoke_convert(docx_path, "revtex4-2", tmp_path / "output")
+
+    assert result.exit_code == 0, result.output
+    body_tex = (tmp_path / "output" / "revtex4-2" / "generated" / "body.tex").read_text(
+        encoding="utf-8"
+    )
+    # What SHOULD happen: the image is resolved into a real
+    # \includegraphics reference, matching figure 1.
+    assert "UNRESOLVED FIGURE" not in body_tex, (
+        "figures.extract now resolves table-nested images -- promote this "
+        "xfail to a real assertion and remove the OUT-OF-BOUNDS note above"
+    )
+
+
+# --------------------------------------------------------------------------- #
 # Report generation (plan item 16)
 # --------------------------------------------------------------------------- #
 
@@ -349,8 +419,70 @@ def test_convert_skips_report_with_no_report_flag(tmp_path):
 
 
 # --------------------------------------------------------------------------- #
-# PDF compilation via --pdf (plan item 16) -- real Tectonic compiles
+# PDF compilation via --pdf: structured errors for timeout / missing / broken
+# tectonic binary -- mocked, no real compile or network needed.
 # --------------------------------------------------------------------------- #
+
+
+def test_convert_pdf_compile_timeout_is_a_clean_structured_error(tmp_path, monkeypatch):
+    """A compile that exceeds its timeout raises subprocess.TimeoutExpired
+    (by design -- see compile.tectonic.compile_document's docstring); the
+    CLI's `except Exception` around the --pdf step must turn that into the
+    same "error: ..." + nonzero exit every other failure path uses, never a
+    raw traceback."""
+    import subprocess
+
+    import latextify.cli as cli_module
+
+    docx = tmp_path / "figures.docx"
+    shutil.copy(FIGURES_DOCX, docx)
+    output = tmp_path / "output"
+
+    def _fake_compile_document(*args, **kwargs):
+        raise subprocess.TimeoutExpired(cmd=["tectonic"], timeout=0.001)
+
+    monkeypatch.setattr(cli_module, "compile_document", _fake_compile_document)
+    monkeypatch.setattr(cli_module, "ensure_tectonic", lambda: Path("fake-tectonic"))
+
+    result = runner.invoke(
+        app,
+        ["convert", str(docx), "--journal", "revtex4-2", "--output", str(output), "--pdf"],
+    )
+
+    assert result.exit_code != 0
+    assert result.exception is None or isinstance(result.exception, SystemExit), (
+        f"raw traceback leaked: {result.exception!r}"
+    )
+    assert "error: compilation failed" in result.output
+    assert "timed out" in result.output
+
+
+def test_convert_pdf_tectonic_present_but_fails_to_execute(tmp_path, monkeypatch):
+    """A tectonic binary that exists on PATH/cache but can't actually be
+    executed (corrupt download, permissions, wrong architecture, ...)
+    surfaces as OSError from subprocess.run -- must be a clean error too."""
+    import latextify.cli as cli_module
+
+    docx = tmp_path / "figures.docx"
+    shutil.copy(FIGURES_DOCX, docx)
+    output = tmp_path / "output"
+
+    def _fake_compile_document(*args, **kwargs):
+        raise OSError("[WinError 216] This version of %1 is not compatible")
+
+    monkeypatch.setattr(cli_module, "compile_document", _fake_compile_document)
+    monkeypatch.setattr(cli_module, "ensure_tectonic", lambda: Path("fake-tectonic"))
+
+    result = runner.invoke(
+        app,
+        ["convert", str(docx), "--journal", "revtex4-2", "--output", str(output), "--pdf"],
+    )
+
+    assert result.exit_code != 0
+    assert result.exception is None or isinstance(result.exception, SystemExit), (
+        f"raw traceback leaked: {result.exception!r}"
+    )
+    assert "error: compilation failed" in result.output
 
 
 @pytest.mark.tectonic

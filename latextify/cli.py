@@ -14,6 +14,7 @@ Planned (later items):
 
 from __future__ import annotations
 
+import subprocess
 from pathlib import Path
 
 import typer
@@ -188,7 +189,13 @@ def equations(
         result = write_equation_audit(
             docx_path, output, compile_pdf=pdf, tectonic_path=tectonic_path
         )
-    except ValueError as exc:
+    except (ValueError, OSError, subprocess.SubprocessError) as exc:
+        # ValueError -- corrupt/unsupported docx (extraction, ingest boundary).
+        # OSError/SubprocessError -- compile_document's own documented escape
+        # hatches when --pdf is set (a hung compile raises
+        # subprocess.TimeoutExpired, a tectonic binary present but unable to
+        # execute raises OSError) -- never let either reach the user as a raw
+        # traceback.
         typer.echo(f"error: {exc}", err=True)
         raise typer.Exit(code=1) from exc
 

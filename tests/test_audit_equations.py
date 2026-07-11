@@ -334,6 +334,55 @@ def test_cli_equations_missing_docx_exits_nonzero():
     assert cli_result.exit_code != 0
 
 
+def test_cli_equations_pdf_compile_timeout_is_a_clean_structured_error(tmp_path, monkeypatch):
+    """A compile that exceeds its timeout during --pdf must surface as the
+    same "error: ..." + nonzero exit every other failure path uses, never a
+    raw subprocess.TimeoutExpired traceback (mirrors the `convert` command's
+    equivalent guard around compile_document)."""
+    import subprocess
+
+    import latextify.audit.equations as audit_equations
+
+    def _fake_compile_document(*args, **kwargs):
+        raise subprocess.TimeoutExpired(cmd=["tectonic"], timeout=0.001)
+
+    monkeypatch.setattr(audit_equations, "compile_document", _fake_compile_document)
+
+    output = tmp_path / "audit"
+    cli_result = runner.invoke(
+        app, ["equations", str(EQUATIONS_DOCX), "--output", str(output), "--pdf"]
+    )
+
+    assert cli_result.exit_code != 0
+    assert cli_result.exception is None or isinstance(cli_result.exception, SystemExit), (
+        f"raw traceback leaked: {cli_result.exception!r}"
+    )
+    assert "error:" in cli_result.output
+
+
+def test_cli_equations_pdf_tectonic_present_but_fails_to_execute(tmp_path, monkeypatch):
+    """A tectonic binary that exists but can't actually be executed (corrupt
+    download, permissions, wrong architecture, ...) raises OSError from
+    subprocess.run -- must be a clean error too, not a raw traceback."""
+    import latextify.audit.equations as audit_equations
+
+    def _fake_compile_document(*args, **kwargs):
+        raise OSError("[WinError 216] This version of %1 is not compatible")
+
+    monkeypatch.setattr(audit_equations, "compile_document", _fake_compile_document)
+
+    output = tmp_path / "audit"
+    cli_result = runner.invoke(
+        app, ["equations", str(EQUATIONS_DOCX), "--output", str(output), "--pdf"]
+    )
+
+    assert cli_result.exit_code != 0
+    assert cli_result.exception is None or isinstance(cli_result.exception, SystemExit), (
+        f"raw traceback leaked: {cli_result.exception!r}"
+    )
+    assert "error:" in cli_result.output
+
+
 def test_cli_equations_default_output_dir_is_equation_audit(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     docx = tmp_path / "equations.docx"
