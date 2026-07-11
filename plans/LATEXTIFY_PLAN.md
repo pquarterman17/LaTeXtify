@@ -146,10 +146,11 @@ by its context block.
 
 ### Dependency map
 
-- Tier 1 items 1-9 done; item 24 (citation anchor fix, added 2026-07-11
-  from item 5's finding) is the sole Tier 1 remainder — dispatched
-- Items 10-12 (journal templates) unblocked; items 13-14 should wait for
-  item 24 (they produce citations that need the same linkage path)
+- TIER 1 COMPLETE (items 1-9 + 24, 2026-07-11): end-to-end
+  docx→LaTeX→PDF works for revtex4-2 with linked field-coded citations
+- Items 10-12 (journal templates) and 13-14 (more citation sources, which
+  reuse item 24's sentinel linkage path) are all unblocked and
+  parallelizable; 15 needs 9; 16 needs 2/6/7/9; 17 needs 3; 18 needs 4+7
 - Item 5 requires items 3 + 4
 - Item 9 requires item 3 (media extraction)
 - Items 10–12 require items 4 + 5 (registry + emitter proven on REVTeX)
@@ -161,39 +162,6 @@ by its context block.
 ---
 
 ## Tier 1 — High Impact
-
-24. **Citation anchor planting via docx preprocessing** — link field-coded
-    citations into the body (closes the gap item 5 found)
-    **Model:** Opus 4.8 (crux of the flagship feature; OOXML rewriting with
-    cross-stage index alignment) · **Depends on:** 5 (done) · **Touches:**
-    `latextify/ingest/` (new preprocess module), `latextify/emit/project.py`
-    (anchor strengthening), `ingest/pandoc.py`/`filters.py` docstrings
-    **Context:** VERIFIED FINDING (item 5): pandoc 3.9's docx reader never
-    produces `Cite` AST nodes from Zotero/Mendeley/EndNote field codes — it
-    emits only the cached display text as plain `Str` runs, so
-    `%%CITE:<idx>%%` anchors are never planted and no `\cite{}` reaches the
-    body (bibliography extraction is unaffected). Fix by preprocessing: write
-    a temp copy of the docx whose document.xml has each citation field's
-    RESULT content (runs between fldChar separate/end, or fldSimple's child
-    runs) replaced with a plain-text sentinel; run the existing pandoc
-    pipeline on the copy; post-replace sentinels in body.tex with
-    `\cite{...}`. TRAP: pandoc's LaTeX writer escapes `%` → `\%`, so the
-    sentinel must be alphanumeric-only (e.g. `ZZLTXCITE0ZZ`), not the
-    `%%CITE%%` form. Index alignment: reuse the SAME field enumeration as
-    `citations/fields.py` (document order) so sentinel N pairs with
-    Citation N — share the walker, don't duplicate it. Keep the existing
-    Cite-node path in filters.py (harmless if pandoc ever adds support) but
-    fix the wrong "pandoc converts field codes to Cite elements" claims in
-    ingest docstrings.
-    **Done when:** the end-to-end stub test asserts actual `\cite{...}`
-    commands in generated/body.tex for zotero_cited.docx (the original item
-    7 done-when), the compiled PDF resolves them against references.bib, and
-    the "citations extracted but not linked" EmitWarning no longer fires for
-    field-coded documents.
-    - [ ] Field-result sentinel preprocessing sharing the fields.py walker
-    - [ ] Sentinel→`\cite` resolution in the emitter
-    - [ ] Strengthen test_citations_compile_stub.py to the original done-when
-    - [ ] Correct the ingest docstring claims
 
 ## Tier 2 — Medium Impact
 
@@ -315,6 +283,15 @@ by its context block.
 
 ## Completed
 
+- ~~**#24 Citation anchor planting via docx preprocessing**~~ (2026-07-11) —
+  `plant_citation_sentinels()` rewrites citation field RESULTS to
+  `ZZLTXCITE<i>ZZ` sentinels in a temp docx (shares fields.py's walker, so
+  sentinel i == Citation.index i, nested fields proven aligned); emitter
+  resolves sentinels to `\cite{...}` with comment+EmitWarning degradation;
+  ingest docstring claims corrected. End-to-end test now asserts real
+  `\cite{}` in body + all keys in the compiled .bbl. 180 tests, 0 skipped.
+  NOTES: fldSimple sentinels must be sibling runs (pandoc drops fldSimple
+  inner content); Tectonic needs `--keep-intermediates` to retain .bbl.
 - ~~**#5 Project emitter**~~ (2026-07-11) — `emit_project()` public API,
   write-once main.tex + regenerated generated/{preamble,metadata,body}.tex,
   figure copy + anchor resolution with graceful degradation (EmitWarning,
