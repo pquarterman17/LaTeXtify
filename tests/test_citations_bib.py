@@ -118,6 +118,46 @@ def test_protect_title_escapes_specials_inside():
     assert r"\&" in out
 
 
+def _brace_depth_ok(text: str) -> bool:
+    """True when raw ``{``/``}`` characters never go negative and end at 0.
+
+    Mirrors BibTeX's OWN field-value scanner, which tracks brace depth by
+    counting literal ``{``/``}`` characters -- it has no concept of a LaTeX
+    backslash escape, so a lone unmatched brace (even written as ``\\{``,
+    which still contains a raw ``{`` character) corrupts brace-matching for
+    everything that follows in the file, not just the one field.
+    """
+    depth = 0
+    for ch in text:
+        if ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth < 0:
+                return False
+    return depth == 0
+
+
+def test_escape_latex_literal_brace_stays_bibtex_balanced():
+    # A single literal, unmatched "{" (or "}") in raw text must not leak an
+    # unmatched raw brace character into the escaped output -- that would
+    # unbalance BibTeX's brace-depth counting for the rest of the .bib file.
+    assert _brace_depth_ok(escape_latex("Odd { brace only"))
+    assert _brace_depth_ok(escape_latex("Odd } brace only"))
+    assert _brace_depth_ok(escape_latex("{{{ triple open"))
+
+
+def test_to_bibtex_unmatched_brace_in_title_keeps_record_balanced():
+    e = _entry(
+        key="k",
+        authors=(Name(family="Doe"),),
+        year="2020",
+        title="Odd { brace only",
+    )
+    record = to_bibtex(e)
+    assert _brace_depth_ok(record)
+
+
 # --- full record emission ----------------------------------------------------
 
 

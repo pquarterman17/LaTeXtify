@@ -141,6 +141,16 @@ def assign_keys(entries: list[RefEntry]) -> list[RefEntry]:
 
 # --- LaTeX escaping + BibTeX rendering ---------------------------------------
 
+# A literal "{"/"}" is mapped to a NAMED macro (with its own trailing empty
+# group) rather than "\{"/"\}". BibTeX's field-value scanner tracks brace
+# DEPTH by counting raw "{"/"}" characters -- it has no concept of a LaTeX
+# backslash escape, so "\{" still contributes one unmatched raw "{" toward
+# that count. A single lone brace in user-typed text (e.g. a malformed title)
+# would then unbalance brace-matching for everything AFTER it in the .bib
+# file, not just that one field. "\textbraceleft{}"/"\textbraceright{}" are
+# LaTeX-kernel commands (no extra package needed) whose own "{}" is always
+# self-balanced, so this failure mode is impossible regardless of how many
+# literal braces appear or whether they were matched in the original text.
 _LATEX_MAP = {
     "\\": r"\textbackslash{}",
     "&": r"\&",
@@ -148,13 +158,20 @@ _LATEX_MAP = {
     "$": r"\$",
     "#": r"\#",
     "_": r"\_",
-    "{": r"\{",
-    "}": r"\}",
+    "{": r"\textbraceleft{}",
+    "}": r"\textbraceright{}",
     "~": r"\textasciitilde{}",
     "^": r"\textasciicircum{}",
 }
 
-_DOI_MAP = {"_": r"\_", "&": r"\&", "%": r"\%", "#": r"\#", "{": r"\{", "}": r"\}"}
+_DOI_MAP = {
+    "_": r"\_",
+    "&": r"\&",
+    "%": r"\%",
+    "#": r"\#",
+    "{": r"\textbraceleft{}",
+    "}": r"\textbraceright{}",
+}
 
 
 def escape_latex(text: str) -> str:
