@@ -15,6 +15,7 @@ Implemented so far:
     meta.py      -- Affiliation, Author, Meta paper.yaml/template IR (items 4+8)
     preflight.py -- PreflightFinding, PreflightReport, StyleInventory (plan item 2)
     refs.py      -- RefEntry, Citation, Name bibliography IR (plan item 7)
+    reconcile.py -- ReconcileRecord, ReconciliationReport plain-text IR (item 14)
 """
 
 from latextify.model.body import BodyConversionResult, FilterFinding
@@ -29,6 +30,7 @@ from latextify.model.preflight import (
     Severity,
     StyleInventory,
 )
+from latextify.model.reconcile import ReconcileRecord, ReconciliationReport
 from latextify.model.refs import Citation, Name, RefEntry
 
 __all__ = [
@@ -49,6 +51,8 @@ __all__ = [
     "Name",
     "PreflightFinding",
     "PreflightReport",
+    "ReconcileRecord",
+    "ReconciliationReport",
     "RefEntry",
     "Severity",
     "StyleInventory",
