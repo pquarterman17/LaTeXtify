@@ -146,11 +146,13 @@ by its context block.
 
 ### Dependency map
 
-- TIER 1 COMPLETE (items 1-9 + 24, 2026-07-11): end-to-end
-  docx→LaTeX→PDF works for revtex4-2 with linked field-coded citations
-- Items 10-12 (journal templates) and 13-14 (more citation sources, which
-  reuse item 24's sentinel linkage path) are all unblocked and
-  parallelizable; 15 needs 9; 16 needs 2/6/7/9; 17 needs 3; 18 needs 4+7
+- TIER 1 COMPLETE (items 1-9 + 24); TIER 2 wave A COMPLETE (items 10-15,
+  17, all 2026-07-11): four journal families compile (sn-jnl + elsarticle
+  via vendoring), all four citation sources extract AND link, figure
+  manifest/vector conversion, booktabs tables
+- Remaining Tier 2: items 16 + 18 (wave B — both touch cli.py, run last);
+  item 16 also owns wiring compile into the CLI (--pdf flag, exit codes,
+  journal.vendor → compile_document vendor_dir — flagged by items 10/12)
 - Item 5 requires items 3 + 4
 - Item 9 requires item 3 (media extraction)
 - Items 10–12 require items 4 + 5 (registry + emitter proven on REVTeX)
@@ -165,34 +167,6 @@ by its context block.
 
 ## Tier 2 — Medium Impact
 
-10. **Elsevier template** — elsarticle journal folder
-    **Model:** Haiku 4.5 (copy the revtex4-2 folder as the worked example) · **Depends on:** 4, 5 · **Touches:** `latextify/templates/journals/elsarticle/`
-    **Context:** `\documentclass[review]{elsarticle}`; authors as
-    `\author[a]{Name}` + `\affiliation[a]{organization={...}, city={...},
-    country={...}}`; corresponding author via `\cortext`; bib modes:
-    numeric `elsarticle-num`, authoryear `elsarticle-harv`. Same golden-file
-    test pattern as item 4.
-    **Done when:** loader validates it; golden-file test passes; two-author
-    fixture compiles under Tectonic (vendor elsarticle.cls if the bundle
-    lacks it).
-
-14. **Plain-text citation reconstruction** — the mixed-collaborator safety net
-    **Model:** Opus 4.8 (open-ended heuristics + confidence design) · **Depends on:** 7 · **Touches:** `latextify/citations/plaintext.py`, `crossref.py`, `reconcile.py`
-    **Context:** Trigger when no field codes found. Detect in-text markers:
-    `[12]`, `[3-5,8]`, `(Smith et al., 2020)`, superscript run numerals.
-    Segment the typed reference list (numbered/indented paragraphs after a
-    "References"/"Bibliography" heading). Per reference: query Crossref
-    `GET https://api.crossref.org/works?query.bibliographic=<text>&rows=3`
-    (set a mailto User-Agent; respect rate limits). Score candidates:
-    rapidfuzz title similarity + year match + first-author surname match;
-    accept ≥ threshold, else emit RefEntry from the raw string with a
-    `verify` flag. Reconciliation report lists every reference with source,
-    score, and DOI-or-flag.
-    **Done when:** `hand_cited.docx` fixture (≥10 refs) reconstructs ≥80%
-    with correct DOIs (mock Crossref in tests; one optional live-marked
-    test); every below-threshold ref appears flagged in the report; numeric
-    marker ranges expand correctly.
-
 16. **Consolidated conversion report** — report.md per run
     **Model:** Haiku 4.5 · **Depends on:** 2, 6, 7, 9 · **Touches:** `latextify/report/`
     **Context:** Every stage already produces finding/record dataclasses
@@ -202,16 +176,6 @@ by its context block.
     error-severity finding or compile error exists.
     **Done when:** a full-pipeline fixture run emits report.md with all four
     sections populated; ordering is stable across runs; exit codes tested.
-
-17. **Table normalization** — Word tables → booktabs LaTeX
-    **Model:** Sonnet 5 · **Depends on:** 3 · **Touches:** `latextify/ingest/filters.py`
-    **Context:** panflute Table nodes → booktabs (`\toprule`/`\midrule`/
-    `\bottomrule`, no vertical rules); infer column alignment from cell
-    content (numeric → right/S column). Merged cells → `\multicolumn`;
-    tables with row spans or nesting get a preflight-style warning and a
-    verbatim-ish fallback rather than silent corruption.
-    **Done when:** a tables fixture converts to compiling booktabs output;
-    a pathological merged-cell table produces the warning path.
 
 18. **Citation style switching polish** — numeric ↔ author-year toggle
     **Model:** Haiku 4.5 · **Depends on:** 4, 7 · **Touches:** `latextify/cli.py`, manifests
@@ -234,8 +198,38 @@ by its context block.
 
 23. **Equation audit tooling** — side-by-side render comparison of Word equation vs converted LaTeX for equation-heavy papers. **Model:** Sonnet 5.
 
+25. **Pathological-table fallback doesn't compile** (found by item 17) —
+    pandoc's default rendering for vMerge/nested tables emits `longtable` +
+    `\multirow` + pandoc-template-only helper macros (e.g. `\real{}`) that
+    fragment-mode conversion (no `--standalone`) never defines, so a
+    manuscript containing a genuinely pathological table fails to compile in
+    every journal. Fix candidates: inject pandoc's helper-macro block into
+    generated preambles, or degrade pathological tables to a placeholder +
+    warning instead of pandoc-default LaTeX. **Model:** Sonnet 5.
+    **Depends on:** 17 (done).
+
 ## Completed
 
+- ~~**#10 Elsevier template**~~ (2026-07-11) — elsarticle folder with BOTH
+  bib modes (per-mode bibstyles elsarticle-num/-harv; natbib options must be
+  CLASS options for this journal, folded into \documentclass by its own
+  preamble template), canonical frontmatter env (abstract+keywords emitted
+  from Meta IR), vendored elsarticle.cls v3.5 2026-01-09 from TeX Live tlnet
+  (bundle's v3.3 has a fatal expl3 hook bug at \maketitle — vendored file
+  shadows it, proven in the compile log). Both modes compile to real PDFs.
+- ~~**#14 Plain-text citation reconstruction**~~ (2026-07-11) — plaintext.py
+  (marker detection incl. brace-protected `{[}12{]}` forms + line-wrap-
+  tolerant author-year regex, reference-list segmentation, range expansion,
+  body linkage, duplicate reference-section stripping), crossref.py (mocked
+  in tests, mailto configurable via CLI/env), reconcile.py (rapidfuzz
+  scoring, threshold 0.72), ReconcileRecord/ReconciliationReport IR for
+  item 16. Fixture: 11/12 refs reconstructed with DOIs, 1 flagged. 52 tests.
+- ~~**#17 Table normalization**~~ (2026-07-11) — normalize_tables panflute
+  filter (booktabs rules, alignment inference, \multicolumn for gridSpan;
+  vMerge/nested tables left untouched + FilterFinding warning), tables.docx
+  fixture, booktabs added to all four journal manifests + goldens, CRLF
+  harness bug fixed (newline=""). FINDING spawned item 25: pandoc's default
+  rendering of pathological tables can't compile in fragment mode.
 - ~~**#12 Nature/Springer template**~~ (2026-07-11) — sn-jnl folder with
   vendored sn-jnl.cls + sn-mathphys-num/-ay.bst (LPPL 1.3 verified in file
   headers — redistribution OK, no vendor_fetch mechanism needed;
