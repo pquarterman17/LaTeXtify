@@ -169,6 +169,34 @@ def test_link_numeric_range_marker():
     assert any("no reference numbered 5" in w for w in warnings)
 
 
+def test_link_numeric_range_across_separate_brackets():
+    # pandoc brace-protects EACH bracket individually, so a typed "[1]-[3]"
+    # range renders as two separate {[}N{]} groups joined by "--", not one
+    # {[}1-3{]} group. Without merging them first, refs 2 (the range's
+    # middle) is silently dropped -- confirmed against real pandoc 3.9 output
+    # for "[1]–[3]" -> "{[}1{]}--{[}3{]}".
+    tex, warnings = link_body_markers("See refs {[}1{]}--{[}3{]} for details.", _result())
+    assert "\\cite{smith2020,jones2019,brown2018}" in tex
+    assert warnings == []
+
+
+def test_link_numeric_range_across_separate_brackets_unicode_endash():
+    # Same case with a literal (unescaped) unicode en dash between brackets.
+    tex, warnings = link_body_markers("See refs {[}1{]}–{[}3{]} for details.", _result())
+    assert "\\cite{smith2020,jones2019,brown2018}" in tex
+    assert warnings == []
+
+
+def test_link_superscript_range_across_separate_commands():
+    # Same splitting hazard for superscript markers: pandoc renders
+    # "text^1^--^3^" as two separate \textsuperscript commands.
+    tex, warnings = link_body_markers(
+        "Reviews\\textsuperscript{1}--\\textsuperscript{3} summarize.", _result()
+    )
+    assert "\\cite{smith2020,jones2019,brown2018}" in tex
+    assert warnings == []
+
+
 def test_link_superscript_marker():
     tex, warnings = link_body_markers("Reviews\\textsuperscript{1,2} summarize.", _result())
     assert tex == "Reviews\\cite{smith2020,jones2019} summarize."

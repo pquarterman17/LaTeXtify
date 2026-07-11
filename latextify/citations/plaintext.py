@@ -236,6 +236,45 @@ AUTHOR_YEAR_MARKER_RE = re.compile(
 _REF_SECTION_RE = re.compile(r"\\(?:sub)*section\*?\{([^}]*)\}")
 _RANGE_SEP = re.compile(r"[‒–—-]")
 
+# pandoc brace-protects/escapes EACH "[12]" or "^12^" marker individually, so a
+# typed range like "[1]-[3]" (or its superscript equivalent) never reaches
+# NUMERIC_MARKER_RE / SUPERSCRIPT_MARKER_RE as one group with "1-3" inside --
+# it reaches them as TWO separate groups joined by a bare dash: "{[}1{]}--{[}3{]}"
+# / "\textsuperscript{1}--\textsuperscript{3}" (verified against real pandoc 3.9
+# output). Left alone, only the first and last marker would resolve and the
+# range's middle would be silently dropped. Merge adjacent same-kind groups
+# joined by nothing but a dash (and optional whitespace) into one group BEFORE
+# matching, so the existing range-expansion logic in expand_numeric_range
+# handles the merged content exactly like a typed "[1-3]".
+#
+# pandoc's LaTeX writer renders a typed en dash as literal ASCII "--" (and an
+# em dash as "---"), not the unicode dash character itself, so the separator
+# between two joined groups must accept a RUN of one or more dash characters,
+# not just a single one.
+_BRACKET_JOIN_RE = re.compile(
+    r"\{\[\}([0-9][0-9\s,‒–—-]*)\{\]\}\s*[‒–—-]+\s*\{\[\}([0-9][0-9\s,‒–—-]*)\{\]\}"
+)
+_SUPERSCRIPT_JOIN_RE = re.compile(
+    r"\\textsuperscript\{([0-9][0-9\s,‒–—-]*)\}\s*[‒–—-]+\s*"
+    r"\\textsuperscript\{([0-9][0-9\s,‒–—-]*)\}"
+)
+
+
+def _merge_dash_joined_markers(tex: str, pattern: re.Pattern[str], wrap) -> str:
+    """Repeatedly fold ``pattern``-matched adjacent marker pairs into one.
+
+    A chain of more than two dash-joined markers (e.g. ``[1]-[3]-[5]``) needs
+    more than one pass since a single :func:`re.sub` call does not re-scan its
+    own replacements; looping to a fixed point handles that rare case too.
+    """
+    while True:
+        new_tex, count = pattern.subn(
+            lambda m: wrap(f"{m.group(1)}-{m.group(2)}"), tex
+        )
+        if count == 0:
+            return new_tex
+        tex = new_tex
+
 
 def expand_numeric_range(content: str) -> list[int]:
     """Expand a marker body like ``"3-5,8"`` into ``[3, 4, 5, 8]``.
@@ -349,6 +388,12 @@ def link_body_markers(tex: str, result: PlaintextResult) -> tuple[str, list[str]
             )
         return match.group(0)
 
+    tex = _merge_dash_joined_markers(
+        tex, _BRACKET_JOIN_RE, lambda content: "{[}" + content + "{]}"
+    )
+    tex = _merge_dash_joined_markers(
+        tex, _SUPERSCRIPT_JOIN_RE, lambda content: "\\textsuperscript{" + content + "}"
+    )
     tex = NUMERIC_MARKER_RE.sub(numeric_sub, tex)
     tex = SUPERSCRIPT_MARKER_RE.sub(superscript_sub, tex)
     tex = AUTHOR_YEAR_MARKER_RE.sub(author_year_sub, tex)
