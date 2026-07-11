@@ -146,7 +146,9 @@ by its context block.
 
 ### Dependency map
 
-- Items 1, 6 done; items 2, 3, 4, 7, 8 in flight (dispatched 2026-07-11)
+- Items 1, 2, 6, 8 done; items 3, 4, 7 in flight (dispatched 2026-07-11)
+- Post-merge unification pending: `model/meta_sidecar.py` (item 8) folds into
+  item 4's canonical `model/meta.py` when item 4 merges
 - Item 5 requires items 3 + 4
 - Item 9 requires item 3 (media extraction)
 - Items 10–12 require items 4 + 5 (registry + emitter proven on REVTeX)
@@ -158,24 +160,6 @@ by its context block.
 ---
 
 ## Tier 1 — High Impact
-
-2. **Docx ingest + preflight** — inventory the document, report what conversion can and cannot handle
-   **Model:** Sonnet 5 · **Depends on:** — · **Touches:** `latextify/ingest/preflight.py`, `latextify/model/`
-   **Context:** A .docx is a ZIP; parse `word/document.xml` and `word/styles.xml`
-   with lxml (namespace `w=http://schemas.openxmlformats.org/wordprocessingml/2006/main`).
-   Detectors: text boxes (`w:txbxContent`), tracked changes (`w:ins`/`w:del`),
-   floating objects (`wp:anchor` inside `w:drawing`), SmartArt
-   (`a:graphicData` with diagram uri), equation-as-image suspicion (drawings
-   in paragraphs matching `^(Eq|Equation)` text). Emit `PreflightFinding`
-   (severity: error/warn/info, location: paragraph index + text snippet,
-   message). Style inventory: which heading levels used, Caption style
-   present, Title style present.
-   **Done when:** each detector has a minimal fixture docx and a passing
-   test; running preflight on `unsupported.docx` yields one finding per
-   planted construct; clean fixture yields zero errors.
-   - [ ] PreflightFinding + style-inventory dataclasses in `model/`
-   - [ ] Detectors for text boxes, tracked changes, floating objects, SmartArt
-   - [ ] Fixture `unsupported.docx` + per-detector tests
 
 3. **Pandoc body pipeline** — docx → pandoc JSON AST → panflute filters → LaTeX body
    **Model:** Sonnet 5 · **Depends on:** — · **Touches:** `latextify/ingest/pandoc.py`, `latextify/ingest/filters.py`
@@ -252,24 +236,6 @@ by its context block.
    - [ ] Zotero + Mendeley JSON parsers → RefEntry
    - [ ] CSL→BibTeX mapping + stable key generation + collision handling
    - [ ] End-to-end fixture test through compile
-
-8. **Metadata sidecar** — paper.yaml extraction and override
-   **Model:** Sonnet 5 · **Depends on:** — · **Touches:** `latextify/ingest/metadata_guess.py`, `latextify/model/`
-   **Context:** Heuristics against the first ~20 paragraphs: Title style or
-   largest-font first paragraph → title; the author line typically follows
-   with superscript digits/letters mapping to a following affiliation list;
-   paragraph(s) after an "Abstract" heading → abstract; a "Keywords:" line →
-   keywords. Schema: `title`, `authors: [{name, affiliations: [int],
-   email?, corresponding?: bool}]`, `affiliations: [str]`, `abstract`,
-   `keywords: [str]`. Write `paper.yaml` ONLY if absent; on later runs
-   validate and consume it (clear error naming field on schema violation).
-   Low-confidence guesses get a `# CHECK:` comment in the emitted YAML.
-   **Done when:** fixture produces plausible paper.yaml on first run; second
-   run leaves a hand-edited paper.yaml untouched; invalid yaml → named-field
-   error.
-   - [ ] Title/author/affiliation/abstract/keyword heuristics
-   - [ ] Schema validation + write-once behavior
-   - [ ] Tests for guess quality and override precedence
 
 9. **Figures: extraction + folder override** — embedded media out, better files in
    **Model:** Sonnet 5 · **Depends on:** 3 · **Touches:** `latextify/figures/extract.py`, `latextify/figures/override.py`
@@ -407,6 +373,16 @@ by its context block.
 
 ## Completed
 
+- ~~**#2 Docx ingest + preflight**~~ (2026-07-11) — lxml walker over
+  document.xml/styles.xml; five detectors (text boxes, tracked changes,
+  floating objects, SmartArt, equation-as-image) + style inventory;
+  `run_preflight()` → PreflightReport; unsupported.docx + clean.docx
+  fixtures with committed generator scripts; 14 tests.
+- ~~**#8 Metadata sidecar**~~ (2026-07-11) — title/author/affiliation/
+  abstract/keyword heuristics (superscript markers → affiliation indices),
+  paper.yaml emission with # CHECK: low-confidence comments, named-field
+  schema validation, write-once behavior; 21 tests. IR unification with
+  item 4's canonical Meta happens at item 4 merge.
 - ~~**#6 Tectonic compile wrapper**~~ (2026-07-11) — binary detection/download
   + platformdirs cache, `tectonic -X compile` invocation, vendored-file
   staging, log parser (structured diagnostics, terse + classic TeX formats).
