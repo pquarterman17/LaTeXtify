@@ -13,6 +13,18 @@ dependencies = [
     "rapidfuzz>=3.0",         # fuzzy matching for plain-text citation reconstruction
     "typer>=0.12",            # CLI
     "platformdirs>=4.0",      # cross-platform cache dir for the Tectonic binary
+    "svglib>=1.5",            # SVG->PDF fallback converter (pure-Python, always works)
+    "reportlab>=4.0",         # svglib's PDF rendering backend
+]
+
+[project.optional-dependencies]
+# Preferred SVG->PDF converter (higher fidelity than svglib) -- ships native
+# cairo bindings that frequently fail to load on Windows (missing libcairo-2
+# GTK runtime DLLs); latextify.figures.convert catches that failure at
+# runtime and falls back to svglib+reportlab, so cairosvg is optional rather
+# than a hard dependency.
+cairo = [
+    "cairosvg>=2.7",
 ]
 
 [dependency-groups]
@@ -20,6 +32,8 @@ dev = [
     "pytest>=8.0",
     "python-docx>=1.2.0",  # generate .docx test fixtures (fixture-only, not runtime)
     "ruff>=0.5",
+    "cairosvg>=2.7",  # installed for dev/test so the primary SVG->PDF path is
+                       # exercised too, not just the svglib fallback (item 15)
 ]
 
 [project.scripts]

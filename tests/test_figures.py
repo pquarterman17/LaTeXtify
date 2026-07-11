@@ -15,8 +15,11 @@ import pytest
 from latextify.figures.extract import extract_figures
 from latextify.figures.override import (
     EXTENSION_PRIORITY,
+    MANIFEST_FILENAME,
+    FigureManifestError,
     describe_source,
     find_override,
+    load_manifest,
     resolve_overrides,
 )
 from latextify.model import Figure, FigureSource
@@ -155,3 +158,156 @@ def test_override_beside_docx_switches_that_figures_source(figures, tmp_path):
     embedded_line = describe_source(by_number[1])
     assert "embedded" in embedded_line
     assert "Figure 1" in embedded_line
+
+
+# -- figures.yaml manifest: parsing + validation (plan item 15) --------------
+
+
+def test_load_manifest_parses_number_to_relative_path(tmp_path):
+    (tmp_path / "custom_fig1.pdf").write_bytes(b"%PDF-1.4 fake\n")
+    manifest = tmp_path / MANIFEST_FILENAME
+    manifest.write_text("1: custom_fig1.pdf\n", encoding="utf-8")
+
+    resolved = load_manifest(manifest)
+
+    assert resolved == {1: tmp_path / "custom_fig1.pdf"}
+
+
+def test_load_manifest_relative_path_resolves_against_manifest_directory(tmp_path):
+    sub = tmp_path / "sub"
+    sub.mkdir()
+    (sub / "vectors" / "fig2.svg").parent.mkdir(parents=True)
+    (sub / "vectors" / "fig2.svg").write_text("<svg/>", encoding="utf-8")
+    manifest = sub / MANIFEST_FILENAME
+    manifest.write_text("2: vectors/fig2.svg\n", encoding="utf-8")
+
+    resolved = load_manifest(manifest)
+
+    assert resolved == {2: sub / "vectors" / "fig2.svg"}
+
+
+def test_load_manifest_absolute_path_used_as_is(tmp_path):
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    absolute_file = elsewhere / "fig3.png"
+    absolute_file.write_bytes(b"fake-png")
+    manifest_dir = tmp_path / "manuscript"
+    manifest_dir.mkdir()
+    manifest = manifest_dir / MANIFEST_FILENAME
+    manifest.write_text(f"3: {absolute_file.as_posix()}\n", encoding="utf-8")
+
+    resolved = load_manifest(manifest)
+
+    assert resolved == {3: absolute_file}
+
+
+def test_load_manifest_empty_file_returns_no_entries(tmp_path):
+    manifest = tmp_path / MANIFEST_FILENAME
+    manifest.write_text("", encoding="utf-8")
+    assert load_manifest(manifest) == {}
+
+
+def test_load_manifest_raises_on_non_mapping_root(tmp_path):
+    manifest = tmp_path / MANIFEST_FILENAME
+    manifest.write_text("- 1\n- 2\n", encoding="utf-8")
+
+    with pytest.raises(FigureManifestError, match="root must be a mapping"):
+        load_manifest(manifest)
+
+
+@pytest.mark.parametrize("bad_key", ["zero", "-1", "not-a-number", "1.5"])
+def test_load_manifest_raises_on_bad_figure_number(tmp_path, bad_key):
+    (tmp_path / "fig.pdf").write_bytes(b"fake")
+    manifest = tmp_path / MANIFEST_FILENAME
+    manifest.write_text(f"{bad_key!r}: fig.pdf\n", encoding="utf-8")
+
+    with pytest.raises(FigureManifestError, match="positive integer"):
+        load_manifest(manifest)
+
+
+def test_load_manifest_raises_on_zero_figure_number(tmp_path):
+    (tmp_path / "fig.pdf").write_bytes(b"fake")
+    manifest = tmp_path / MANIFEST_FILENAME
+    manifest.write_text("0: fig.pdf\n", encoding="utf-8")
+
+    with pytest.raises(FigureManifestError, match="positive integer"):
+        load_manifest(manifest)
+
+
+def test_load_manifest_raises_on_missing_file(tmp_path):
+    manifest = tmp_path / MANIFEST_FILENAME
+    manifest.write_text("1: does_not_exist.pdf\n", encoding="utf-8")
+
+    with pytest.raises(FigureManifestError, match="does not exist"):
+        load_manifest(manifest)
+
+
+def test_load_manifest_raises_when_path_value_is_not_a_string(tmp_path):
+    manifest = tmp_path / MANIFEST_FILENAME
+    manifest.write_text("1: 42\n", encoding="utf-8")
+
+    with pytest.raises(FigureManifestError, match="non-empty string"):
+        load_manifest(manifest)
+
+
+# -- manifest resolution beats folder convention (plan item 15 done-when) ----
+
+
+def test_manifest_beats_folder_convention_on_conflict(figures, tmp_path):
+    docx_path = tmp_path / "figures.docx"
+    shutil.copy(FIGURES_DOCX, docx_path)
+
+    # Folder-convention override for figure 2 -- would normally win per item 9.
+    figures_dir = tmp_path / "figures"
+    figures_dir.mkdir()
+    (figures_dir / "fig2.pdf").write_bytes(b"%PDF-1.4 folder override\n")
+
+    # A figures.yaml manifest entry for the SAME figure number, pointing
+    # somewhere else entirely -- this must win instead.
+    manifest_target = tmp_path / "manifest_fig2.pdf"
+    manifest_target.write_bytes(b"%PDF-1.4 manifest override\n")
+    (tmp_path / MANIFEST_FILENAME).write_text("2: manifest_fig2.pdf\n", encoding="utf-8")
+
+    resolved = resolve_overrides(figures, docx_path)
+
+    by_number = {f.number: f for f in resolved}
+    fig2 = by_number[2]
+    assert fig2.source is FigureSource.MANIFEST
+    assert fig2.override_path == manifest_target
+    assert fig2.resolved_path == manifest_target
+    assert fig2.resolved_path != figures_dir / "fig2.pdf"
+
+    # Figures with no manifest entry are untouched by the manifest's presence.
+    assert by_number[1].source is FigureSource.EMBEDDED
+    assert by_number[3].source is FigureSource.EMBEDDED
+
+
+def test_manifest_partial_coverage_falls_through_to_folder_then_embedded(figures, tmp_path):
+    docx_path = tmp_path / "figures.docx"
+    shutil.copy(FIGURES_DOCX, docx_path)
+
+    figures_dir = tmp_path / "figures"
+    figures_dir.mkdir()
+    (figures_dir / "fig3.png").write_bytes(b"fake-png-override")
+
+    manifest_target = tmp_path / "manifest_fig1.svg"
+    manifest_target.write_text("<svg/>", encoding="utf-8")
+    (tmp_path / MANIFEST_FILENAME).write_text("1: manifest_fig1.svg\n", encoding="utf-8")
+
+    resolved = resolve_overrides(figures, docx_path)
+    by_number = {f.number: f for f in resolved}
+
+    assert by_number[1].source is FigureSource.MANIFEST
+    assert by_number[1].resolved_path == manifest_target
+    assert by_number[2].source is FigureSource.EMBEDDED  # no manifest, no folder override
+    assert by_number[3].source is FigureSource.OVERRIDE  # folder convention, no manifest entry
+    assert by_number[3].resolved_path == figures_dir / "fig3.png"
+
+
+def test_invalid_manifest_raises_during_resolve_overrides(figures, tmp_path):
+    docx_path = tmp_path / "figures.docx"
+    shutil.copy(FIGURES_DOCX, docx_path)
+    (tmp_path / MANIFEST_FILENAME).write_text("1: nonexistent_file.pdf\n", encoding="utf-8")
+
+    with pytest.raises(FigureManifestError, match="does not exist"):
+        resolve_overrides(figures, docx_path)
