@@ -1,0 +1,27 @@
+% Generated metadata -- regenerated every run.
+% Note: elsarticle requires \begin{document} before abstract/keywords blocks.
+% Those are handled by the user in main.tex or body.tex.
+\title{\VAR{meta.title}}
+%% for author in meta.authors
+%% if author.affiliations and author.corresponding
+\author[\VAR{author.affiliations|join(',')}]{\VAR{author.name}\corref{cor1}}
+%% elif author.affiliations
+\author[\VAR{author.affiliations|join(',')}]{\VAR{author.name}}
+%% elif author.corresponding
+\author{\VAR{author.name}\corref{cor1}}
+%% else
+\author{\VAR{author.name}}
+%% endif
+%% endfor
+%% for aff in meta.affiliations
+\affiliation[\VAR{loop.index0}]{organization={\VAR{aff.name}}}
+%% endfor
+%% for author in meta.authors
+%% if author.corresponding
+\cortext[cor1]{\VAR{author.name} is the corresponding author.}
+%% if author.email
+\ead[cor1]{\VAR{author.email}}
+%% endif
+%% endif
+%% endfor
+\maketitle

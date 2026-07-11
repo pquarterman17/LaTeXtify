@@ -1,0 +1,46 @@
+# Elsevier elsarticle — author/affiliation grouping with dual citation modes.
+#
+# Exercises the per-mode bibstyle feature: numeric (elsarticle-num) and
+# authoryear (elsarticle-harv). The journal loads natbib internally with
+# class options or via \PassOptionsToPackage, hence natbib is NOT listed
+# in packages — only specified per mode in bib.modes[*].natbib_options.
+
+# \documentclass[<class_options>]{<class>}
+class: elsarticle
+class_options: [review]    # review mode for submission (preprint option)
+
+# \usepackage[options]{name}, emitted in order. elsarticle loads natbib
+# internally, so natbib is NOT listed here — see bib.modes[*].natbib_options.
+packages:
+  - name: amsmath
+  - name: amssymb
+  - name: graphicx
+  - name: bm
+  - name: hyperref
+    options: [colorlinks=true, linkcolor=blue, citecolor=blue, urlcolor=blue]
+
+# Bibliography. elsarticle supports both numeric and authoryear modes.
+# - numeric: bibstyle elsarticle-num, no special natbib options (numbers is default)
+# - authoryear: bibstyle elsarticle-harv (Harvard-style), natbib authoryear option
+bib:
+  default_mode: numeric
+  modes:
+    numeric:
+      bibstyle: elsarticle-num
+      natbib_options: []
+    authoryear:
+      bibstyle: elsarticle-harv
+      natbib_options: [authoryear]
+
+# Informal name the emitter (plan item 5) maps to this journal's macro scheme.
+metadata_scheme: elsarticle
+
+# Float environments. Standard single-column figures.
+figure_env:
+  single: figure
+  wide: figure*
+
+# Class files to vendor. elsarticle.cls is in the Tectonic bundle but has
+# known issues with \maketitle hook processing (L3 compatibility). For now,
+# we don't vendor a replacement; this is documented as a known limitation.
+vendor: []
