@@ -42,26 +42,70 @@ def read_document_xml(docx_path) -> bytes:
 
 
 @dataclass
+class FieldResult:
+    """Positional handle to a field's displayed RESULT run(s) in the live tree.
+
+    Populated by the same walk that builds a field's instruction (so it never
+    drifts from the citation ordering) when that walk runs over a parsed tree
+    via :func:`assemble_fields_from_root`. Its element references point into
+    that tree, so a caller (the ingest citation-sentinel preprocessor) can
+    overwrite the field's cached display text in place and re-serialize the
+    tree. Fields that only need instructions/ordering ignore this.
+
+    ``kind`` is ``"complex"`` (fldChar machinery) or ``"simple"`` (fldSimple).
+    For a complex field ``end_run`` is the ``w:r`` wrapping the ``end`` fldChar
+    (a replacement run is inserted immediately before it, which works whether
+    or not a ``separate`` was present -- i.e. even when the result is absent).
+    For a simple field ``simple_elem`` is the ``w:fldSimple`` element itself
+    (the preprocessor clears its result runs and inserts the replacement as a
+    following sibling, since pandoc does not render fldSimple inner content).
+    ``result_runs`` are the existing displayed-result ``w:r`` elements (empty
+    when the field has no result).
+    """
+
+    kind: str
+    end_run: object | None = None
+    simple_elem: object | None = None
+    result_runs: list = field(default_factory=list)
+
+
+@dataclass
 class ComplexField:
     """One assembled Word field.
 
     ``instruction`` is the concatenated ``w:instrText`` for THIS field only
     (a nested field's text stays with the nested field). ``order`` is the
     field's begin position in the document (a pre-order index). ``children``
-    are fields nested inside this one.
+    are fields nested inside this one. ``result`` is populated only by
+    :func:`assemble_fields_from_root` (``None`` from :func:`assemble_fields`),
+    carrying the live-tree element references needed to rewrite the field's
+    displayed text.
     """
 
     instruction: str
     order: int
     children: list[ComplexField] = field(default_factory=list)
+    result: FieldResult | None = None
 
 
 class _Frame:
-    __slots__ = ("field", "collecting")
+    __slots__ = ("field", "collecting", "in_result")
 
     def __init__(self, fld: ComplexField) -> None:
         self.field = fld
         self.collecting = True  # instrText belongs to instruction until 'separate'
+        self.in_result = False  # runs seen after 'separate' are the displayed result
+
+
+def _local(element) -> str:
+    """The namespace-stripped local name of an element, or "" for non-elements."""
+    tag = element.tag
+    return etree.QName(tag).localname if isinstance(tag, str) else ""
+
+
+def _is_field_machinery(run) -> bool:
+    """True when a ``w:r`` wraps a fldChar/instrText rather than displayed text."""
+    return any(_local(child) in ("fldChar", "instrText") for child in run)
 
 
 def assemble_fields(document_xml: bytes) -> list[ComplexField]:
@@ -71,7 +115,21 @@ def assemble_fields(document_xml: bytes) -> list[ComplexField]:
     open ``begin``/``end`` pairs so instruction text is attributed to the
     correct (possibly nested) field even when split across many runs.
     """
-    root = etree.fromstring(document_xml)
+    return assemble_fields_from_root(etree.fromstring(document_xml))
+
+
+def assemble_fields_from_root(root) -> list[ComplexField]:
+    """Same walk as :func:`assemble_fields`, over an already-parsed tree.
+
+    Identical field-ordering/nesting semantics -- so it can be shared with the
+    citation-sentinel preprocessor without a second, drift-prone walk -- but
+    each returned :class:`ComplexField` additionally carries a populated
+    :class:`FieldResult` whose element references point into ``root``. A caller
+    that mutates those runs and re-serializes ``root`` rewrites the field's
+    displayed text in place. ``root`` is an ``lxml`` element (e.g. from
+    ``etree.fromstring(document_xml)``); pass the same document.xml bytes here
+    that :func:`extract_field_citations` reads and the enumeration matches.
+    """
     top: list[ComplexField] = []
     stack: list[_Frame] = []
     order = itertools.count()
@@ -87,21 +145,42 @@ def assemble_fields(document_xml: bytes) -> list[ComplexField]:
         if local == "fldChar":
             char_type = element.get(_q("fldCharType"))
             if char_type == "begin":
-                stack.append(_Frame(ComplexField("", next(order))))
+                stack.append(_Frame(ComplexField("", next(order), result=FieldResult("complex"))))
             elif char_type == "separate":
                 if stack:
                     stack[-1].collecting = False
+                    stack[-1].in_result = True
             elif char_type == "end":
                 if stack:
                     frame = stack.pop()
                     frame.field.instruction = frame.field.instruction.strip()
+                    if frame.field.result is not None:
+                        frame.field.result.end_run = element.getparent()
                     _attach(frame.field)
         elif local == "instrText":
             if stack and stack[-1].collecting:
                 stack[-1].field.instruction += element.text or ""
         elif local == "fldSimple":
             instr = (element.get(_q("instr")) or "").strip()
-            _attach(ComplexField(instr, next(order)))
+            result = FieldResult(
+                "simple",
+                simple_elem=element,
+                result_runs=[child for child in element if _local(child) == "r"],
+            )
+            _attach(ComplexField(instr, next(order), result=result))
+        elif local == "r":
+            # A displayed-text run: attribute it to the innermost open field
+            # that is past its 'separate' (its result region). Skip field
+            # machinery and runs already captured as a fldSimple's children.
+            if _is_field_machinery(element):
+                continue
+            parent = element.getparent()
+            if parent is not None and _local(parent) == "fldSimple":
+                continue
+            for frame in reversed(stack):
+                if frame.in_result and frame.field.result is not None:
+                    frame.field.result.result_runs.append(element)
+                    break
 
     # Attach any fields left open by a malformed document.
     while stack:

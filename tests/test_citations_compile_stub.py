@@ -1,46 +1,48 @@
-"""End-to-end citation test THROUGH COMPILE.
+"""End-to-end citation test THROUGH COMPILE (plan items 7 + 24).
 
-Plan item 7's final sub-task ("End-to-end fixture test through compile")
-needed items 3 (pandoc body pipeline), 5 (project emitter), and 6 (Tectonic
-compile wrapper) to land. All three are now merged; this activates it.
+Item 7's final sub-task ("End-to-end fixture test through compile") needed
+items 3 (pandoc body pipeline), 5 (project emitter), and 6 (Tectonic compile
+wrapper). Its original done-when -- actual ``\\cite{...}`` in the body and a
+PDF that resolves them against ``references.bib`` -- was blocked by a verified
+pandoc gap (item 5's finding): pandoc 3.9's docx reader never turns
+Zotero/Mendeley citation field codes into native ``Cite`` AST nodes, so no
+``%%CITE`` anchor was ever planted and no ``\\cite`` reached the body.
 
-IMPORTANT deviation from the plan's literal done-when text, discovered while
-implementing item 5 -- reported rather than worked around per the executor
-protocol: pandoc's docx reader (pypandoc-binary's bundled pandoc 3.9) does
-NOT recognize either the Zotero ("ADDIN ZOTERO_ITEM CSL_CITATION {json}") or
-Mendeley ("ADDIN CSL_CITATION {json}") field-code instructions as native
-``Cite`` AST elements -- verified empirically against zotero_cited.docx (and
-against a from-scratch minimal fldSimple-encoded field, to rule out the
-hand-crafted fixture's complex-field encoding as the cause): pandoc's JSON
-AST contains plain ``Str`` runs of the field's cached display text ("[1]",
-"[2, 3]", ...), never a ``Cite`` node. `latextify.ingest.filters.plant_anchors`
-only plants a ``%%CITE:<idx>%%`` anchor when pandoc hands it a ``Cite`` node,
-so for this citation source **no anchors are planted in the body at all**.
-The bibliography extraction (`latextify.citations.fields`, item 7) is
-independent of pandoc and unaffected -- every reference still lands in
-`references.bib` correctly keyed. The gap is body-side inline linkage only,
-and it is upstream of item 5 (item 3's territory); item 5's emitter surfaces
-it as an `EmitWarning` rather than fabricating `\\cite{}` commands that were
-never anchored. See `latextify/emit/project.py`'s `_citation_linkage_warning`.
+Item 24 closed that gap by preprocessing: before pandoc runs,
+``latextify.ingest.citation_sentinels`` rewrites each citation field's
+displayed result to an alphanumeric ``ZZLTXCITE<i>ZZ`` sentinel (pandoc's LaTeX
+writer escapes ``%`` -> ``\\%``, so a ``%%CITE``-style sentinel would be
+mangled; alphanumeric text survives verbatim). The sentinel index is 0-based in
+the SAME document-order field walk ``extract_field_citations`` uses, so it pairs
+with the ``Citation`` whose ``.index`` is that number -- including a citation
+field nested inside a ``PAGEREF``. The emitter swaps each sentinel for
+``\\cite{key,...}``.
 
-This test therefore asserts what is actually true end-to-end: the project
-compiles, every extracted reference's key is present in `references.bib`
-inside the compiled tree, and the linkage-gap warning fires -- rather than
-asserting `\\cite{muller2020quantum}` appears in the body, which is not
-achievable without changes to item 3 (out of scope for the emitter).
+So this test now asserts the original done-when directly: the four in-text
+``\\cite{}`` commands are present in ``generated/body.tex`` (with the correct
+keys and the multi-item and nested cases handled), the document compiles, the
+BibTeX-produced ``.bbl`` carries every reference key (so the PDF's bibliography
+resolves against ``references.bib``), and the "citations extracted but not
+linked" ``EmitWarning`` no longer fires.
+
+NOTE (plan assumption corrected): Tectonic's ``-X compile`` does NOT retain the
+intermediate ``.bbl`` on disk by default -- only ``.blg``/``.log``/``.pdf``. The
+``.bbl`` assertion therefore runs the compile with ``--keep-intermediates`` (a
+real end-to-end compile via ``ensure_tectonic()``, the same binary
+``compile_document`` uses).
 """
 
 from __future__ import annotations
 
 import importlib.util
 import shutil
+import subprocess
 from pathlib import Path
 
 import pytest
 
 from latextify.compile.tectonic import (
     TectonicNotAvailableError,
-    compile_document,
     ensure_tectonic,
 )
 from latextify.emit.project import emit_project
@@ -54,6 +56,18 @@ EXPECTED_KEYS = (
     "smith2019scalable",
     "garcia2018topological",
     "smith2021superconductivity",
+)
+
+# Each in-text citation and the \cite{} it must resolve to (document order):
+#   0 article    -> single key
+#   1 multi      -> two keys, in citationItems order
+#   2 chapter    -> single key, nested inside a PAGEREF field
+#   3 mendeley   -> single key
+EXPECTED_CITES = (
+    "\\cite{muller2020quantum}",
+    "\\cite{kittel2005introduction,smith2019scalable}",
+    "\\cite{garcia2018topological}",
+    "\\cite{smith2021superconductivity}",
 )
 
 
@@ -85,33 +99,59 @@ pytestmark = [
 ]
 
 
-def test_zotero_cited_compiles_with_bib_entries_present(tmp_path):
+def test_zotero_cited_links_cites_and_compiles(tmp_path):
     _ensure_fixture()
-    # Emit from a tmp copy: load_or_create_meta writes a write-once
-    # paper.yaml beside the docx path it's given, which must not land in
-    # the committed fixtures directory.
+    # Emit from a tmp copy: load_or_create_meta writes a write-once paper.yaml
+    # beside the docx, which must not land in the committed fixtures directory.
     docx = tmp_path / DOCX.name
     shutil.copy(DOCX, docx)
 
     result = emit_project(docx, "revtex4-2", tmp_path / "output")
 
-    # Bibliography extraction is independent of pandoc's anchor recognition
-    # gap (see module docstring) -- every reference must still be present.
+    # Bibliography is complete (extraction is independent of the pandoc gap).
     bib_text = result.bib_path.read_text(encoding="utf-8")
     for key in EXPECTED_KEYS:
         assert f"{{{key}," in bib_text
     # 4 in-text Citation records (one field has two citationItems), 5 bib entries.
     assert result.citation_count == 4
 
-    # No unresolved anchors leak into the generated body (there were none to
-    # resolve, but this also guards against a regression that stops swallowing them).
-    assert "%%" not in result.body_tex_path.read_text(encoding="utf-8")
+    # Original item 7 done-when: real \cite{} commands in the body, including the
+    # multi-item field and the citation nested inside a PAGEREF (index 2).
+    body = result.body_tex_path.read_text(encoding="utf-8")
+    for cite in EXPECTED_CITES:
+        assert cite in body, f"missing {cite} in body.tex:\n{body}"
+    # Document order is preserved.
+    positions = [body.index(cite) for cite in EXPECTED_CITES]
+    assert positions == sorted(positions)
+    # Every sentinel resolved; no unresolved anchors leak through either.
+    assert "ZZLTXCITE" not in body
+    assert "%%" not in body
 
-    # The verified pandoc gap: citations extracted, but not linked inline.
-    assert any("linked into the body" in w.message for w in result.warnings)
+    # The verified pandoc gap is now closed: the linkage warning must NOT fire.
+    assert not any("linked into the body" in w.message for w in result.warnings)
 
-    compile_result = compile_document(result.main_tex_path)
-    assert compile_result.success, compile_result.raw_log
-    assert compile_result.pdf_path is not None
-    assert compile_result.pdf_path.is_file()
-    assert compile_result.pdf_path.stat().st_size > 0
+    # Compile and prove the cites resolve against references.bib: keep the
+    # BibTeX intermediate so we can read the generated .bbl.
+    tectonic = ensure_tectonic()
+    main = result.main_tex_path
+    proc = subprocess.run(
+        [str(tectonic), "-X", "compile", main.name, "--keep-intermediates", "--keep-logs"],
+        cwd=str(main.parent),
+        capture_output=True,
+        text=True,
+    )
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+
+    pdf_path = main.parent / f"{main.stem}.pdf"
+    assert pdf_path.is_file()
+    assert pdf_path.stat().st_size > 0
+
+    bbl_path = main.parent / f"{main.stem}.bbl"
+    assert bbl_path.is_file(), "tectonic did not emit a .bbl to verify citation resolution"
+    bbl_text = bbl_path.read_text(encoding="utf-8", errors="replace")
+    for key in EXPECTED_KEYS:
+        assert key in bbl_text, f"{key} missing from the compiled bibliography (.bbl)"
+
+    # No unresolved \cite: the compile log must carry no undefined-citation warning.
+    log_text = (main.parent / f"{main.stem}.log").read_text(encoding="utf-8", errors="replace")
+    assert "Citation" not in log_text or "undefined" not in log_text.lower()

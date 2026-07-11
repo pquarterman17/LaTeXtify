@@ -9,16 +9,24 @@ Applied in this order:
        Str runs (bookmarks, proofErr marks, and similar zero-content
        artifacts docx round-trips can leave behind).
     3. :func:`plant_anchors` -- replace Image nodes with a raw
-       ``%%FIGURE:<n>%%`` LaTeX anchor and Cite nodes (pandoc's docx reader
-       turns Zotero/Mendeley citation field codes into native ``Cite``
-       elements) with a raw ``%%CITE:<idx>%%`` anchor, both numbered in
-       document order, 1-based. Anchors are emitted as
-       ``panflute.RawInline(format="latex")`` rather than ``Str`` so
-       pandoc's LaTeX writer passes the literal ``%`` characters through
-       instead of escaping them to ``\\%``. The figures/citations stages
-       (items 9, 7) replace these markers with resolved content once they
-       have it; anchors that reach ``generated/body.tex`` unresolved are a
-       bug in those later stages, not here.
+       ``%%FIGURE:<n>%%`` LaTeX anchor and any ``Cite`` node with a raw
+       ``%%CITE:<idx>%%`` anchor, both numbered in document order, 1-based.
+       NOTE: pandoc 3.9's docx reader does NOT emit ``Cite`` nodes from
+       Zotero/Mendeley/EndNote citation *field codes* (verified, plan item
+       24) -- it emits only the cached display text -- so for field-coded
+       citations this ``Cite`` path is dormant and the linkage is handled
+       upstream instead by
+       :func:`latextify.ingest.citation_sentinels.plant_citation_sentinels`
+       (alphanumeric ``ZZLTXCITE<i>ZZ`` sentinels, resolved by the emitter).
+       The ``Cite`` path is kept because it is harmless and correct for any
+       real ``Cite`` node a future pandoc (or another input path) may yield.
+       Anchors are emitted as ``panflute.RawInline(format="latex")`` rather
+       than ``Str`` so pandoc's LaTeX writer passes the literal ``%``
+       characters through instead of escaping them to ``\\%``. The
+       figures/citations stages (items 9, 7) replace these markers with
+       resolved content once they have it; anchors that reach
+       ``generated/body.tex`` unresolved are a bug in those later stages,
+       not here.
 
 Every function here mutates the ``panflute.Doc`` in place (via ``Doc.walk``)
 and also returns it, so callers can chain: ``doc = normalize_headings(doc)``.
@@ -127,8 +135,11 @@ def plant_anchors(doc: pf.Doc) -> tuple[pf.Doc, AnchorCounts]:
     """Replace Image/Cite nodes with raw LaTeX anchor markers.
 
     Numbered 1-based in document order: ``%%FIGURE:<n>%%`` for each Image
-    encountered, ``%%CITE:<idx>%%`` for each Cite. Mutates ``doc`` in place;
-    also returns it (with the counts) for chaining.
+    encountered, ``%%CITE:<idx>%%`` for each ``Cite``. Mutates ``doc`` in
+    place; also returns it (with the counts) for chaining. On pandoc 3.9 the
+    ``Cite`` branch does not fire for Zotero/Mendeley field codes (they arrive
+    as plain text, handled via citation sentinels -- see the module docstring);
+    it is retained for genuine ``Cite`` nodes.
     """
     counts = AnchorCounts()
 

@@ -31,11 +31,17 @@ using the clean ``Figure.caption`` text, so neither duplicate (empty
 ``\\caption{}`` shell or leftover caption paragraph) survives into
 ``generated/body.tex``.
 
-``%%CITE:<idx>%%`` anchors are 1-based (planted by
-``latextify.ingest.filters.plant_anchors``); ``Citation.index`` values from
-``latextify.citations.fields.extract_field_citations`` are 0-based
-(document-order ``enumerate``). Anchor ``idx`` pairs with
-``citations[idx - 1]``.
+Citation linkage has two paths that both resolve to ``\\cite{...}``:
+
+    * ``ZZLTXCITE<i>ZZ`` sentinels -- the primary path for Zotero/Mendeley
+      field codes, planted into the body pre-pandoc by
+      ``latextify.ingest.citation_sentinels`` because pandoc 3.9 never emits a
+      ``Cite`` node for those field codes. ``<i>`` is 0-based and pairs
+      directly with ``Citation.index`` (same shared document-order walk).
+    * ``%%CITE:<idx>%%`` anchors -- the legacy path for any genuine ``Cite``
+      node ``latextify.ingest.filters.plant_anchors`` sees; 1-based, so anchor
+      ``idx`` pairs with ``citations[idx - 1]``. Dormant for field-coded
+      documents but kept as it is harmless and future-proof.
 """
 
 from __future__ import annotations
@@ -50,6 +56,7 @@ from latextify.citations.fields import extract_field_citations
 from latextify.emit.metadata import load_meta, write_metadata_tex
 from latextify.figures.extract import extract_figures
 from latextify.figures.override import resolve_overrides
+from latextify.ingest.citation_sentinels import SENTINEL_RE
 from latextify.ingest.pandoc import convert_docx_to_body
 from latextify.model.emit import EmitResult, EmitWarning
 from latextify.model.figure import Figure
@@ -279,21 +286,41 @@ def _resolve_citation_anchors(
 
     def replace(match: re.Match[str]) -> str:
         idx = int(match.group(1))
-        citation = by_position.get(idx)
-        if citation is None or not citation.keys:
-            warnings.append(
-                EmitWarning(
-                    message=f"unresolved citation anchor {idx}: no matching citation record"
-                )
-            )
-            return (
-                f"% LATEXTIFY WARNING: unresolved citation anchor {idx}\n"
-                f"\\textbf{{[UNRESOLVED CITATION]}}"
-            )
-        return f"\\cite{{{','.join(citation.keys)}}}"
+        return _cite_command(by_position.get(idx), warnings, "anchor", str(idx))
 
-    tex = _CITE_RE.sub(replace, tex)
-    return tex, warnings
+    return _CITE_RE.sub(replace, tex), warnings
+
+
+def _cite_command(citation: Citation, warnings: list[EmitWarning], what: str, ref: str) -> str:
+    """Render one Citation to ``\\cite{...}`` or a warning+placeholder."""
+    if citation is None or not citation.keys:
+        warnings.append(
+            EmitWarning(message=f"unresolved citation {what} {ref}: no matching citation record")
+        )
+        return (
+            f"% LATEXTIFY WARNING: unresolved citation {what} {ref}\n"
+            f"\\textbf{{[UNRESOLVED CITATION]}}"
+        )
+    return f"\\cite{{{','.join(citation.keys)}}}"
+
+
+def _resolve_citation_sentinels(
+    tex: str, citations: tuple[Citation, ...]
+) -> tuple[str, list[EmitWarning]]:
+    """Swap ``ZZLTXCITE<i>ZZ`` sentinels for ``\\cite{...}``.
+
+    Sentinel index ``i`` is 0-based and pairs directly with ``Citation.index``
+    (both come from the shared document-order field walk). A sentinel with no
+    matching citation degrades to a LaTeX comment + warning, never a crash.
+    """
+    warnings: list[EmitWarning] = []
+    by_index = {citation.index: citation for citation in citations}
+
+    def replace(match: re.Match[str]) -> str:
+        idx = int(match.group(1))
+        return _cite_command(by_index.get(idx), warnings, "sentinel", str(idx))
+
+    return SENTINEL_RE.sub(replace, tex), warnings
 
 
 def _resolve_anchors(
@@ -306,7 +333,8 @@ def _resolve_anchors(
     figures_by_number = {figure.number: figure for figure in figures}
     tex, figure_warnings = _resolve_figure_anchors(tex, figures_by_number, figure_files, figure_env)
     tex, citation_warnings = _resolve_citation_anchors(tex, citations)
-    return tex, tuple(figure_warnings + citation_warnings)
+    tex, sentinel_warnings = _resolve_citation_sentinels(tex, citations)
+    return tex, tuple(figure_warnings + citation_warnings + sentinel_warnings)
 
 
 def _citation_linkage_warning(

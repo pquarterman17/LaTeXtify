@@ -261,10 +261,11 @@ def test_unresolved_citation_anchor_degrades_to_comment_and_warning(tmp_path, mo
     assert any("citation anchor 7" in w.message for w in result.warnings)
 
 
-def test_bib_still_contains_every_reference_even_with_missing_anchors(tmp_path, monkeypatch):
-    # Simulates the real, verified pandoc gap: zero %%CITE anchors planted
-    # for a docx whose citation fields pandoc doesn't recognize. bib must
-    # still be complete; a linkage warning should explain the gap.
+def test_field_coded_citations_link_via_sentinels_through_real_pipeline(tmp_path):
+    # Item 24: the real pipeline plants ZZLTXCITE sentinels pre-pandoc and the
+    # emitter resolves them, so field-coded citations pandoc never turns into
+    # Cite nodes still reach the body as \cite{...}. bib stays complete and the
+    # linkage-gap warning must NOT fire. The nested (index 2) citation links too.
     docx = _copy_fixture(tmp_path, ZOTERO_DOCX)
     result = emit_project(docx, "revtex4-2", tmp_path / "output")
 
@@ -279,7 +280,15 @@ def test_bib_still_contains_every_reference_even_with_missing_anchors(tmp_path, 
         assert f"{{{key}," in bib
 
     assert result.citation_count == 4
-    assert any("linked into the body" in w.message for w in result.warnings)
+
+    body = result.body_tex_path.read_text(encoding="utf-8")
+    assert "\\cite{muller2020quantum}" in body
+    assert "\\cite{kittel2005introduction,smith2019scalable}" in body
+    assert "\\cite{garcia2018topological}" in body  # nested inside a PAGEREF field
+    assert "\\cite{smith2021superconductivity}" in body
+    assert "ZZLTXCITE" not in body  # every sentinel resolved
+
+    assert not any("linked into the body" in w.message for w in result.warnings)
 
 
 # --------------------------------------------------------------------------- #
