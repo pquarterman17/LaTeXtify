@@ -41,13 +41,14 @@ the manifest config (preamble); nothing else.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
 import yaml
 from jinja2 import Environment, FileSystemLoader, StrictUndefined
 
+from latextify.citations.bib import escape_latex
 from latextify.model.meta import Meta
 from latextify.templates.authors import (
     format_affil_refs,
@@ -176,9 +177,52 @@ class Journal:
         )
 
     def render_metadata(self, meta: Meta) -> str:
-        """Render ``metadata.tex`` (title/author/affiliation block) from ``meta``."""
+        """Render ``metadata.tex`` (title/author/affiliation block) from ``meta``.
+
+        Metadata text is LaTeX-escaped at this rendering boundary (see
+        :func:`_escape_meta`) so specials in real titles (``"Effect of 5%
+        doping & strain"``) don't break compilation; the ``Meta`` IR passed in
+        is left untouched.
+        """
         template = self._env().get_template("metadata.tex.j2")
-        return template.render(meta=meta)
+        return template.render(meta=_escape_meta(meta))
+
+
+# --------------------------------------------------------------------------- #
+# Metadata escaping (applied at render time, never mutating the IR)
+# --------------------------------------------------------------------------- #
+
+
+def _escape_meta(meta: Meta) -> Meta:
+    """Return a copy of ``meta`` with every rendered text field LaTeX-escaped.
+
+    Metadata originates as plain manuscript text (a Word title page), so LaTeX
+    specials (``& % $ # _ { } ~ ^ \\``) must be neutralized before they reach
+    the ``.tex`` output or they break compilation -- a real title like ``Effect
+    of 5% doping & strain`` otherwise emits a raw ``&``/``%`` and errors. The
+    escaping is done on a *copy* here, at the rendering boundary, so the ``Meta``
+    IR itself stays raw for every other consumer (never escape inside the IR).
+    Author affiliation *indices* and the ``corresponding`` flag are non-text and
+    pass through untouched. Unicode (accents, CJK) also passes through -- the
+    output is UTF-8 and Tectonic's XeTeX engine handles it natively.
+    """
+    return replace(
+        meta,
+        title=escape_latex(meta.title),
+        authors=tuple(
+            replace(
+                author,
+                name=escape_latex(author.name),
+                email=escape_latex(author.email) if author.email else author.email,
+            )
+            for author in meta.authors
+        ),
+        affiliations=tuple(
+            replace(aff, name=escape_latex(aff.name)) for aff in meta.affiliations
+        ),
+        abstract=escape_latex(meta.abstract),
+        keywords=tuple(escape_latex(k) for k in meta.keywords),
+    )
 
 
 # --------------------------------------------------------------------------- #

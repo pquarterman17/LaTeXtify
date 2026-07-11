@@ -553,3 +553,90 @@ def test_elsarticle_document_compiles(tmp_path, mode):
     assert result.pdf_path.is_file()
     # Prove the vendored v3.5 (not the bundle's v3.3) was actually used.
     assert "2026/01/09, 3.5: Elsevier Ltd" in result.raw_log
+
+
+# --------------------------------------------------------------------------- #
+# Metadata LaTeX escaping -- specials in real titles must not break compilation
+# --------------------------------------------------------------------------- #
+
+ALL_JOURNALS = ["revtex4-2", "ieeetran", "elsarticle", "sn-jnl"]
+
+
+def nasty_meta() -> Meta:
+    """A Meta whose text fields carry every LaTeX special plus unicode.
+
+    Models real manuscript metadata like ``Effect of 5% doping & strain`` -- the
+    raw specials (``& % $ # _ { } ~ ^ \\``) would break compilation if emitted
+    verbatim; unicode (accent, CJK) must survive untouched (UTF-8 + XeTeX).
+    """
+    return Meta(
+        title="Effect of 5% doping & strain on H_2O #1 {x} ~a ^b \\d",
+        authors=(
+            Author(
+                name="Ann O'Néil & Co.",
+                affiliations=(0,),
+                email="a_b@x.edu",
+                corresponding=True,
+            ),
+        ),
+        affiliations=(Affiliation("R&D Lab #3, 100% Institute, 中文系"),),
+        abstract="We show 50% > 30% & p_c < 1 at cost $5 (see _note_).",
+        keywords=("a&b", "c_d"),
+    )
+
+
+@pytest.mark.parametrize("journal_name", ALL_JOURNALS)
+def test_metadata_escapes_latex_specials(journal_name):
+    j = loader.load(journal_name)
+    out = j.render_metadata(nasty_meta())
+
+    # The raw, unescaped title fragment must NOT survive.
+    assert "5% doping & strain" not in out
+    # Each special is neutralized.
+    assert "5\\% doping \\& strain" in out
+    assert "H\\_2O \\#1 \\{x\\}" in out
+    assert "\\textasciitilde{}a \\textasciicircum{}b \\textbackslash{}d" in out
+    # No bare specials remain in the title line specifically.
+    title_line = next(line for line in out.splitlines() if "doping" in line)
+    for bare in ("& ", " % ", "$5"):
+        assert bare not in title_line.replace("\\&", "").replace("\\%", "").replace("\\$", "")
+
+
+@pytest.mark.parametrize("journal_name", ALL_JOURNALS)
+def test_metadata_preserves_unicode(journal_name):
+    j = loader.load(journal_name)
+    out = j.render_metadata(nasty_meta())
+    # Accents and CJK pass through untouched (output is UTF-8; XeTeX handles it).
+    assert "O'Néil" in out
+    assert "中文系" in out
+
+
+def test_render_metadata_does_not_mutate_the_ir():
+    # Escaping happens on a copy at the rendering boundary; the caller's Meta
+    # must stay raw for every other consumer.
+    meta = nasty_meta()
+    loader.load("revtex4-2").render_metadata(meta)
+    assert meta.title == "Effect of 5% doping & strain on H_2O #1 {x} ~a ^b \\d"
+    assert meta.authors[0].name == "Ann O'Néil & Co."
+    assert meta.affiliations[0].name == "R&D Lab #3, 100% Institute, 中文系"
+
+
+@requires_tectonic
+@skip_without_tectonic
+def test_metadata_with_specials_compiles_under_revtex(tmp_path):
+    """A specials-laden title/abstract compiles once escaped (regression for the
+    unescaped-metadata bug that broke real titles like "5% doping & strain")."""
+    j = loader.load("revtex4-2")
+    tex = (
+        j.render_preamble()
+        + "\\begin{document}\n"
+        + j.render_metadata(nasty_meta())
+        + "Body text.\n"
+        + "\\end{document}\n"
+    )
+    tex_path = tmp_path / "main.tex"
+    tex_path.write_text(tex, encoding="utf-8")
+
+    result = compile_document(tex_path, tectonic_path=ensure_tectonic())
+    assert result.success, result.raw_log
+    assert result.pdf_path is not None and result.pdf_path.is_file()
