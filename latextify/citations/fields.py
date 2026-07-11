@@ -25,7 +25,7 @@ from dataclasses import dataclass, field
 from lxml import etree
 
 from ..model.refs import Citation, RefEntry
-from . import mendeley, zotero
+from . import endnote, mendeley, wordnative, zotero
 from .bib import assign_keys
 
 W = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
@@ -204,12 +204,18 @@ def classify_marker(instruction: str) -> str | None:
     """Return the citation source for an instruction, or None if not a citation.
 
     Zotero is checked before Mendeley because both instructions contain the
-    ``CSL_CITATION`` token; only Zotero carries ``ZOTERO_ITEM``.
+    ``CSL_CITATION`` token; only Zotero carries ``ZOTERO_ITEM``. EndNote
+    (``ADDIN EN.CITE``) and Word-native (``CITATION <Tag> ...``) markers are
+    unambiguous and added additively (plan item 13).
     """
     if zotero.matches(instruction):
         return "zotero"
     if mendeley.matches(instruction):
         return "mendeley"
+    if endnote.matches(instruction):
+        return "endnote"
+    if wordnative.matches(instruction):
+        return "wordnative"
     return None
 
 
@@ -247,11 +253,27 @@ def extract_field_citations(docx_path) -> ExtractionResult:
     fields = flatten_fields(assemble_fields(read_document_xml(docx_path)))
     citation_fields = [(f, kind) for f in fields if (kind := classify_marker(f.instruction))]
 
+    # Word-native citations resolve against a document-wide tag -> RefEntry
+    # map (customXml/item*.xml), unlike the other three sources whose payload
+    # is self-contained in the field instruction -- load it lazily, once, and
+    # only when a wordnative field is actually present.
+    wordnative_sources: dict[str, RefEntry] | None = None
+    if any(kind == "wordnative" for _, kind in citation_fields):
+        wordnative_sources = wordnative.load_sources(docx_path)
+
     # Parse each citation field into its ordered RefEntry list.
     per_field: list[list[RefEntry]] = []
     for fld, kind in citation_fields:
-        parser = zotero if kind == "zotero" else mendeley
-        per_field.append(parser.parse_instruction(fld.instruction))
+        if kind == "zotero":
+            per_field.append(zotero.parse_instruction(fld.instruction))
+        elif kind == "mendeley":
+            per_field.append(mendeley.parse_instruction(fld.instruction))
+        elif kind == "endnote":
+            per_field.append(endnote.parse_instruction(fld.instruction))
+        else:  # "wordnative"
+            per_field.append(
+                wordnative.parse_instruction(fld.instruction, wordnative_sources or {})
+            )
 
     # De-duplicate references, preserving first-seen order.
     unique: list[RefEntry] = []

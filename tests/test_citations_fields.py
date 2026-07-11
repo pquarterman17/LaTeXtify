@@ -106,7 +106,39 @@ def test_classify_marker():
     assert classify_marker("ADDIN ZOTERO_ITEM CSL_CITATION {}") != "mendeley"
 
 
+def test_classify_marker_endnote_and_wordnative():
+    """Plan item 13: additive markers, zero changes to the other three."""
+    assert classify_marker("ADDIN EN.CITE <EndNote></EndNote>") == "endnote"
+    assert classify_marker("CITATION Smi20 \\l 1033") == "wordnative"
+    assert classify_marker("CITATION Kit05 \\l 1033 \\m Tur50 \\l 1033") == "wordnative"
+
+
 def test_unclosed_field_does_not_crash():
     body = "<w:p>" + _begin() + _instr("DANGLING") + "</w:p>"  # no end
     flat = flatten_fields(assemble_fields(_doc(body)))
     assert flat[0].instruction == "DANGLING"
+
+
+def test_mixed_source_fields_keep_document_order():
+    """Zotero/EndNote/wordnative markers interleave via the shared field walker.
+
+    Plan item 13 flagged this ordering as potentially intractable for a
+    wordnative sdt-based design; modeling the wordnative CITATION marker as a
+    field discovered by the SAME assemble_fields walk (rather than a separate
+    sdt-only walk) sidesteps the problem entirely -- document order falls out
+    for free, exactly like the existing PAGEREF-nested-Zotero case.
+    """
+
+    def field(marker: str) -> str:
+        return _begin() + _instr(marker) + _sep() + "<w:r><w:t>x</w:t></w:r>" + _end()
+
+    body = (
+        "<w:p>"
+        + field("ADDIN ZOTERO_ITEM CSL_CITATION {}")
+        + field("ADDIN EN.CITE <EndNote></EndNote>")
+        + field("CITATION Smi20 \\l 1033")
+        + "</w:p>"
+    )
+    flat = flatten_fields(assemble_fields(_doc(body)))
+    kinds = [classify_marker(f.instruction) for f in flat]
+    assert kinds == ["zotero", "endnote", "wordnative"]
