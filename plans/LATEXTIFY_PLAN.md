@@ -187,19 +187,6 @@ by its context block.
     **Done when:** golden-file test passes; fixture compiles via the
     vendoring path specifically.
 
-13. **EndNote + Word-native citation extractors**
-    **Model:** Sonnet 5 · **Depends on:** 7 · **Touches:** `latextify/citations/endnote.py`, `wordnative.py`
-    **Context:** Reuse item 7's fields.py walker. EndNote: instruction
-    `ADDIN EN.CITE` followed by XML `<EndNote><Cite><record>...` (fields:
-    `<titles><title>`, `<contributors><authors>`, `<dates><year>`,
-    `<electronic-resource-num>` = DOI). Word-native: `customXml/item*.xml`
-    or `word/bibliography.xml`-referenced `b:` namespace `b:Source` elements
-    keyed by `b:Tag`, matched to `w:sdt` citation content controls in the
-    body. Both map into the same RefEntry → bib.py path.
-    **Done when:** one fixture per source yields correct .bib entries and
-    resolved cites; unknown-field-code case degrades to a report warning,
-    not a crash.
-
 14. **Plain-text citation reconstruction** — the mixed-collaborator safety net
     **Model:** Opus 4.8 (open-ended heuristics + confidence design) · **Depends on:** 7 · **Touches:** `latextify/citations/plaintext.py`, `crossref.py`, `reconcile.py`
     **Context:** Trigger when no field codes found. Detect in-text markers:
@@ -260,6 +247,14 @@ by its context block.
 
 ## Completed
 
+- ~~**#13 EndNote + Word-native citation extractors**~~ (2026-07-11) —
+  endnote.py (EN.CITE XML incl. style-wrapped leaves + double HTML
+  encoding), wordnative.py (CITATION field instructions resolved against
+  customXml b:Source map); both flow through the shared fields.py walker
+  and item 24's sentinels with ZERO sentinel changes — Word-native sdt
+  citations wrap real CITATION fields, so mixed-manager document order
+  falls out free (proven by interleaved 3-source test). Malformed data
+  degrades to EmitWarning, never crashes. 47 tests incl. real compile.
 - ~~**#15 Figure manifest + vector conversion**~~ (2026-07-11) —
   figures.yaml manifest tier (beats folder convention; named-field
   FigureManifestError validation), FigureSource.MANIFEST +
