@@ -1,0 +1,6 @@
+# These are unmodified, verbatim third-party files redistributed under LPPL
+# (see ../VENDOR_LICENSE.txt for provenance). Mark them binary so git's
+# CRLF/LF normalization never touches a byte -- the "verified identical via
+# cmp at vendoring time" claim in VENDOR_LICENSE.txt must stay true
+# regardless of a future clone's autocrlf setting or platform.
+* -text

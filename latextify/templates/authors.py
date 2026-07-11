@@ -26,6 +26,27 @@ class AuthorGroup:
     affiliations: tuple[int, ...]
 
 
+def format_affil_refs(indices: tuple[int, ...]) -> str:
+    """Render 0-based affiliation indices as a comma-joined 1-based ref list.
+
+    sn-jnl (plan item 12) doesn't group authors at all -- every author is
+    printed individually as ``\\author[<refs>]{Name}`` and every affiliation
+    is printed once, elsewhere, as ``\\affil[<n>]{...}``, cross-referenced
+    purely by number. That needs Meta's 0-based ``Author.affiliations``
+    indices converted to LaTeX's 1-based, comma-joined bracket list, e.g.
+    ``(0, 1) -> "1,2"``. Kept out of the template (same rationale as
+    :func:`group_consecutive_by_affiliation`): the reference-formatting
+    convention is a journal-family concern, not something to reimplement in
+    Jinja per journal.
+
+    >>> format_affil_refs((0, 1))
+    '1,2'
+    >>> format_affil_refs((2,))
+    '3'
+    """
+    return ",".join(str(i + 1) for i in indices)
+
+
 def group_consecutive_by_affiliation(authors: tuple[Author, ...]) -> list[AuthorGroup]:
     """Group *consecutive* authors sharing an identical affiliation-index tuple.
 

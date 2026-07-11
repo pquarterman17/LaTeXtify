@@ -49,7 +49,7 @@ import yaml
 from jinja2 import Environment, FileSystemLoader, StrictUndefined
 
 from latextify.model.meta import Meta
-from latextify.templates.authors import group_consecutive_by_affiliation
+from latextify.templates.authors import format_affil_refs, group_consecutive_by_affiliation
 
 # Journal folders shipped inside the package.
 _DEFAULT_JOURNALS_DIR = Path(__file__).resolve().parent / "journals"
@@ -133,8 +133,9 @@ class Journal:
 
     def _env(self) -> Environment:
         env = Environment(loader=FileSystemLoader(str(self.root)), **_JINJA_KW)
-        # Grouping strategies available to every journal's metadata template.
+        # Author-block helpers available to every journal's metadata template.
         env.globals["group_authors"] = group_consecutive_by_affiliation
+        env.globals["format_affil_refs"] = format_affil_refs
         return env
 
     def resolve_mode(self, mode: str | None) -> BibMode:

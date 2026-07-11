@@ -1,0 +1,97 @@
+# Springer Nature (sn-jnl) -- covers Springer, Nature Portfolio, and BMC
+# journals. Plan item 12: the first journal folder whose class is genuinely
+# absent from Tectonic's bundle, so this manifest exercises the vendoring
+# path (see `vendor:` below and `VENDOR_LICENSE.txt` next to this file).
+#
+# LICENSING FINDING (2026-07-11): sn-jnl.cls and every sn-*.bst style file
+# carry their own LaTeX Project Public License (LPPL) header -- verified by
+# downloading the official kit directly from Springer Nature's own LaTeX
+# author-support page (December 2024 version) and inspecting each file's
+# header, not by trusting a third-party mirror. LPPL explicitly permits
+# redistributing unmodified copies (that is the license every CTAN mirror
+# and TeX distribution relies on), so the three files this manifest needs
+# are committed verbatim under `vendor/` rather than fetched on first use --
+# no `vendor_fetch` mechanism was needed. Full provenance in
+# `VENDOR_LICENSE.txt`.
+#
+# BUNDLE FINDING (2026-07-11): confirmed empirically that Tectonic's bundle
+# does NOT carry sn-jnl.cls -- `\documentclass{sn-jnl}` with nothing
+# vendored fails with "File `sn-jnl.cls' not found." This is the first
+# journal in this repo where the vendoring path is load-bearing rather than
+# a fallback that never triggers (REVTeX, item 6, turned out to be IN the
+# bundle).
+
+# \documentclass[<class_options>,<bibstyle>]{<class>}
+# NOTE (differs from the revtex4-2 worked example): sn-jnl selects its
+# citation style via a CLASS OPTION (`sn-mathphys-num` / `sn-mathphys-ay`),
+# not purely via \bibliographystyle -- the option also switches which
+# \cite-formatting branch and \bibliographystyle{...} call the class wires
+# up internally (read directly out of sn-jnl.cls's \DeclareOption block and
+# its end-of-file bibliographystyle macros). Springer happened to name each
+# class option identically to its .bst basename, so this journal's own
+# preamble.tex.j2 injects the per-mode `bibstyle` value (below) straight
+# into the class-options list instead of only using it for
+# \bibliographystyle -- the one place sn-jnl's template deviates from the
+# shared revtex4-2 pattern it was cloned from.
+class: sn-jnl
+class_options: [pdflatex]
+
+# amsmath/amssymb/graphicx/bm are not loaded by the class itself (checked
+# every \RequirePackage/\usepackage in sn-jnl.cls), so they're declared here
+# exactly like revtex4-2. hyperref is deliberately NOT listed here even
+# though sn-jnl needs it -- the class force-loads it unconditionally with NO
+# options (`\RequirePackage{hyperref}`, unguarded, verified by reading the
+# class), so preamble.tex.j2 instead uses \PassOptionsToPackage{...}{hyperref}
+# before \documentclass (the same technique the shared preamble.tex.j2
+# already uses for natbib_options). That line must carry the EXACT option
+# string `latextify.emit.project._DEFAULT_HYPERREF_LINE` uses, so the
+# emitter's own always-appended hyperref line becomes a harmless duplicate
+# request instead of an "Option clash" error. Verified with a real Tectonic
+# compile of both lines together (item 12 dev notes).
+packages:
+  - name: amsmath
+  - name: amssymb
+  - name: graphicx
+  - name: bm
+
+# sn-mathphys ("Math and Physical Sciences Reference Style") is the
+# uncommented default documentclass line in Springer's own sn-article.tex
+# sample, and -- more importantly for this repo's two-mode `bib.modes`
+# schema -- it is one of only two style families (the other, sn-vancouver,
+# targets biomedical/BMC journals) that ships BOTH a numeric and an
+# author-year .bst variant. sn-nature (Nature Portfolio's own style) is
+# numeric-only; sn-basic/sn-aps/sn-apacite/sn-chicago are single-mode too.
+# So sn-mathphys is both the general-audience pick and the only one that
+# genuinely supports both modes this schema can express.
+#
+# natbib is wired up by the class internally per refstyle option
+# (`\usepackage[numbers,sort&compress]{natbib}` for -num,
+# `\usepackage[authoryear]{natbib}` for -ay -- read directly out of
+# sn-jnl.cls), so natbib_options stays empty here, same "class manages
+# natbib" situation the revtex4-2 manifest documents.
+bib:
+  default_mode: numeric
+  modes:
+    numeric:
+      bibstyle: sn-mathphys-num
+      natbib_options: []
+    authoryear:
+      bibstyle: sn-mathphys-ay
+      natbib_options: []
+
+# Informal name the emitter maps to this journal's macro scheme.
+metadata_scheme: sn-jnl
+
+# \LoadClass[twoside,fleqn]{article} -- single column by default (no
+# `twocolumn` class option requested here). figure_env.wide is still
+# declared for consistency with the other journal folders / a future
+# two-column run.
+figure_env:
+  single: figure
+  wide: figure*
+
+# Vendored verbatim from the official Springer Nature kit -- see
+# VENDOR_LICENSE.txt for the license/provenance finding. Only the two bib
+# modes declared above are vendored; the kit's other six sn-*.bst styles are
+# real but unused by this manifest, so they are not shipped.
+vendor: [sn-jnl.cls, sn-mathphys-num.bst, sn-mathphys-ay.bst]
