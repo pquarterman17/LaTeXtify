@@ -146,9 +146,11 @@ by its context block.
 
 ### Dependency map
 
-- Items 1, 2, 6, 8 done; items 3, 4, 7 in flight (dispatched 2026-07-11)
-- Post-merge unification pending: `model/meta_sidecar.py` (item 8) folds into
-  item 4's canonical `model/meta.py` when item 4 merges
+- Tier 1 items 1-4, 6-8 done; remaining: item 9, then item 5 (the emitter
+  consumes item 9's Figure IR for anchor resolution — do 9 first)
+- Two skipped integration stubs activate when item 5 lands:
+  `tests/test_citations_compile_stub.py` and item 3's compile-harness test
+  (the latter also needs `ensure_tectonic()` wiring, not just PATH)
 - Item 5 requires items 3 + 4
 - Item 9 requires item 3 (media extraction)
 - Items 10–12 require items 4 + 5 (registry + emitter proven on REVTeX)
@@ -160,44 +162,6 @@ by its context block.
 ---
 
 ## Tier 1 — High Impact
-
-3. **Pandoc body pipeline** — docx → pandoc JSON AST → panflute filters → LaTeX body
-   **Model:** Sonnet 5 · **Depends on:** — · **Touches:** `latextify/ingest/pandoc.py`, `latextify/ingest/filters.py`
-   **Context:** `pypandoc.convert_file(docx, to="json", extra_args=["--extract-media", media_dir])`
-   then walk with panflute. Filters: map Header levels to `\section`/
-   `\subsection`/`\subsubsection` (Word's Heading 1..3); strip Word junk
-   (empty spans, bookmarks, `w:proofErr` remnants); replace Image nodes with
-   `%%FIGURE:<n>%%` anchors and Cite/field remnants with `%%CITE:<idx>%%`
-   anchors (citations module resolves them later, matched in document
-   order). Emit LaTeX with `pypandoc.convert_text(ast_json, "latex",
-   format="json")`. Keep raw OMML→LaTeX math untouched.
-   **Done when:** `equations.docx` fixture converts to a `body.tex` that
-   compiles inside a minimal `article`-class harness with zero errors;
-   heading levels and math survive round-trip; anchors appear in document
-   order.
-   - [ ] pandoc invocation + media extraction wrapper
-   - [ ] Heading/junk/anchor panflute filters
-   - [ ] `equations.docx` fixture + compile-harness test
-
-4. **Template registry + REVTeX** — journals as data; schema proven on revtex4-2
-   **Model:** Opus 4.8 (schema every later journal copies) · **Depends on:** — · **Touches:** `latextify/templates/loader.py`, `latextify/templates/journals/revtex4-2/`
-   **Context:** Manifest schema (YAML): `class` + `class_options`,
-   `packages` (with options), `bib` (`style`, `modes: {numeric, authoryear}`
-   — omit a mode if the journal forbids it), `metadata_scheme` (informal
-   name consumed by the journal's own `metadata.tex.j2`), `figure_env`
-   conventions (`figure*` for two-column), `vendor` file list. REVTeX
-   first: `\documentclass[aps,prb,reprint]{revtex4-2}`, natbib built in,
-   bibstyle `apsrev4-2`, authors as repeated `\author{}`+`\affiliation{}`
-   pairs grouped by affiliation. Loader discovers `journals/*/manifest.yaml`,
-   validates required keys, raises one clear error naming the offending
-   field. Jinja2 templates render from the `Meta` IR only.
-   **Done when:** `loader.load("revtex4-2")` returns a validated journal
-   object; a deliberately broken manifest raises the clear error; rendered
-   preamble+metadata for a two-author/two-affiliation `Meta` fixture
-   matches a golden file.
-   - [ ] Manifest schema + loader with validation errors
-   - [ ] revtex4-2 folder: manifest, preamble.tex.j2, metadata.tex.j2
-   - [ ] Golden-file test for rendered output
 
 5. **Project emitter** — write the output tree with the generated/manual split
    **Model:** Sonnet 5 · **Depends on:** 3, 4 · **Touches:** `latextify/emit/project.py`, `latextify/emit/metadata.py`
@@ -214,29 +178,6 @@ by its context block.
    - [ ] Anchor resolution pass
    - [ ] Two-run edit-survival integration test
 
-7. **Zotero/Mendeley citation extraction** — field codes → CSL JSON → references.bib + linked cites
-   **Model:** Opus 4.8 (flagship feature; complex-field encoding is fiddly) · **Depends on:** — · **Touches:** `latextify/citations/fields.py`, `zotero.py`, `mendeley.py`, `bib.py`
-   **Context:** Word complex fields are split across runs: a `w:fldChar
-   fldCharType="begin"`, then one or more `w:instrText` runs whose text must
-   be CONCATENATED, then separate/end fldChars; fields also nest. The
-   assembled instruction starts `ADDIN ZOTERO_ITEM CSL_CITATION {json}`
-   (Zotero) or `ADDIN CSL_CITATION {json}` (Mendeley); the JSON's
-   `citationItems[].itemData` is full CSL: title, author[], container-title,
-   issued, DOI, page, volume. Map CSL→BibTeX (`article-journal`→`@article`,
-   `paper-conference`→`@inproceedings`, `book`, `chapter`→`@incollection`);
-   keys as `<firstauthor-lastname><year><first-title-word>`, ASCII-folded,
-   de-collided with a/b/c suffixes. Each field's position in document order
-   pairs with the body's `%%CITE:<idx>%%` anchors → `\cite{key1,key2}`.
-   DOI goes in the bib `doi` field; linking is `hyperref`+`doi` package via
-   journal preamble (no per-cite URLs).
-   **Done when:** `zotero_cited.docx` fixture yields a .bib with every
-   reference (fields spot-checked in tests), all anchors resolve to `\cite`,
-   and the compiled PDF has clickable DOI links in the bibliography.
-   - [ ] Complex-field walker (run concatenation, nesting) in fields.py
-   - [ ] Zotero + Mendeley JSON parsers → RefEntry
-   - [ ] CSL→BibTeX mapping + stable key generation + collision handling
-   - [ ] End-to-end fixture test through compile
-
 9. **Figures: extraction + folder override** — embedded media out, better files in
    **Model:** Sonnet 5 · **Depends on:** 3 · **Touches:** `latextify/figures/extract.py`, `latextify/figures/override.py`
    **Context:** pandoc `--extract-media` yields `media/imageN.*` in document
@@ -246,6 +187,13 @@ by its context block.
    is documented in `figures/__init__.py` (manifest > `figures/fig<N>.<ext>`
    > embedded). Copy the winning file into the output tree's `figures/`;
    record source per figure for the report.
+   FINDING FROM ITEM 3 (verified): pandoc 3.x promotes a standalone image
+   into a native `Figure` block with a `\caption{}` derived from alt text
+   (usually EMPTY) — the real "Figure N: ..." caption is a separate sibling
+   paragraph left next to the `%%FIGURE:<n>%%` anchor. This item must
+   associate that adjacent caption paragraph with the figure and the emitter
+   must swallow the leftover caption paragraph + empty `\caption{}` shell
+   when resolving anchors.
    **Done when:** `figures.docx` (3 captioned images) emits three figure
    environments with correct captions/numbers; adding `figures/fig2.pdf`
    beside the docx switches figure 2's source and the report line says so.
@@ -373,6 +321,24 @@ by its context block.
 
 ## Completed
 
+- ~~**#3 Pandoc body pipeline**~~ (2026-07-11) — pypandoc docx→JSON AST→
+  panflute filters (heading normalize+clamp to 3 levels, junk strip,
+  RawInline `%%FIGURE/%%CITE` anchors)→LaTeX; OMML math verified surviving
+  round-trip; equations.docx fixture; 19 tests (+1 compile-harness test
+  gated on tectonic PATH).
+- ~~**#4 Template registry + REVTeX**~~ (2026-07-11) — manifest schema
+  (class/class_options/packages/bib.modes-with-per-mode-bibstyle/
+  metadata_scheme/figure_env/vendor), loader with named-field validation,
+  Jinja \VAR{}/%% LaTeX-safe delimiters, `group_authors` Jinja global,
+  revtex4-2 folder as the clone template for items 10-12; golden-file
+  tests; 18 tests. NOTE: `bib.modes.<mode>.bibstyle` (per-mode bst)
+  supersedes the single-`style` sketch — required by elsarticle.
+- ~~**#7 Zotero/Mendeley citation extraction**~~ (2026-07-11) — complex-field
+  walker (split-run concat, nesting, fldSimple), CSL JSON→RefEntry parsers,
+  CSL→BibTeX with ASCII-folded stable keys + a/b/c collisions + brace
+  protection, document-ordered Citation list for anchor pairing, cross-doc
+  dedup (DOI→id→fingerprint); hand-crafted OOXML fixture; 46 tests. Through-
+  compile stub skipped pending item 5.
 - ~~**#2 Docx ingest + preflight**~~ (2026-07-11) — lxml walker over
   document.xml/styles.xml; five detectors (text boxes, tracked changes,
   floating objects, SmartArt, equation-as-image) + style inventory;
