@@ -146,8 +146,7 @@ by its context block.
 
 ### Dependency map
 
-- Tier 1 items 1-4, 6-8 done; remaining: item 9, then item 5 (the emitter
-  consumes item 9's Figure IR for anchor resolution — do 9 first)
+- Tier 1 items 1-4, 6-9 done; remaining: item 5 (emitter — dispatched)
 - Two skipped integration stubs activate when item 5 lands:
   `tests/test_citations_compile_stub.py` and item 3's compile-harness test
   (the latter also needs `ensure_tectonic()` wiring, not just PATH)
@@ -177,29 +176,6 @@ by its context block.
    - [ ] Tree writer + write-once main.tex
    - [ ] Anchor resolution pass
    - [ ] Two-run edit-survival integration test
-
-9. **Figures: extraction + folder override** — embedded media out, better files in
-   **Model:** Sonnet 5 · **Depends on:** 3 · **Touches:** `latextify/figures/extract.py`, `latextify/figures/override.py`
-   **Context:** pandoc `--extract-media` yields `media/imageN.*` in document
-   order. Caption = the Caption-styled paragraph adjacent to the image, or
-   regex `^(Figure|Fig\.?)\s*(\d+)[.:]?` on the following paragraph; figure
-   number comes from that match else from order. Override resolution order
-   is documented in `figures/__init__.py` (manifest > `figures/fig<N>.<ext>`
-   > embedded). Copy the winning file into the output tree's `figures/`;
-   record source per figure for the report.
-   FINDING FROM ITEM 3 (verified): pandoc 3.x promotes a standalone image
-   into a native `Figure` block with a `\caption{}` derived from alt text
-   (usually EMPTY) — the real "Figure N: ..." caption is a separate sibling
-   paragraph left next to the `%%FIGURE:<n>%%` anchor. This item must
-   associate that adjacent caption paragraph with the figure and the emitter
-   must swallow the leftover caption paragraph + empty `\caption{}` shell
-   when resolving anchors.
-   **Done when:** `figures.docx` (3 captioned images) emits three figure
-   environments with correct captions/numbers; adding `figures/fig2.pdf`
-   beside the docx switches figure 2's source and the report line says so.
-   - [ ] Media↔figure-number↔caption association
-   - [ ] Folder-convention override resolution + report records
-   - [ ] `figures.docx` fixture + override test
 
 ## Tier 2 — Medium Impact
 
@@ -321,6 +297,14 @@ by its context block.
 
 ## Completed
 
+- ~~**#9 Figures: extraction + folder override**~~ (2026-07-11) — Figure/
+  FigureSource IR, `extract_figures()` (pandoc Figure.caption when populated,
+  adjacent-sibling regex fallback otherwise — item 3's empty-caption finding
+  could NOT be reproduced on pandoc 3.9, both paths covered), folder-
+  convention `resolve_overrides()` with pdf>eps>svg>png>jpg priority,
+  `describe_source()` report lines; figures.docx fixture (3 caption styles);
+  14 tests. File copying + anchor/caption swallowing deferred to item 5;
+  manifest tier deferred to item 15 as planned.
 - ~~**#3 Pandoc body pipeline**~~ (2026-07-11) — pypandoc docx→JSON AST→
   panflute filters (heading normalize+clamp to 3 levels, junk strip,
   RawInline `%%FIGURE/%%CITE` anchors)→LaTeX; OMML math verified surviving
