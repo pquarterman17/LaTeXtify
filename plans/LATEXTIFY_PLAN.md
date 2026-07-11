@@ -176,17 +176,6 @@ by its context block.
     fixture compiles under Tectonic (vendor elsarticle.cls if the bundle
     lacks it).
 
-12. **Nature/Springer template** — sn-jnl journal folder
-    **Model:** Sonnet 5 · **Depends on:** 4, 5 · **Touches:** `latextify/templates/journals/sn-jnl/`
-    **Context:** Springer Nature `sn-jnl.cls` (options like `pdflatex,sn-nature`);
-    almost certainly NOT in the Tectonic bundle — vendor the cls + sn-*.bst
-    into `vendor/` (check Springer's LaTeX kit license permits
-    redistribution; if not, download-on-first-use with cached copy and a
-    manifest `vendor_fetch` URL). `\author*[1]{}` marks corresponding;
-    `\affil[1]{}`.
-    **Done when:** golden-file test passes; fixture compiles via the
-    vendoring path specifically.
-
 14. **Plain-text citation reconstruction** — the mixed-collaborator safety net
     **Model:** Opus 4.8 (open-ended heuristics + confidence design) · **Depends on:** 7 · **Touches:** `latextify/citations/plaintext.py`, `crossref.py`, `reconcile.py`
     **Context:** Trigger when no field codes found. Detect in-text markers:
@@ -247,6 +236,17 @@ by its context block.
 
 ## Completed
 
+- ~~**#12 Nature/Springer template**~~ (2026-07-11) — sn-jnl folder with
+  vendored sn-jnl.cls + sn-mathphys-num/-ay.bst (LPPL 1.3 verified in file
+  headers — redistribution OK, no vendor_fetch mechanism needed;
+  .gitattributes guards vendor bytes from CRLF mangling), `format_affil_refs`
+  Jinja global (per-author inline affiliation refs, `\author*` marks
+  corresponding), citation style doubles as a CLASS option (bst basename ==
+  class option, exploited in the preamble template), hyperref option clash
+  avoided via \PassOptionsToPackage matching the emitter's line. VERIFIED
+  absent from Tectonic bundle — first load-bearing use of vendoring; both
+  bst modes proven via real BibTeX passes. 14 tests. FLAGGED: nothing wires
+  `journal.vendor` into a compile CLI yet (goes with item 16's CLI work).
 - ~~**#13 EndNote + Word-native citation extractors**~~ (2026-07-11) —
   endnote.py (EN.CITE XML incl. style-wrapped leaves + double HTML
   encoding), wordnative.py (CITATION field instructions resolved against
