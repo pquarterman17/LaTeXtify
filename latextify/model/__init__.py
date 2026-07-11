@@ -14,15 +14,28 @@ Implemented so far:
     compile.py      -- CompileDiagnostic, CompileResult (plan item 6)
     meta_sidecar.py -- Author, Meta paper.yaml schema (plan item 8;
                        to be unified with item 4's model/meta.py)
+    preflight.py    -- PreflightFinding, PreflightReport, StyleInventory (plan item 2)
 """
 
 from latextify.model.compile import CompileDiagnostic, CompileResult, DiagnosticSeverity
 from latextify.model.meta_sidecar import Author, Meta
+from latextify.model.preflight import (
+    Location,
+    PreflightFinding,
+    PreflightReport,
+    Severity,
+    StyleInventory,
+)
 
 __all__ = [
     "Author",
     "CompileDiagnostic",
     "CompileResult",
     "DiagnosticSeverity",
+    "Location",
     "Meta",
+    "PreflightFinding",
+    "PreflightReport",
+    "Severity",
+    "StyleInventory",
 ]
