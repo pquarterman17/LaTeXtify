@@ -309,73 +309,164 @@ def test_journals_command_lists_correct_modes():
 
 
 # --------------------------------------------------------------------------- #
-# OUT-OF-BOUNDS FINDING (reported, not fixed -- see docstring):
-# figures.extract / emit.project desync with an image nested in a table cell
+# In-table figure resolution: an Image nested inside a table cell (bug found
+# by the ingest bug-hunter -- see git history for the original xfail repro
+# and its OUT-OF-BOUNDS note). latextify.ingest.filters.plant_anchors walks
+# the WHOLE document tree, so a table-nested image was already getting a
+# %%FIGURE:<n>%% anchor; latextify.figures.extract now walks the whole tree
+# too (via the same doc.walk() mechanism) so it produces a matching Figure
+# record -- with Figure.in_table=True, since a float environment
+# (\begin{figure}) is not legal LaTeX inside a tabular/longtable cell.
+# latextify.emit.project resolves an in_table anchor to a bare, width-limited
+# \includegraphics instead of the usual figure environment.
 # --------------------------------------------------------------------------- #
 
 
-@pytest.mark.xfail(
-    reason=(
-        "OUT-OF-BOUNDS BUG (not fixed by this hunt -- belongs to "
-        "latextify/figures/extract.py + latextify/emit/project.py, both "
-        "outside this hunt's territory). "
-        "latextify.ingest.filters.plant_anchors (in-territory) walks the "
-        "WHOLE document tree, so an Image nested inside a table cell gets a "
-        "%%FIGURE:<n>%% anchor and is counted in "
-        "BodyConversionResult.figure_count -- deliberately, per the "
-        "filters.py module docstring. But "
-        "latextify.figures.extract.extract_figures only iterates "
-        "doc.content (TOP-LEVEL blocks) and extract_figures._find_image "
-        "only descends into Para/Plain/Figure blocks -- never Table -- so "
-        "it silently never produces a Figure record for that same image. "
-        "extract.py's own docstring even documents the assumption this "
-        "violates: 'for the flat paragraph structure real manuscripts use "
-        "(one image per paragraph, no images nested inside other block "
-        "containers), both traversals visit images in the same order and "
-        "therefore agree on numbers' -- an image in a table cell breaks "
-        "exactly that assumption. The visible symptom: the anchor resolves "
-        "to a permanent 'unresolved figure anchor' EmitWarning + a literal "
-        "'[UNRESOLVED FIGURE 1]' placeholder injected into the table cell "
-        "(verified by running latextify.emit.project.emit_project "
-        "directly). Fix needs figures/extract.py to also walk into Table "
-        "cells (or a documented, deliberate decision to exclude "
-        "table-nested images from plant_anchors' count too, keeping both "
-        "stages' assumptions in sync) -- either way, a change to code "
-        "outside this hunt's territory."
-    ),
-    strict=True,
-)
-def test_image_in_table_cell_desyncs_with_figures_extract(tmp_path):
+def _docx_with_table_image(
+    tmp_path: Path, *, image_before: bool = False, image_after: bool = False
+):
+    """Build a manuscript with one image embedded in a table cell, optionally
+    flanked by a top-level image immediately before and/or after the table --
+    used to prove anchor<->Figure-record numbering stays aligned regardless
+    of which side of the table-nested image a top-level image sits on."""
     docx_module = pytest.importorskip("docx")
     pil_image = pytest.importorskip("PIL.Image")
 
-    img_path = tmp_path / "dot.png"
-    pil_image.new("RGB", (4, 4), color="blue").save(img_path)
+    def make_png(name: str, color: str) -> Path:
+        path = tmp_path / name
+        pil_image.new("RGB", (4, 4), color=color).save(path)
+        return path
 
     doc = docx_module.Document()
     doc.add_paragraph(style="Title").add_run("Table With Embedded Image")
-    doc.add_paragraph("Intro text before the table.")
+
+    if image_before:
+        doc.add_paragraph("Intro text before the table.")
+        doc.add_picture(str(make_png("before.png", "red")), width=None)
+
     table = doc.add_table(rows=1, cols=2)
     table.cell(0, 0).text = "Label"
     run = table.cell(0, 1).paragraphs[0].add_run()
-    run.add_picture(str(img_path), width=None)
-    doc.add_paragraph("Outro text after the table.")
+    run.add_picture(str(make_png("table.png", "blue")), width=None)
+
+    if image_after:
+        doc.add_paragraph("Outro text after the table.")
+        doc.add_picture(str(make_png("after.png", "green")), width=None)
 
     docx_path = tmp_path / "table_with_image.docx"
     doc.save(docx_path)
+    return docx_path
+
+
+def test_image_in_table_cell_resolves_without_unresolved_placeholder(tmp_path):
+    docx_path = _docx_with_table_image(tmp_path)
 
     result = _invoke_convert(docx_path, "revtex4-2", tmp_path / "output")
 
     assert result.exit_code == 0, result.output
-    body_tex = (tmp_path / "output" / "revtex4-2" / "generated" / "body.tex").read_text(
-        encoding="utf-8"
+    assert "unresolved figure" not in result.output.lower()
+
+    output_dir = tmp_path / "output" / "revtex4-2"
+    body_tex = (output_dir / "generated" / "body.tex").read_text(encoding="utf-8")
+
+    assert "UNRESOLVED FIGURE" not in body_tex
+    assert "%%FIGURE" not in body_tex
+
+    # A float environment is not legal LaTeX inside a table cell -- the
+    # in-table image must resolve to a bare \includegraphics, never a
+    # \begin{figure} wrapper (this manuscript's only image is the in-table
+    # one, so \begin{figure} must not appear anywhere in the body at all).
+    assert "\\begin{figure}" not in body_tex
+    assert "\\includegraphics[width=3cm]{figures/fig1" in body_tex
+
+    # The image file itself landed in figures/.
+    figures_dir = output_dir / "figures"
+    assert any(figures_dir.glob("fig1.*")), (
+        f"no figures/fig1.* file in {figures_dir}: {list(figures_dir.iterdir())}"
     )
-    # What SHOULD happen: the image is resolved into a real
-    # \includegraphics reference, matching figure 1.
-    assert "UNRESOLVED FIGURE" not in body_tex, (
-        "figures.extract now resolves table-nested images -- promote this "
-        "xfail to a real assertion and remove the OUT-OF-BOUNDS note above"
+
+
+def _tectonic_available() -> bool:
+    from latextify.compile.tectonic import TectonicNotAvailableError, ensure_tectonic
+
+    try:
+        ensure_tectonic()
+        return True
+    except TectonicNotAvailableError:
+        return False
+
+
+@pytest.mark.tectonic
+@pytest.mark.skipif(
+    not _tectonic_available(),
+    reason="no tectonic binary on PATH/cache and none could be downloaded",
+)
+def test_image_in_table_cell_compiles_end_to_end(tmp_path):
+    docx_path = _docx_with_table_image(tmp_path)
+
+    result = runner.invoke(
+        app,
+        [
+            "convert",
+            str(docx_path),
+            "--journal",
+            "revtex4-2",
+            "--output",
+            str(tmp_path / "output"),
+            "--pdf",
+        ],
     )
+
+    assert result.exit_code == 0, result.output
+    assert "compiled" in result.output
+    pdf_path = tmp_path / "output" / "revtex4-2" / "main.pdf"
+    assert pdf_path.is_file()
+
+
+@pytest.mark.parametrize(
+    "image_before, image_after",
+    [
+        pytest.param(True, False, id="top_level_before_table"),
+        pytest.param(False, True, id="top_level_after_table"),
+    ],
+)
+def test_anchor_numbering_stays_aligned_around_a_table_image(
+    tmp_path, image_before, image_after
+):
+    """Regression guard for the anchor<->Figure-record desync bug: whether
+    the top-level image sits before or after the table, the table-nested
+    image's anchor number must resolve to a real figure (not an unresolved
+    placeholder), and every figure number must resolve to exactly one
+    \\includegraphics -- no number is skipped or double-claimed."""
+    docx_path = _docx_with_table_image(
+        tmp_path, image_before=image_before, image_after=image_after
+    )
+
+    result = _invoke_convert(docx_path, "revtex4-2", tmp_path / "output")
+
+    assert result.exit_code == 0, result.output
+    output_dir = tmp_path / "output" / "revtex4-2"
+    body_tex = (output_dir / "generated" / "body.tex").read_text(encoding="utf-8")
+
+    assert "UNRESOLVED FIGURE" not in body_tex
+    assert "%%FIGURE" not in body_tex
+
+    # Two images total (one top-level, one in-table) -> figures 1 and 2, each
+    # resolved exactly once: one as a normal figure environment (the
+    # top-level image), one as a bare width-limited \includegraphics (the
+    # in-table image) -- regardless of which side of the table it sits on.
+    float_includes = body_tex.count("\\includegraphics{figures/fig")
+    bare_includes = body_tex.count("\\includegraphics[width=3cm]{figures/fig")
+    assert float_includes == 1
+    assert bare_includes == 1
+    assert body_tex.count("\\begin{figure}") == 1
+
+    figures_dir = output_dir / "figures"
+    for number in (1, 2):
+        assert any(figures_dir.glob(f"fig{number}.*")), (
+            f"no figures/fig{number}.* file in {figures_dir}: "
+            f"{list(figures_dir.iterdir())}"
+        )
 
 
 # --------------------------------------------------------------------------- #

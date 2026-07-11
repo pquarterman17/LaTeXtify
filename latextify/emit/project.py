@@ -33,6 +33,16 @@ using the clean ``Figure.caption`` text, so neither duplicate (empty
 ``\\caption{}`` shell or leftover caption paragraph) survives into
 ``generated/body.tex``.
 
+A third case -- an anchor whose ``Figure`` record has ``in_table=True``
+(``latextify.figures.extract`` set this because the source ``Image`` sat
+inside a table cell) -- always takes the case-2 (bare anchor) shape, since
+``latextify.ingest.filters.normalize_tables`` flattens the cell to plain
+LaTeX text before an anchor there could ever end up pandoc-wrapped in a
+``\\begin{figure}...\\end{figure}`` block. It resolves to a bare, width-
+limited ``\\includegraphics`` with no float wrapper and no ``\\caption``:
+``\\begin{figure}`` is not legal LaTeX inside a ``tabular``/``longtable``
+cell.
+
 Citation linkage has two paths that both resolve to ``\\cite{...}``:
 
     * ``ZZLTXCITE<i>ZZ`` sentinels -- the primary path for Zotero/Mendeley
@@ -408,6 +418,31 @@ def _figure_block(path: str, caption: str, env: str) -> str:
     )
 
 
+#: Width cap for an image resolved inside a table cell. A percentage of
+#: ``\linewidth`` is not used here because a plain (non ``p{}``) tabular
+#: column has no line-width context of its own -- ``\linewidth`` inside it
+#: resolves to the *surrounding text's* width, not the cell's, and would
+#: render far larger than the cell can hold. An absolute measurement is
+#: deterministic regardless of column type/count, at the cost of not
+#: adapting to the actual cell width.
+_IN_TABLE_IMAGE_WIDTH = "3cm"
+
+
+def _in_table_figure(path: str) -> str:
+    """Bare, width-limited ``\\includegraphics`` for a figure anchor that
+    sits inside a table cell.
+
+    No ``\\begin{figure}...\\end{figure}`` float wrapper and no
+    ``\\caption`` -- a float environment is not legal LaTeX inside a
+    ``tabular``/``longtable`` cell (``! LaTeX Error: \\begin{figure} on
+    input line ... ended by \\end{tabular}.``), and a cell has no caption
+    association to begin with (``latextify.figures.extract``'s module
+    docstring). Single line, so it is always safe to splice into a table
+    row's ``&``-separated cell text.
+    """
+    return f"\\includegraphics[width={_IN_TABLE_IMAGE_WIDTH}]{{{path}}}"
+
+
 def _resolve_one_figure(
     number: int,
     figures_by_number: dict[int, Figure],
@@ -427,6 +462,8 @@ def _resolve_one_figure(
             f"% LATEXTIFY WARNING: unresolved anchor for figure {number}\n"
             f"\\textbf{{[UNRESOLVED FIGURE {number}]}}"
         )
+    if figure.in_table:
+        return _in_table_figure(path)
     return _figure_block(path, figure.caption, figure_env.single)
 
 
