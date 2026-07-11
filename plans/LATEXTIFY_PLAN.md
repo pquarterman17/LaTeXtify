@@ -176,16 +176,6 @@ by its context block.
     fixture compiles under Tectonic (vendor elsarticle.cls if the bundle
     lacks it).
 
-11. **IEEE template** — IEEEtran journal folder
-    **Model:** Sonnet 5 (author-block grouping logic differs most) · **Depends on:** 4, 5 · **Touches:** `latextify/templates/journals/ieeetran/`
-    **Context:** `\documentclass[journal]{IEEEtran}`; authors grouped by
-    institution into `\IEEEauthorblockN{names}\IEEEauthorblockA{affil}`
-    blocks — the metadata template must group the flat `Meta` author list by
-    affiliation set. Bib: `IEEEtran` bst, numeric only (no authoryear mode
-    in manifest). Two-column: `figure*` for wide figures.
-    **Done when:** golden-file test covers a 3-author/2-affiliation grouping
-    case; compiles under Tectonic.
-
 12. **Nature/Springer template** — sn-jnl journal folder
     **Model:** Sonnet 5 · **Depends on:** 4, 5 · **Touches:** `latextify/templates/journals/sn-jnl/`
     **Context:** Springer Nature `sn-jnl.cls` (options like `pdflatex,sn-nature`);
@@ -283,6 +273,11 @@ by its context block.
 
 ## Completed
 
+- ~~**#11 IEEE template**~~ (2026-07-11) — ieeetran journal folder (numeric-
+  only bib mode, figure/figure* envs), `group_globally_by_affiliation()` in
+  authors.py registered as `group_authors_global` Jinja global, golden-file
+  + non-consecutive-grouping tests, real Tectonic compile of the rendered
+  project. IEEEtran.cls IS in the Tectonic bundle — no vendoring. 11 tests.
 - ~~**#24 Citation anchor planting via docx preprocessing**~~ (2026-07-11) —
   `plant_citation_sentinels()` rewrites citation field RESULTS to
   `ZZLTXCITE<i>ZZ` sentinels in a temp docx (shares fields.py's walker, so
