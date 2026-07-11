@@ -219,6 +219,12 @@ def classify_marker(instruction: str) -> str | None:
     return None
 
 
+#: Fallback counter for entries with no usable dedup signal at all (DOI,
+#: raw_id, authors, title, AND year all missing/empty) -- see
+#: :func:`_dedup_identity`.
+_unidentified_counter = itertools.count()
+
+
 def _dedup_identity(entry: RefEntry) -> str:
     """A stable key identifying the same reference cited more than once."""
     if entry.doi:
@@ -227,6 +233,14 @@ def _dedup_identity(entry: RefEntry) -> str:
         return "id:" + entry.raw_id
     families = "|".join(a.family or a.literal for a in entry.authors).lower()
     title = re.sub(r"\W+", "", (entry.title or "")).lower()
+    if not families and not title and not entry.year:
+        # No identifying data whatsoever (e.g. a Zotero/EndNote/wordnative
+        # field whose itemData/record is missing author, title, year, DOI,
+        # AND its own id -- catastrophically malformed but not impossible).
+        # Two independently-cited references in this state would otherwise
+        # share the same empty fingerprint "fp:::None:" and silently
+        # collapse into one shared, wrong entry. Never merge them.
+        return f"fp:unidentified:{next(_unidentified_counter)}"
     return f"fp:{families}:{entry.year}:{title}"
 
 
