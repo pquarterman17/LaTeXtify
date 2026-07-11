@@ -10,6 +10,7 @@ Planned types (plan item 5 populates them):
 Implemented so far:
     body.py      -- BodyConversionResult, FilterFinding (plan item 3)
     compile.py   -- CompileDiagnostic, CompileResult (plan item 6)
+    emit.py      -- EmitResult, EmitWarning (plan item 5)
     figure.py    -- Figure, FigureSource (plan item 9)
     meta.py      -- Affiliation, Author, Meta paper.yaml/template IR (items 4+8)
     preflight.py -- PreflightFinding, PreflightReport, StyleInventory (plan item 2)
@@ -18,6 +19,7 @@ Implemented so far:
 
 from latextify.model.body import BodyConversionResult, FilterFinding
 from latextify.model.compile import CompileDiagnostic, CompileResult, DiagnosticSeverity
+from latextify.model.emit import EmitResult, EmitWarning
 from latextify.model.figure import Figure, FigureSource
 from latextify.model.meta import Affiliation, Author, Meta
 from latextify.model.preflight import (
@@ -37,6 +39,8 @@ __all__ = [
     "CompileDiagnostic",
     "CompileResult",
     "DiagnosticSeverity",
+    "EmitResult",
+    "EmitWarning",
     "Figure",
     "FigureSource",
     "FilterFinding",

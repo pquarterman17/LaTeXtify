@@ -17,7 +17,15 @@ packages:
   - name: bm
   - name: hyperref
     options: [colorlinks=true, linkcolor=blue, citecolor=blue, urlcolor=blue]
-  - name: doi   # auto-hyperlinks the `doi` bib field (plan item 7)
+  # NOTE (plan item 5, 2026-07-11): do NOT add the standalone `doi` package
+  # here. revtex4-2.cls already defines \doi itself; loading the CTAN `doi`
+  # package on top throws "LaTeX Error: Command \doi already defined." and
+  # aborts compilation -- verified by actually compiling this manifest's
+  # rendered preamble through Tectonic (item 6 never exercised the full
+  # manifest, only a hand-written minimal REVTeX doc). apsrev4-2.bst already
+  # wraps the doi field in `\href{https://doi.org/...}{...}` natively (seen
+  # directly in the generated .bbl), so hyperref alone is sufficient for
+  # clickable DOIs -- no extra package needed.
 
 # Bibliography. REVTeX/APS is numeric only — the author-year mode is omitted
 # because apsrev4-2 forbids it (this is the "omit a mode" case for item 18).
