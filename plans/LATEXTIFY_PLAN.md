@@ -217,19 +217,6 @@ by its context block.
     test); every below-threshold ref appears flagged in the report; numeric
     marker ranges expand correctly.
 
-15. **Figure manifest + vector conversion**
-    **Model:** Sonnet 5 · **Depends on:** 9 · **Touches:** `latextify/figures/convert.py`, `override.py`
-    **Context:** `figures.yaml` schema: `{<figure-number>: <path>}`, beats
-    folder convention on conflict. SVG must become PDF for LaTeX inclusion:
-    try cairosvg first; if cairo DLLs are unavailable on Windows, fall back
-    to svglib+reportlab and note fidelity limits in the report line. EPS:
-    pass through (Tectonic/xelatex handles via repstopdf?) — TEST this; if
-    not, convert via ghostscript when present, else report an actionable
-    error. PDF/PNG/JPG pass through.
-    **Done when:** manifest beats folder convention in a conflict test;
-    an SVG override lands as PDF in the output tree; EPS behavior is tested
-    and documented, whichever path wins.
-
 16. **Consolidated conversion report** — report.md per run
     **Model:** Haiku 4.5 · **Depends on:** 2, 6, 7, 9 · **Touches:** `latextify/report/`
     **Context:** Every stage already produces finding/record dataclasses
@@ -273,6 +260,14 @@ by its context block.
 
 ## Completed
 
+- ~~**#15 Figure manifest + vector conversion**~~ (2026-07-11) —
+  figures.yaml manifest tier (beats folder convention; named-field
+  FigureManifestError validation), FigureSource.MANIFEST +
+  Figure.conversion_note + EmitResult.figures (all additive), SVG→PDF
+  (cairosvg → svglib/reportlab fallback; svglib is the working path on this
+  machine, cairo DLL absent), EPS→Ghostscript-or-actionable-EmitWarning.
+  VERIFIED: Tectonic rejects raw EPS includegraphics (real compile test).
+  33 tests. Deps: svglib+reportlab required, cairosvg optional extra.
 - ~~**#11 IEEE template**~~ (2026-07-11) — ieeetran journal folder (numeric-
   only bib mode, figure/figure* envs), `group_globally_by_affiliation()` in
   authors.py registered as `group_authors_global` Jinja global, golden-file
