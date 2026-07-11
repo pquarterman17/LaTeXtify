@@ -5,17 +5,24 @@ produces these types so stages stay independently testable.
 
 Planned types (plan items 2-9 populate them):
     Document, Section          -- structured body content
-    Author, Affiliation, Meta  -- title-page metadata (paper.yaml schema)
     Figure                     -- number, caption, embedded path, override path
     Table, Equation            -- normalized content blocks
     Citation                   -- in-text anchor -> list of citation keys
     RefEntry                   -- one bibliography entry (CSL-shaped fields)
-    PreflightFinding           -- severity, location, message
 
 Implemented so far:
-    compile.py -- CompileDiagnostic, CompileResult (plan item 6)
+    compile.py      -- CompileDiagnostic, CompileResult (plan item 6)
+    meta_sidecar.py -- Author, Meta paper.yaml schema (plan item 8;
+                       to be unified with item 4's model/meta.py)
 """
 
 from latextify.model.compile import CompileDiagnostic, CompileResult, DiagnosticSeverity
+from latextify.model.meta_sidecar import Author, Meta
 
-__all__ = ["CompileDiagnostic", "CompileResult", "DiagnosticSeverity"]
+__all__ = [
+    "Author",
+    "CompileDiagnostic",
+    "CompileResult",
+    "DiagnosticSeverity",
+    "Meta",
+]

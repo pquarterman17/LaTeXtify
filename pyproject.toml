@@ -19,6 +19,7 @@ dependencies = [
 dev = [
     "pytest>=8.0",
     "ruff>=0.5",
+    "python-docx>=1.1",  # fixture generation only (tests/fixtures/make_*.py)
 ]
 
 [project.scripts]
