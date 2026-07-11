@@ -171,6 +171,16 @@ by its context block.
 
 ## Tier 3 — Nice-to-Have
 
+27. **Affiliation marker/paragraph cross-order mismatch** (bug-hunt wave,
+    LOW) — when author superscript markers' first-seen order differs from
+    the physical order of affiliation paragraphs (or marker values don't
+    match paragraphs' own leading markers but counts agree), guess_meta
+    links authors to the wrong affiliation text with no # CHECK flag.
+    Fix requires cross-validating marker VALUES against each affiliation
+    paragraph's leading marker, not just counts — a heuristic-quality
+    improvement in `latextify/ingest/metadata_guess.py`. Repro exists in
+    the bug-hunt report (2026-07-11). **Model:** Sonnet 5.
+
 19. **GUI wrapper** — drag-and-drop, journal picker, PDF preview (FastAPI+Vue or Tauri, reusing thin_film_toolkit patterns). **Model:** Sonnet 5.
 
 20. **Batch mode** — convert a folder of manuscripts, per-file reports, summary table. **Model:** Haiku 4.5.
@@ -183,6 +193,22 @@ by its context block.
 
 ## Completed
 
+- ~~**Bug-hunt wave, citations + ingest/CLI areas**~~ (2026-07-11) — 13 bugs
+  fixed across two hunters (+ hunter B's 5 recorded under #26). Citations:
+  dash-joined ranges `[1]–[3]` silently dropped middle refs (HIGH); Word
+  auto-numbered (w:numPr) reference lists never linked (HIGH — the common
+  real-world case); unbalanced literal braces corrupted the whole .bib
+  (HIGH — escape_latex now emits self-balanced \textbraceleft{}); Crossref
+  client crashed on non-200/timeout/bad JSON; fully-unidentifiable
+  citations merged. Ingest/CLI: guessed paper.yaml could be written
+  self-inconsistent, permanently breaking later runs (CRITICAL); corrupt/
+  non-OOXML docx leaked raw tracebacks through three modules and the CLI
+  (HIGH); corresponding-author email stolen from abstract text; email
+  regex swallowed trailing periods; `equations --pdf` crashed raw on
+  compile timeout. 47 regression/stress tests lock in the not-a-bug
+  verdicts (CJK keys, 600-citation perf ~0.04s, suffix cascade past 'z',
+  degenerate/huge docs, unicode paths). Deferred: figure-in-table-cell
+  desync (fix dispatched same day), #27 affiliation cross-order heuristic.
 - ~~**#26 IEEEtran fails on citation-free manuscripts**~~ (2026-07-11) —
   fixed in the bug-hunt wave: bibliography inclusion moved to regenerated
   `generated/bibliography.tex` (\bibliography line when entries exist,
