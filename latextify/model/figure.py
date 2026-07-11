@@ -63,6 +63,17 @@ class Figure:
             unchanged. Surfaced here -- on the IR, not just as a transient
             emit-time log line -- so the consolidated report (plan item 16)
             can read it straight off the ``Figure`` record.
+        in_table: True when the source ``Image`` node was found inside a
+            table cell (``panflute.TableCell``) rather than among the
+            document's top-level blocks. A LaTeX float environment
+            (``\\begin{figure}...\\end{figure}``) is not legal inside a
+            ``tabular``/``longtable`` cell, so the emitter
+            (``latextify.emit.project._resolve_one_figure``) keys off this
+            flag to emit a bare, width-limited ``\\includegraphics`` instead
+            of the usual figure environment for this record. Also means no
+            adjacent-sibling caption search was attempted for this figure
+            (see ``latextify.figures.extract``'s module docstring) --
+            :attr:`caption` is always empty for an in-table figure.
     """
 
     number: int
@@ -71,6 +82,7 @@ class Figure:
     override_path: Path | None = None
     source: FigureSource = FigureSource.EMBEDDED
     conversion_note: str | None = None
+    in_table: bool = False
 
     @property
     def resolved_path(self) -> Path:
