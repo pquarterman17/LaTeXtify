@@ -50,6 +50,7 @@ from jinja2 import Environment, FileSystemLoader, StrictUndefined
 
 from latextify.model.meta import Meta
 from latextify.templates.authors import (
+    format_affil_refs,
     group_consecutive_by_affiliation,
     group_globally_by_affiliation,
 )
@@ -136,11 +137,13 @@ class Journal:
 
     def _env(self) -> Environment:
         env = Environment(loader=FileSystemLoader(str(self.root)), **_JINJA_KW)
-        # Grouping strategies available to every journal's metadata template.
+        # Author-block helpers available to every journal's metadata template.
         env.globals["group_authors"] = group_consecutive_by_affiliation
         # IEEEtran groups by affiliation set globally, not by consecutive run
         # (plan item 11) -- registered additively alongside group_authors.
         env.globals["group_authors_global"] = group_globally_by_affiliation
+        # sn-jnl lists per-author affiliation refs inline (plan item 12).
+        env.globals["format_affil_refs"] = format_affil_refs
         return env
 
     def resolve_mode(self, mode: str | None) -> BibMode:

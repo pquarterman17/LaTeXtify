@@ -1,0 +1,22 @@
+% Generated preamble -- regenerated every run. Do not edit; edit main.tex instead.
+% NOTE: sn-jnl force-loads hyperref itself with no options (see manifest.yaml),
+% so its styling is set here via \PassOptionsToPackage, matching the
+% \DEFAULT_HYPERREF_LINE the emitter always appends -- see
+% latextify/emit/project.py's _ensure_hyperref for why the two must agree.
+\PassOptionsToPackage{colorlinks=true,linkcolor=blue,citecolor=blue,urlcolor=blue}{hyperref}
+%% if natbib_options
+\PassOptionsToPackage{\VAR{natbib_options|join(',')}}{natbib}
+%% endif
+%% if class_options
+\documentclass[\VAR{class_options|join(',')},\VAR{bibstyle}]{\VAR{document_class}}
+%% else
+\documentclass[\VAR{bibstyle}]{\VAR{document_class}}
+%% endif
+%% for pkg in packages
+%% if pkg.options
+\usepackage[\VAR{pkg.options|join(',')}]{\VAR{pkg.name}}
+%% else
+\usepackage{\VAR{pkg.name}}
+%% endif
+%% endfor
+\bibliographystyle{\VAR{bibstyle}}

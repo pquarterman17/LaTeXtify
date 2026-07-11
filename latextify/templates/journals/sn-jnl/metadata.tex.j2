@@ -1,0 +1,23 @@
+% Generated metadata -- regenerated every run.
+% NOTE: unlike REVTeX/elsarticle, sn-jnl does not group authors by shared
+% affiliation -- every author is printed individually with its own bracketed
+% affiliation-reference list, and every affiliation is printed once,
+% separately, numbered in document order. See format_affil_refs (registered
+% by the loader) for the 0-based -> 1-based index conversion.
+\title{\VAR{meta.title}}
+%% for author in meta.authors
+\author\BLOCK{if author.corresponding}*\BLOCK{endif}[\VAR{format_affil_refs(author.affiliations)}]{\VAR{author.name}}
+%% if author.email
+\email{\VAR{author.email}}
+%% endif
+%% endfor
+%% for affiliation in meta.affiliations
+\affil[\VAR{loop.index}]{\VAR{affiliation.name}}
+%% endfor
+%% if meta.abstract
+\abstract{\VAR{meta.abstract}}
+%% endif
+%% if meta.keywords
+\keywords{\VAR{meta.keywords|join(', ')}}
+%% endif
+\maketitle

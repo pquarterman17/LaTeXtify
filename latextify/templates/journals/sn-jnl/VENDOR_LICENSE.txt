@@ -1,0 +1,30 @@
+Files in this directory are verbatim, byte-identical copies from Springer
+Nature's official LaTeX author-support kit ("journal article template
+package", December 2024 version), downloaded 2026-07-11 from:
+
+    https://www.springernature.com/gp/authors/campaigns/latex-author-support
+    (zip served from https://cms-resources.apps.public.k8s.springernature.io/
+     springer-cms/rest/v1/content/18782940/data/v12)
+
+License: LaTeX Project Public License (LPPL), version 1.3c or later.
+
+    - sn-jnl.cls carries the standard docstrip-generated LPPL 1.3c header
+      ("It may be distributed and/or modified under the conditions of the
+      LaTeX Project Public License...").
+    - sn-mathphys-num.bst and sn-mathphys-ay.bst each carry their own LPPL
+      header (Springer generated its sn-*.bst family with Patrick W. Daly's
+      `custom-bib` toolkit, itself LPPL-licensed).
+
+LPPL explicitly permits redistribution of unmodified copies -- that is the
+license every CTAN mirror and TeX distribution relies on to redistribute
+LaTeX packages and classes at all. These three files are unmodified byte-
+for-byte copies of the originals (verified with `cmp` at vendoring time);
+none have been edited. If they are ever modified, LPPL requires renaming
+per clause 6 of the license (https://www.latex-project.org/lppl.txt).
+
+Not vendored: the other six sn-*.bst styles included in the official kit
+(sn-basic, sn-aps, sn-vancouver-num, sn-vancouver-ay, sn-apacite,
+sn-chicago) and sn-nature.bst. This journal's manifest.yaml only declares
+`numeric` (sn-mathphys-num) and `authoryear` (sn-mathphys-ay) citation
+modes -- see manifest.yaml's comments for why sn-mathphys was chosen as the
+general default. Nothing in this template references the unvendored files.
