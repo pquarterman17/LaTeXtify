@@ -1,0 +1,41 @@
+[project]
+name = "latextify"
+version = "0.1.0"
+description = "Convert Word manuscripts to journal-ready LaTeX projects and PDFs"
+requires-python = ">=3.11"
+dependencies = [
+    "pypandoc-binary>=1.13",  # pandoc engine, bundled binary (no system install)
+    "panflute>=2.3",          # pandoc AST filters in Python
+    "lxml>=5.0",              # direct docx XML parsing (field codes, styles)
+    "pyyaml>=6.0",            # paper.yaml sidecar, journal manifests, figures.yaml
+    "jinja2>=3.1",            # journal preamble/metadata templates
+    "httpx>=0.27",            # Crossref API client
+    "rapidfuzz>=3.0",         # fuzzy matching for plain-text citation reconstruction
+    "typer>=0.12",            # CLI
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+    "ruff>=0.5",
+]
+
+[project.scripts]
+latextify = "latextify.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["latextify"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
