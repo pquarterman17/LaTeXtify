@@ -127,6 +127,48 @@ def test_query_bibliographic_empty_text_makes_no_request():
     client.close()
 
 
+def test_query_bibliographic_degrades_on_non_200_response():
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(500, text="Internal Server Error")
+
+    with CrossrefClient(mailto="t@e.org", transport=httpx.MockTransport(handler)) as client:
+        # Must degrade to "no candidates", never raise HTTPStatusError -- the
+        # plan's documented graceful-degradation contract for reconciliation.
+        assert client.query_bibliographic("Some reference text") == []
+
+
+def test_query_bibliographic_degrades_on_malformed_json():
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, content=b"not json{{{")
+
+    with CrossrefClient(mailto="t@e.org", transport=httpx.MockTransport(handler)) as client:
+        assert client.query_bibliographic("Some reference text") == []
+
+
+def test_query_bibliographic_degrades_on_network_timeout():
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectTimeout("timed out", request=request)
+
+    with CrossrefClient(mailto="t@e.org", transport=httpx.MockTransport(handler)) as client:
+        assert client.query_bibliographic("Some reference text") == []
+
+
+def test_reconcile_survives_crossref_server_error(monkeypatch):
+    """A Crossref outage must fall back every reference to raw/verify, not crash."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(503, text="Service Unavailable")
+
+    references = [ReferenceItem(text=_REF_TEXT, number=1)]
+    with CrossrefClient(mailto="t@e.org", transport=httpx.MockTransport(handler)) as client:
+        outcome = reconcile_references(references, client)
+
+    assert len(outcome.entries) == 1
+    assert outcome.records[0].matched is False
+    assert outcome.records[0].source == "raw"
+    assert outcome.records[0].verify is True
+
+
 def test_client_context_manager_closes():
     with _client_capturing([]) as client:
         assert client.query_bibliographic("x")
