@@ -22,3 +22,6 @@ output/
 # OS
 .DS_Store
 Thumbs.db
+
+# Claude Code agent worktrees (live checkouts, never tracked)
+.claude/
