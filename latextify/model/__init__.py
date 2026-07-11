@@ -12,3 +12,7 @@ Planned types (plan items 2-9 populate them):
     RefEntry                   -- one bibliography entry (CSL-shaped fields)
     PreflightFinding           -- severity, location, message
 """
+
+from latextify.model.meta import Affiliation, Author, Meta
+
+__all__ = ["Affiliation", "Author", "Meta"]
