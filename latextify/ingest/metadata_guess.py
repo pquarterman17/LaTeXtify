@@ -395,6 +395,29 @@ def guess_meta(docx_path: Path | str, *, max_paragraphs: int = 20) -> MetaGuess:
 
     authors = list(author_result.authors)
     author_checks = list(author_result.checks)
+
+    # Affiliation indices on each Author come from markers seen on the author
+    # line, but _guess_affiliations may come up short of matching paragraphs
+    # (or find none at all) -- a document ending abruptly, an affiliation
+    # marker with no corresponding paragraph, etc. An out-of-range index left
+    # in place here would build a Meta that meta_from_yaml_data itself would
+    # reject as invalid once this guess is round-tripped through paper.yaml,
+    # crashing the *next* run (load_or_create_meta only guesses once and
+    # trusts the sidecar thereafter) instead of surfacing here. Drop any
+    # reference past the end of the guessed affiliation list and flag it.
+    dropped_reference = False
+    for i, author in enumerate(authors):
+        valid = tuple(idx for idx in author.affiliations if idx < len(affiliations))
+        if len(valid) != len(author.affiliations):
+            dropped_reference = True
+        authors[i] = replace(author, affiliations=valid)
+    if dropped_reference:
+        aff_checks.append(
+            "an author referenced an affiliation marker with no matching "
+            "affiliation paragraph; the reference was dropped -- verify the "
+            "affiliation list and author markers."
+        )
+
     corresponding_idxs = [i for i, a in enumerate(authors) if a.corresponding]
     if len(corresponding_idxs) == 1:
         # Never search past the abstract heading -- the abstract body is not

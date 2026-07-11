@@ -195,6 +195,46 @@ def test_corresponding_email_regex_does_not_swallow_trailing_period():
     assert author.email == "jane.doe@example.edu"
 
 
+def test_guessed_meta_never_references_out_of_range_affiliation(tmp_path):
+    """A superscript affiliation marker with no matching affiliation
+    paragraph (document jumps straight from the author line to the
+    Abstract heading) must not leave the guessed Meta pointing at an
+    affiliation index that doesn't exist -- meta_from_yaml_data would
+    reject exactly that shape, so an unguarded guess here would crash the
+    *next* run once it round-trips through paper.yaml."""
+    docx_module = pytest.importorskip("docx")
+    doc = docx_module.Document()
+
+    doc.add_paragraph(style="Title").add_run("A Study of Something")
+    authors = doc.add_paragraph()
+    authors.add_run("Jane Doe")
+    marker = authors.add_run("5")
+    marker.font.superscript = True
+
+    doc.add_paragraph("Abstract")
+    doc.add_paragraph("Some abstract text.")
+    doc.add_paragraph("Keywords: a, b")
+
+    path = tmp_path / "dangling_marker.docx"
+    doc.save(path)
+
+    result = guess_meta(path)
+    author = result.meta.authors[0]
+
+    # No affiliation paragraph existed at all -- the reference must be
+    # dropped, never left pointing past the (empty) affiliations tuple.
+    assert result.meta.affiliations == ()
+    assert all(idx < len(result.meta.affiliations) for idx in author.affiliations)
+    assert any("no matching" in msg for msg in result.checks.get("affiliations", []))
+
+    # The guess must itself be valid input to the same schema validator a
+    # hand-edited paper.yaml is held to -- prove the full write/reload
+    # round trip (what load_or_create_meta does on a second run) succeeds.
+    rendered = render_paper_yaml(result.meta, result.checks)
+    round_tripped = meta_from_yaml_data(yaml.safe_load(rendered))
+    assert round_tripped == result.meta
+
+
 def test_guess_low_confidence_flags_when_cues_are_missing(tmp_path):
     """A docx with no recognizable cues should guess conservatively and flag every field."""
     docx_module = pytest.importorskip("docx")
