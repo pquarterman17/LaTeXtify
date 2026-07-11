@@ -8,6 +8,8 @@ is skipped until the sibling body/emitter/compile items land.
 from __future__ import annotations
 
 import importlib.util
+import json
+import zipfile
 from pathlib import Path
 
 import pytest
@@ -17,6 +19,82 @@ from latextify.citations.fields import extract_field_citations
 
 FIXTURE_DIR = Path(__file__).parent / "fixtures"
 DOCX = FIXTURE_DIR / "zotero_cited.docx"
+
+W = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+
+
+def _xml_escape(text: str) -> str:
+    return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+
+def _field(instr: str, result: str) -> str:
+    instr_run = f'<w:r><w:instrText xml:space="preserve">{_xml_escape(instr)}</w:instrText></w:r>'
+    text_run = f'<w:r><w:t xml:space="preserve">{_xml_escape(result)}</w:t></w:r>'
+    return (
+        '<w:r><w:fldChar w:fldCharType="begin"/></w:r>'
+        + instr_run
+        + '<w:r><w:fldChar w:fldCharType="separate"/></w:r>'
+        + text_run
+        + '<w:r><w:fldChar w:fldCharType="end"/></w:r>'
+    )
+
+
+def _build_docx(out_path: Path, fields: list[str]) -> Path:
+    body = "".join(f"<w:p>{f}</w:p>" for f in fields)
+    body += '<w:sectPr><w:pgSz w:w="12240" w:h="15840"/></w:sectPr>'
+    document_xml = (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        f'<w:document xmlns:w="{W}"><w:body>{body}</w:body></w:document>'
+    )
+    content_types = (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
+        '<Default Extension="rels" '
+        'ContentType="application/vnd.openxmlformats-package.relationships+xml"/>'
+        '<Default Extension="xml" ContentType="application/xml"/>'
+        '<Override PartName="/word/document.xml" '
+        'ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>'
+        "</Types>"
+    )
+    root_rels = (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+        '<Relationship Id="rId1" '
+        'Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" '
+        'Target="word/document.xml"/>'
+        "</Relationships>"
+    )
+    with zipfile.ZipFile(out_path, "w", zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr("[Content_Types].xml", content_types)
+        archive.writestr("_rels/.rels", root_rels)
+        archive.writestr("word/document.xml", document_xml)
+    return out_path
+
+
+def test_two_distinct_citations_with_wholly_empty_item_data_are_not_merged(tmp_path):
+    """Two malformed Zotero fields with NO identifying data must stay distinct.
+
+    itemData missing author, title, year, DOI, AND id gives every dedup
+    signal an empty value; two genuinely different (if catastrophically
+    malformed) citations must not collapse into a single shared reference --
+    that would silently point one of the two in-text citations at the wrong
+    (or a nonexistent) source.
+    """
+    payload_a = {"citationItems": [{"itemData": {"type": "article-journal"}}]}
+    payload_b = {"citationItems": [{"itemData": {"type": "book"}}]}
+    instr_a = " ADDIN ZOTERO_ITEM CSL_CITATION " + json.dumps(payload_a) + " "
+    instr_b = " ADDIN ZOTERO_ITEM CSL_CITATION " + json.dumps(payload_b) + " "
+    docx = _build_docx(
+        tmp_path / "empty_items.docx", [_field(instr_a, "[1]"), _field(instr_b, "[2]")]
+    )
+
+    result = extract_field_citations(docx)
+
+    assert len(result.entries) == 2  # not merged into one
+    assert len({e.key for e in result.entries}) == 2  # unique, non-empty keys
+    assert all(e.key for e in result.entries)
+    assert [c.index for c in result.citations] == [0, 1]
+    assert result.citations[0].keys != result.citations[1].keys
 
 
 def _ensure_fixture() -> None:

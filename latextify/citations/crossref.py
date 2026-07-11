@@ -210,17 +210,24 @@ class CrossrefClient:
         """Return up to ``rows`` candidates for a raw bibliographic reference.
 
         Sends ``mailto`` as a query parameter too (the polite-pool convention),
-        in addition to the User-Agent header.
+        in addition to the User-Agent header. Degrades to an empty list --
+        never raises -- for a non-200 response, a network failure/timeout, or a
+        malformed (non-JSON) response body, so a single flaky Crossref request
+        flags its reference for verification instead of crashing the whole
+        reconciliation run (plan item 14's graceful-degradation contract).
         """
         query = (text or "").strip()
         if not query:
             return []
-        response = self._client.get(
-            "/works",
-            params={"query.bibliographic": query, "rows": rows, "mailto": self.mailto},
-        )
-        response.raise_for_status()
-        payload = response.json()
+        try:
+            response = self._client.get(
+                "/works",
+                params={"query.bibliographic": query, "rows": rows, "mailto": self.mailto},
+            )
+            response.raise_for_status()
+            payload = response.json()
+        except (httpx.HTTPError, ValueError):
+            return []
         message = payload.get("message") if isinstance(payload, dict) else None
         items = message.get("items") if isinstance(message, dict) else None
         if not isinstance(items, list):

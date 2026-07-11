@@ -82,6 +82,26 @@ def _is_heading_paragraph(text: str) -> bool:
     return bool(_HEADING_RE.match(text)) and len(text.strip()) <= 40
 
 
+def _has_list_numbering(paragraph) -> bool:
+    """True when a paragraph carries real Word list numbering (``w:numPr``).
+
+    Word's "Numbering" toolbar button records list membership this way; the
+    displayed "1.", "2.", ... is rendered by Word from the list definition and
+    never appears as literal text in any ``w:t`` run, unlike a typed "1. Smith
+    ..." reference (which :data:`_LIST_NUMBER_RE` already handles). A
+    ``w:numId`` of ``"0"`` is Word's own convention for "numbering removed
+    from this paragraph" and does not count.
+    """
+    p_pr = paragraph.find(_q("pPr"))
+    if p_pr is None:
+        return False
+    num_pr = p_pr.find(_q("numPr"))
+    if num_pr is None:
+        return False
+    num_id = num_pr.find(_q("numId"))
+    return num_id is None or num_id.get(_q("val")) != "0"
+
+
 @dataclass
 class ReferenceList:
     """The typed reference list segmented from a document."""
@@ -118,6 +138,7 @@ def segment_reference_list(docx_path: Path | str) -> ReferenceList:
         return ReferenceList(heading=None)
 
     references: list[ReferenceItem] = []
+    auto_number = 0
     for paragraph in paragraphs[heading_index + 1 :]:
         text = _paragraph_text(paragraph).strip()
         if not text:
@@ -127,6 +148,12 @@ def segment_reference_list(docx_path: Path | str) -> ReferenceList:
             number = int(match.group(1) or match.group(2))
             body = text[match.end() :].strip()
             references.append(ReferenceItem(text=body, number=number))
+        elif _has_list_numbering(paragraph):
+            # Word's own auto-numbering: no typed digits to parse, so assign
+            # sequential numbers in document order (a fresh Word list always
+            # starts at 1 and increments by 1, matching what the reader sees).
+            auto_number += 1
+            references.append(ReferenceItem(text=text, number=auto_number))
         else:
             references.append(ReferenceItem(text=text, number=None))
 
@@ -235,6 +262,45 @@ AUTHOR_YEAR_MARKER_RE = re.compile(
 # A sectioning command wrapping a reference-list heading, in pandoc's LaTeX.
 _REF_SECTION_RE = re.compile(r"\\(?:sub)*section\*?\{([^}]*)\}")
 _RANGE_SEP = re.compile(r"[‒–—-]")
+
+# pandoc brace-protects/escapes EACH "[12]" or "^12^" marker individually, so a
+# typed range like "[1]-[3]" (or its superscript equivalent) never reaches
+# NUMERIC_MARKER_RE / SUPERSCRIPT_MARKER_RE as one group with "1-3" inside --
+# it reaches them as TWO separate groups joined by a bare dash: "{[}1{]}--{[}3{]}"
+# / "\textsuperscript{1}--\textsuperscript{3}" (verified against real pandoc 3.9
+# output). Left alone, only the first and last marker would resolve and the
+# range's middle would be silently dropped. Merge adjacent same-kind groups
+# joined by nothing but a dash (and optional whitespace) into one group BEFORE
+# matching, so the existing range-expansion logic in expand_numeric_range
+# handles the merged content exactly like a typed "[1-3]".
+#
+# pandoc's LaTeX writer renders a typed en dash as literal ASCII "--" (and an
+# em dash as "---"), not the unicode dash character itself, so the separator
+# between two joined groups must accept a RUN of one or more dash characters,
+# not just a single one.
+_BRACKET_JOIN_RE = re.compile(
+    r"\{\[\}([0-9][0-9\s,‒–—-]*)\{\]\}\s*[‒–—-]+\s*\{\[\}([0-9][0-9\s,‒–—-]*)\{\]\}"
+)
+_SUPERSCRIPT_JOIN_RE = re.compile(
+    r"\\textsuperscript\{([0-9][0-9\s,‒–—-]*)\}\s*[‒–—-]+\s*"
+    r"\\textsuperscript\{([0-9][0-9\s,‒–—-]*)\}"
+)
+
+
+def _merge_dash_joined_markers(tex: str, pattern: re.Pattern[str], wrap) -> str:
+    """Repeatedly fold ``pattern``-matched adjacent marker pairs into one.
+
+    A chain of more than two dash-joined markers (e.g. ``[1]-[3]-[5]``) needs
+    more than one pass since a single :func:`re.sub` call does not re-scan its
+    own replacements; looping to a fixed point handles that rare case too.
+    """
+    while True:
+        new_tex, count = pattern.subn(
+            lambda m: wrap(f"{m.group(1)}-{m.group(2)}"), tex
+        )
+        if count == 0:
+            return new_tex
+        tex = new_tex
 
 
 def expand_numeric_range(content: str) -> list[int]:
@@ -349,6 +415,12 @@ def link_body_markers(tex: str, result: PlaintextResult) -> tuple[str, list[str]
             )
         return match.group(0)
 
+    tex = _merge_dash_joined_markers(
+        tex, _BRACKET_JOIN_RE, lambda content: "{[}" + content + "{]}"
+    )
+    tex = _merge_dash_joined_markers(
+        tex, _SUPERSCRIPT_JOIN_RE, lambda content: "\\textsuperscript{" + content + "}"
+    )
     tex = NUMERIC_MARKER_RE.sub(numeric_sub, tex)
     tex = SUPERSCRIPT_MARKER_RE.sub(superscript_sub, tex)
     tex = AUTHOR_YEAR_MARKER_RE.sub(author_year_sub, tex)
