@@ -180,18 +180,29 @@ by its context block.
 22. **Additional journals** — ACS (achemso), IOP (iopart), Wiley — pure journal folders copying items 10-12 patterns. **Model:** Haiku 4.5.
 
 
-25. **Pathological-table fallback doesn't compile** (found by item 17) —
-    pandoc's default rendering for vMerge/nested tables emits `longtable` +
-    `\multirow` + pandoc-template-only helper macros (e.g. `\real{}`) that
-    fragment-mode conversion (no `--standalone`) never defines, so a
-    manuscript containing a genuinely pathological table fails to compile in
-    every journal. Fix candidates: inject pandoc's helper-macro block into
-    generated preambles, or degrade pathological tables to a placeholder +
-    warning instead of pandoc-default LaTeX. **Model:** Sonnet 5.
-    **Depends on:** 17 (done).
+26. **IEEEtran fails on citation-free manuscripts** (found by item 25) —
+    `main.tex` unconditionally includes `\bibliography{references}`; with an
+    empty references.bib, IEEEtran's `\thebibliography` redefinition errors
+    ("perhaps a missing \item"). Any citation-free document targeting IEEE
+    fails to compile. Fix direction: bibliography inclusion must move into
+    regenerated content (e.g. a generated include that is empty when there
+    are zero entries) since main.tex is write-once. **Model:** Sonnet 5.
+    **Depends on:** — (assigned to the 2026-07-11 bug-hunt wave).
 
 ## Completed
 
+- ~~**#25 Pathological-table fallback doesn't compile**~~ (2026-07-11) —
+  reproduced in all four journals (`longtable undefined`); macro-injection
+  fix (a) evaluated empirically: works for elsarticle/sn-jnl/revtex4-2
+  (REVTeX ships its own longtable shim) but NOT ieeetran (longtable is
+  fundamentally incompatible with native two-column). Chose uniform degrade
+  (b): pathological tables become best-effort booktabs with vMerge content
+  duplicated into every spanned row (grid-expansion helper keeps column
+  indices correct), nested tables flattened to joined text, bold "[table
+  structure simplified -- verify against source]" note; zero new package
+  exposure. Also fixed adjacent bug: body_result.findings were silently
+  dropped from EmitResult.warnings/report. FINDING spawned item 26
+  (IEEEtran + empty bibliography). 427 tests total.
 - ~~**#23 Equation audit tooling**~~ (2026-07-11) — `latextify equations
   paper.docx [--pdf]`: raw OMML walk paired with pandoc's converted LaTeX
   per equation (index/kind/snippet), equations_audit.md + numbered
