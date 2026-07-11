@@ -27,6 +27,17 @@ Applied in this order:
        resolved content once they have it; anchors that reach
        ``generated/body.tex`` unresolved are a bug in those later stages,
        not here.
+    4. :func:`normalize_tables` -- replace "clean" Table nodes with a
+       hand-assembled booktabs (``\\toprule``/``\\midrule``/``\\bottomrule``,
+       no vertical rules) ``RawBlock``. Runs *after* :func:`plant_anchors` so
+       any Image/Cite nested inside a table cell (a figure icon in a cell, a
+       citation in a caption) has already become a ``%%FIGURE``/``%%CITE``
+       anchor before the cell is rendered to LaTeX text -- if it ran first,
+       anchors inside tables would silently never be planted once the Table
+       node is replaced by opaque raw text. Tables with a vertically merged
+       cell (Word's ``vMerge``, surfaced by pandoc as ``TableCell.rowspan >
+       1``) or a nested table are never reconstructed -- see the function
+       docstring for the fallback behavior.
 
 Every function here mutates the ``panflute.Doc`` in place (via ``Doc.walk``)
 and also returns it, so callers can chain: ``doc = normalize_headings(doc)``.
@@ -34,11 +45,29 @@ and also returns it, so callers can chain: ``doc = normalize_headings(doc)``.
 
 from __future__ import annotations
 
+import io
+import re
 from dataclasses import dataclass, field
 
 import panflute as pf
+import pypandoc
 
 from latextify.model import FilterFinding
+
+# A cell counts as "numeric" if, after stripping formatting, its text looks
+# like a plain number: optional sign, optional thousands separators, decimal
+# part, scientific-notation exponent, and/or a trailing "%". Deliberately
+# conservative -- text that merely contains digits (e.g. a sample ID "A2")
+# does not match.
+_NUMERIC_CELL_RE = re.compile(r"^[+-]?(\d{1,3}(,\d{3})*|\d+)(\.\d+)?([eE][+-]?\d+)?%?$")
+
+# pandoc's own Table colspec alignment, when it carries one, always wins over
+# the numeric-majority inference below.
+_PANDOC_ALIGN_TO_LATEX = {
+    "AlignLeft": "l",
+    "AlignRight": "r",
+    "AlignCenter": "c",
+}
 
 # journal preambles only define down to \subsubsection; anything deeper gets
 # clamped here rather than silently failing to compile later.
@@ -156,9 +185,252 @@ def plant_anchors(doc: pf.Doc) -> tuple[pf.Doc, AnchorCounts]:
     return doc, counts
 
 
+# ---------------------------------------------------------------------------
+# normalize_tables
+# ---------------------------------------------------------------------------
+
+
+def _blocks_to_latex(blocks: list, api_version) -> str:
+    """Render a list of panflute Block elements (typically a table cell's
+    ``.content``) to a LaTeX text fragment.
+
+    Goes through a real pandoc json->latex call (the same mechanism
+    :mod:`latextify.ingest.pandoc` uses for the whole document) rather than
+    ``panflute.stringify`` so escaping (``%``, ``&``, ``$``, ...), inline
+    markup, and any raw anchors already planted by :func:`plant_anchors`
+    survive correctly. ``panflute.convert_text`` is not used directly here
+    because its ``input_format="panflute"`` path probes ``pandoc`` on PATH
+    for the API version instead of accepting an explicit binary, which fails
+    when only pypandoc-binary's vendored pandoc is available (as in this
+    project) -- so the Doc-wrap-and-dump is done by hand instead, using the
+    already-loaded document's own ``api_version``.
+    """
+    if not blocks:
+        return ""
+    sub_doc = pf.Doc(*blocks, api_version=api_version)
+    buf = io.StringIO()
+    pf.dump(sub_doc, buf)
+    tex = pypandoc.convert_text(buf.getvalue(), to="latex", format="json")
+    lines = [line for line in tex.replace("\r\n", "\n").split("\n") if line.strip()]
+    return " ".join(lines).strip()
+
+
+def _row_column_slots(row: pf.TableRow) -> list[tuple[int, pf.TableCell]]:
+    """(start_column, cell) pairs for a row.
+
+    Assumes ``rowspan == 1`` throughout, which the pathology check below
+    already guarantees before this is ever called on a row that reaches
+    :func:`_table_to_latex`.
+    """
+    slots: list[tuple[int, pf.TableCell]] = []
+    col = 0
+    for cell in row.content:
+        slots.append((col, cell))
+        col += cell.colspan
+    return slots
+
+
+def _column_alignment_letters(table: pf.Table, data_rows: list[pf.TableRow]) -> list[str]:
+    """One LaTeX alignment letter per column, no vertical-rule separators.
+
+    Pandoc's own colspec alignment wins when a column carries one (e.g. an
+    explicit alignment from a markdown-table input path); otherwise the
+    column is inferred from its data-row content: numeric-majority ->
+    right-aligned, else left-aligned. Header/foot rows are excluded from the
+    numeric vote; cells spanning more than one column (from a horizontal
+    merge) are excluded too since they can't be attributed to a single
+    column.
+    """
+    numeric = [0] * table.cols
+    total = [0] * table.cols
+    for row in data_rows:
+        for col, cell in _row_column_slots(row):
+            if cell.colspan != 1 or col >= table.cols:
+                continue
+            text = pf.stringify(cell).strip()
+            if not text:
+                continue
+            total[col] += 1
+            if _NUMERIC_CELL_RE.match(text):
+                numeric[col] += 1
+
+    letters = []
+    for i in range(table.cols):
+        explicit_align = table.colspec[i][0]
+        if explicit_align in _PANDOC_ALIGN_TO_LATEX:
+            letters.append(_PANDOC_ALIGN_TO_LATEX[explicit_align])
+        elif total[i] and numeric[i] * 2 > total[i]:
+            letters.append("r")
+        else:
+            letters.append("l")
+    return letters
+
+
+def _row_to_latex(row: pf.TableRow, api_version) -> str:
+    parts = []
+    for cell in row.content:
+        text = _blocks_to_latex(list(cell.content), api_version)
+        if cell.colspan > 1:
+            # Horizontal span -> \multicolumn. Use the cell's own alignment
+            # if pandoc recorded one, else center (the common convention for
+            # a merged header banner).
+            align = _PANDOC_ALIGN_TO_LATEX.get(cell.alignment, "c")
+            parts.append(f"\\multicolumn{{{cell.colspan}}}{{{align}}}{{{text}}}")
+        else:
+            parts.append(text)
+    return " & ".join(parts) + " \\\\"
+
+
+def _table_body_rows(table: pf.Table) -> list[pf.TableRow]:
+    """Every non-header row: each TableBody's own intermediate head rows
+    (rare, but valid pandoc AST) plus its data rows, then any TableFoot
+    rows."""
+    rows: list[pf.TableRow] = []
+    for body in table.content:
+        rows.extend(body.head)
+        rows.extend(body.content)
+    rows.extend(table.foot.content)
+    return rows
+
+
+def _table_to_latex(table: pf.Table, api_version) -> str:
+    """Assemble a ``table``+``tabular`` booktabs float for one clean Table."""
+    header_rows = list(table.head.content)
+    body_rows = _table_body_rows(table)
+
+    letters = _column_alignment_letters(table, body_rows)
+    caption_tex = _blocks_to_latex(list(table.caption.content), api_version)
+
+    lines = ["\\begin{table}[htbp]", "\\centering"]
+    if caption_tex:
+        lines.append(f"\\caption{{{caption_tex}}}")
+    lines.append(f"\\begin{{tabular}}{{{''.join(letters)}}}")
+    lines.append("\\toprule")
+    for row in header_rows:
+        lines.append(_row_to_latex(row, api_version))
+    if header_rows:
+        lines.append("\\midrule")
+    for row in body_rows:
+        lines.append(_row_to_latex(row, api_version))
+    lines.append("\\bottomrule")
+    lines.append("\\end{tabular}")
+    lines.append("\\end{table}")
+    return "\n".join(lines)
+
+
+def _is_nested_table(table: pf.Table) -> bool:
+    """Whether ``table`` sits inside a cell of another Table.
+
+    Checked via the ``.parent`` chain rather than a fresh subtree scan so it
+    stays correct regardless of ``Doc.walk``'s post-order traversal (a
+    nested table's own filter action fires *before* its enclosing table's):
+    at the moment a Table's action fires, every ancestor up to the Doc root
+    still reflects the pre-filter structure, because only an element's own
+    action (never an ancestor's) can replace it.
+    """
+    ancestor = table.parent
+    while ancestor is not None:
+        if isinstance(ancestor, pf.Table):
+            return True
+        ancestor = ancestor.parent
+    return False
+
+
+def _pathology_reason(table: pf.Table) -> str | None:
+    """Why ``table`` must NOT be reconstructed, or ``None`` if it's clean.
+
+    Two disqualifying conditions, per plan item 17: a vertically merged cell
+    (Word's ``vMerge``, surfaced by pandoc as ``TableCell.rowspan > 1``
+    anywhere in the table), or a nested table. Either makes booktabs
+    reconstruction unsafe to attempt (rowspan has no direct booktabs
+    equivalent without \\multirow, which this filter deliberately does not
+    attempt to reconstruct; a nested table can't be flattened into a single
+    ``tabular`` without losing structure) -- so the whole table is left
+    untouched for pandoc's own default table writer to render instead of
+    risking silent corruption.
+    """
+    found_rowspan = False
+    found_nested = False
+
+    def check(elem: pf.Element, doc: pf.Doc) -> None:
+        nonlocal found_rowspan, found_nested
+        if isinstance(elem, pf.TableCell) and elem.rowspan > 1:
+            found_rowspan = True
+        if isinstance(elem, pf.Table) and elem is not table:
+            found_nested = True
+
+    table.walk(check)
+    if found_nested:
+        return "contains a nested table"
+    if found_rowspan:
+        return "has a vertically merged cell (vMerge)"
+    return None
+
+
+def normalize_tables(doc: pf.Doc) -> tuple[pf.Doc, list[FilterFinding]]:
+    """Replace clean Table nodes with hand-assembled booktabs LaTeX.
+
+    "Clean" means: no vertically merged cell and no nested table anywhere in
+    it (see :func:`_pathology_reason`). A clean table is replaced outright by
+    a ``RawBlock`` containing a ``table``/``tabular`` float using
+    ``\\toprule``/``\\midrule``/``\\bottomrule`` and no vertical rules;
+    columns are right-aligned when numeric-majority, else left-aligned
+    (pandoc's own colspec alignment wins when present); a horizontal span
+    (Word's ``gridSpan``) becomes ``\\multicolumn``.
+
+    A table that fails the pathology check is left completely untouched (so
+    pandoc's own default table writer renders it downstream) and a
+    :class:`~latextify.model.FilterFinding` is recorded naming the table by
+    its 1-based document-order index, e.g. ``"table 2: has a vertically
+    merged cell (vMerge); not reconstructed -- falling back to pandoc's
+    default table rendering"``. Never attempts a partial reconstruction --
+    the whole table, unresolved-anchors-and-all, is pandoc's problem again.
+
+    Tables nested inside another table's cell are never independently
+    counted, transformed, or reported on: the nested table already makes its
+    *enclosing* table pathological (see :func:`_pathology_reason`'s nested-
+    table check), and turning the inner one into a raw ``table`` float would
+    plant an illegal float environment inside the outer table's cell content
+    once the outer table falls back to pandoc's normal (non-raw-block)
+    rendering.
+
+    Mutates ``doc`` in place; also returns it (with findings) for chaining.
+    """
+    findings: list[FilterFinding] = []
+    counter = {"n": 0}
+
+    def action(elem: pf.Element, doc: pf.Doc) -> pf.RawBlock | None:
+        if not isinstance(elem, pf.Table):
+            return None
+        if _is_nested_table(elem):
+            return None
+
+        counter["n"] += 1
+        index = counter["n"]
+
+        reason = _pathology_reason(elem)
+        if reason is not None:
+            findings.append(
+                FilterFinding(
+                    message=(
+                        f"table {index}: {reason}; not reconstructed -- "
+                        "falling back to pandoc's default table rendering"
+                    )
+                )
+            )
+            return None
+
+        tex = _table_to_latex(elem, doc.api_version)
+        return pf.RawBlock(tex, format="latex")
+
+    doc = doc.walk(action)
+    return doc, findings
+
+
 def apply_all(doc: pf.Doc) -> FilterResult:
-    """Run all three filters in the fixed order documented above."""
+    """Run all four filters in the fixed order documented above."""
     doc, heading_findings = normalize_headings(doc)
     doc = strip_word_junk(doc)
     doc, anchors = plant_anchors(doc)
-    return FilterResult(doc=doc, anchors=anchors, findings=heading_findings)
+    doc, table_findings = normalize_tables(doc)
+    return FilterResult(doc=doc, anchors=anchors, findings=heading_findings + table_findings)

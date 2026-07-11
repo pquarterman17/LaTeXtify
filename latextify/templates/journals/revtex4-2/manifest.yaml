@@ -15,6 +15,12 @@ packages:
   - name: amssymb
   - name: graphicx
   - name: bm
+  - name: booktabs
+    # Table normalization (plan item 17) reconstructs "clean" Word tables as
+    # \toprule/\midrule/\bottomrule booktabs LaTeX (latextify/ingest/filters.py
+    # normalize_tables()) -- booktabs must be loaded whenever the manuscript
+    # has a table, so it's unconditional here rather than emitted only when
+    # a table is detected.
   - name: hyperref
     options: [colorlinks=true, linkcolor=blue, citecolor=blue, urlcolor=blue]
   # NOTE (plan item 5, 2026-07-11): do NOT add the standalone `doi` package
