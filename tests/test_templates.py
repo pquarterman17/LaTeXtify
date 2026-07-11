@@ -640,3 +640,116 @@ def test_metadata_with_specials_compiles_under_revtex(tmp_path):
     result = compile_document(tex_path, tectonic_path=ensure_tectonic())
     assert result.success, result.raw_log
     assert result.pdf_path is not None and result.pdf_path.is_file()
+
+
+# --------------------------------------------------------------------------- #
+# Author / affiliation edge cases (per journal)
+# --------------------------------------------------------------------------- #
+
+
+@pytest.mark.parametrize("journal_name", ALL_JOURNALS)
+def test_out_of_range_affiliation_index_errors_clearly(journal_name):
+    from latextify.templates.loader import MetadataError
+
+    meta = Meta(
+        title="T",
+        authors=(Author(name="Bob Baker", affiliations=(5,)),),
+        affiliations=(Affiliation("Only One Institution"),),
+    )
+    j = loader.load(journal_name)
+    with pytest.raises(MetadataError) as exc:
+        j.render_metadata(meta)
+    msg = str(exc.value)
+    assert "Bob Baker" in msg  # names the culprit
+    assert journal_name in msg  # names the journal
+    assert "5" in msg  # names the bad index
+
+
+@pytest.mark.parametrize("journal_name", ALL_JOURNALS)
+def test_negative_affiliation_index_errors_clearly(journal_name):
+    from latextify.templates.loader import MetadataError
+
+    meta = Meta(
+        title="T",
+        authors=(Author(name="Neg Author", affiliations=(-1,)),),
+        affiliations=(Affiliation("Inst"),),
+    )
+    with pytest.raises(MetadataError):
+        loader.load(journal_name).render_metadata(meta)
+
+
+@pytest.mark.parametrize("journal_name", ALL_JOURNALS)
+def test_zero_authors_renders_without_crashing(journal_name):
+    meta = Meta(title="No Authors Here", authors=(), affiliations=())
+    out = loader.load(journal_name).render_metadata(meta)
+    assert "No Authors Here" in out
+
+
+@pytest.mark.parametrize("journal_name", ALL_JOURNALS)
+def test_one_author_zero_affiliations_renders(journal_name):
+    meta = Meta(
+        title="Solo",
+        authors=(Author(name="Lone Wolf", affiliations=()),),
+        affiliations=(),
+    )
+    out = loader.load(journal_name).render_metadata(meta)
+    assert "Lone Wolf" in out
+
+
+@pytest.mark.parametrize("journal_name", ALL_JOURNALS)
+def test_corresponding_author_without_email_renders(journal_name):
+    meta = Meta(
+        title="Corr No Email",
+        authors=(Author(name="Chief", affiliations=(0,), email=None, corresponding=True),),
+        affiliations=(Affiliation("HQ"),),
+    )
+    out = loader.load(journal_name).render_metadata(meta)
+    assert "Chief" in out
+
+
+def test_two_corresponding_authors_render_elsarticle():
+    meta = Meta(
+        title="Two Corr",
+        authors=(
+            Author(name="First Corr", affiliations=(0,), corresponding=True),
+            Author(name="Second Corr", affiliations=(0,), corresponding=True),
+        ),
+        affiliations=(Affiliation("Shared Institute"),),
+    )
+    out = loader.load("elsarticle").render_metadata(meta)
+    assert out.count("\\corref{cor1}") == 2
+    assert "\\cortext[cor1]{Corresponding author}" in out
+
+
+def big_meta() -> Meta:
+    """30 authors, 10 affiliations -- stress the author-block loops."""
+    authors = tuple(
+        Author(name=f"Author {i}", affiliations=(i % 10,), corresponding=(i == 0))
+        for i in range(30)
+    )
+    affiliations = tuple(Affiliation(f"Institute Number {i}") for i in range(10))
+    return Meta(title="Thirty Authors", authors=authors, affiliations=affiliations)
+
+
+@pytest.mark.parametrize("journal_name", ALL_JOURNALS)
+def test_thirty_authors_ten_affiliations_render(journal_name):
+    out = loader.load(journal_name).render_metadata(big_meta())
+    assert "Author 0" in out
+    assert "Author 29" in out
+
+
+@requires_tectonic
+@skip_without_tectonic
+def test_thirty_authors_compile_under_revtex(tmp_path):
+    j = loader.load("revtex4-2")
+    tex = (
+        j.render_preamble()
+        + "\\begin{document}\n"
+        + j.render_metadata(big_meta())
+        + "Body.\n\\end{document}\n"
+    )
+    tex_path = tmp_path / "main.tex"
+    tex_path.write_text(tex, encoding="utf-8")
+    result = compile_document(tex_path, tectonic_path=ensure_tectonic())
+    assert result.success, result.raw_log
+    assert result.pdf_path is not None and result.pdf_path.is_file()

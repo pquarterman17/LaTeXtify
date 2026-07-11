@@ -10,6 +10,9 @@ Public surface
     available(*, journals_dir=None) -> list[str]     discovered journal names
     discover(*, journals_dir=None) -> dict[str, Path]  name -> manifest path
     ManifestError                                    raised on any bad manifest
+    MetadataError                                    raised on Meta that a
+                                                     journal cannot render
+                                                     (e.g. bad affiliation index)
 
 Manifest schema (``manifest.yaml``)
 -----------------------------------
@@ -86,6 +89,17 @@ class ManifestError(ValueError):
 
     The message always names the offending field and the journal so a failing
     manifest is fixable without reading this module.
+    """
+
+
+class MetadataError(ValueError):
+    """The ``Meta`` handed to a journal is inconsistent with what it can render.
+
+    Raised (naming the author, the bad value, and the journal) when metadata
+    cannot be rendered correctly -- e.g. an author references an affiliation
+    index outside the affiliation list. This turns what would otherwise be a
+    cryptic Jinja ``UndefinedError`` (REVTeX/IEEEtran) or a silently dangling
+    ``\\author[5]`` reference (elsarticle/sn-jnl) into one clear, uniform error.
     """
 
 
@@ -183,14 +197,40 @@ class Journal:
         :func:`_escape_meta`) so specials in real titles (``"Effect of 5%
         doping & strain"``) don't break compilation; the ``Meta`` IR passed in
         is left untouched.
+
+        Raises :class:`MetadataError` if any author references an affiliation
+        index outside ``meta.affiliations``.
         """
+        _validate_affiliation_indices(self.name, meta)
         template = self._env().get_template("metadata.tex.j2")
         return template.render(meta=_escape_meta(meta))
 
 
 # --------------------------------------------------------------------------- #
-# Metadata escaping (applied at render time, never mutating the IR)
+# Metadata validation + escaping (applied at render time, never mutating the IR)
 # --------------------------------------------------------------------------- #
+
+
+def _validate_affiliation_indices(journal_name: str, meta: Meta) -> None:
+    """Ensure every author's affiliation indices point inside ``meta.affiliations``.
+
+    ``Author.affiliations`` are 0-based indices into ``Meta.affiliations``. An
+    out-of-range index otherwise fails differently per journal (a cryptic Jinja
+    ``UndefinedError`` for REVTeX/IEEEtran, which index ``meta.affiliations``
+    directly, or a silently dangling ``\\author[N]`` cross-reference for
+    elsarticle/sn-jnl, which only emit the number) -- neither names the culprit.
+    Fail once here, clearly, before any journal template runs.
+    """
+    count = len(meta.affiliations)
+    for author in meta.authors:
+        for idx in author.affiliations:
+            if idx < 0 or idx >= count:
+                valid = f"0-{count - 1}" if count else "none defined"
+                raise MetadataError(
+                    f"{journal_name}: author {author.name!r} references affiliation "
+                    f"index {idx}, but {count} affiliation(s) are defined "
+                    f"(valid indices: {valid})"
+                )
 
 
 def _escape_meta(meta: Meta) -> Meta:
