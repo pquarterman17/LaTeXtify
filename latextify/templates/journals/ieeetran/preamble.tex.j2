@@ -1,0 +1,17 @@
+% Generated preamble -- regenerated every run. Do not edit; edit main.tex instead.
+%% if natbib_options
+\PassOptionsToPackage{\VAR{natbib_options|join(',')}}{natbib}
+%% endif
+%% if class_options
+\documentclass[\VAR{class_options|join(',')}]{\VAR{document_class}}
+%% else
+\documentclass{\VAR{document_class}}
+%% endif
+%% for pkg in packages
+%% if pkg.options
+\usepackage[\VAR{pkg.options|join(',')}]{\VAR{pkg.name}}
+%% else
+\usepackage{\VAR{pkg.name}}
+%% endif
+%% endfor
+\bibliographystyle{\VAR{bibstyle}}

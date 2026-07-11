@@ -1,0 +1,40 @@
+# IEEEtran (IEEE Transactions/Journals) -- cloned from revtex4-2 (plan item 4's
+# worked example) per plan item 11. The preamble template is journal-agnostic
+# and copied verbatim; only this manifest and metadata.tex.j2 are IEEE-specific.
+
+# \documentclass[<class_options>]{<class>}
+class: IEEEtran
+class_options: [journal]   # full IEEE Transactions/Journal style, two-column
+
+# \usepackage[options]{name}, emitted in order.
+packages:
+  - name: amsmath
+  - name: amssymb
+  - name: graphicx
+  - name: bm
+  - name: hyperref
+    options: [colorlinks=true, linkcolor=blue, citecolor=blue, urlcolor=blue]
+
+# Bibliography. IEEE is numeric only (\cite{1}, \cite{2,3}) -- the authoryear
+# mode is deliberately omitted; IEEEtran.bst has no author-year variant. This
+# is the "declare only one mode" case for item 18's --citation-style flag.
+bib:
+  default_mode: numeric
+  modes:
+    numeric:
+      bibstyle: IEEEtran
+      natbib_options: []   # IEEEtran uses its own \cite machinery, not natbib
+
+# Informal name the emitter (plan item 5) maps to this journal's macro scheme.
+metadata_scheme: ieeetran
+
+# Float environments. IEEEtran `journal` option is two-column, so wide
+# figures span with figure*.
+figure_env:
+  single: figure
+  wide: figure*
+
+# Class/style files to stage into the output tree when the Tectonic bundle
+# lacks them. Verified present in the bundle by this item's real-compile
+# test (see tests/test_templates.py); nothing to vendor.
+vendor: []

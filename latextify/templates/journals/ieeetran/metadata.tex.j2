@@ -1,0 +1,19 @@
+% Generated metadata -- regenerated every run.
+\title{\VAR{meta.title}}
+\author{
+%% for group in group_authors_global(meta.authors)
+\IEEEauthorblockN{\VAR{group.authors|map(attribute='name')|join(', ')}}
+\IEEEauthorblockA{\BLOCK{ for idx in group.affiliations }\VAR{meta.affiliations[idx].name}\BLOCK{ if not loop.last }\\\BLOCK{ endif }\BLOCK{ endfor }\BLOCK{ for author in group.authors }\BLOCK{ if author.email }\\\VAR{author.email}\BLOCK{ endif }\BLOCK{ endfor }}
+%% endfor
+}
+%% if meta.abstract
+\begin{abstract}
+\VAR{meta.abstract}
+\end{abstract}
+%% endif
+%% if meta.keywords
+\begin{IEEEkeywords}
+\VAR{meta.keywords|join(', ')}
+\end{IEEEkeywords}
+%% endif
+\maketitle

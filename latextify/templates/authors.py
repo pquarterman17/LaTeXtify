@@ -53,3 +53,34 @@ def group_consecutive_by_affiliation(authors: tuple[Author, ...]) -> list[Author
         groups.append(AuthorGroup(authors[i:j], key))
         i = j
     return groups
+
+
+def group_globally_by_affiliation(authors: tuple[Author, ...]) -> list[AuthorGroup]:
+    """Group *all* authors sharing an identical affiliation-index tuple, globally.
+
+    This is the IEEEtran convention (plan item 11): ``\\IEEEauthorblockN{}`` /
+    ``\\IEEEauthorblockA{}`` blocks are keyed by affiliation set regardless of
+    where in the author list a match occurs -- unlike REVTeX/elsarticle's
+    :func:`group_consecutive_by_affiliation`, non-adjacent authors sharing an
+    affiliation are merged into one block. Each author appears in exactly one
+    group; groups are ordered by the first appearance of their affiliation key
+    in the input; authors within a group keep their relative document order.
+
+    >>> from latextify.model.meta import Author
+    >>> a = Author("Alice", (0,))
+    >>> b = Author("Bob", (1,))
+    >>> c = Author("Carol", (0,))
+    >>> [ (tuple(au.name for au in g.authors), g.affiliations)
+    ...   for g in group_globally_by_affiliation((a, b, c)) ]
+    [(('Alice', 'Carol'), (0,)), (('Bob',), (1,))]
+    """
+    authors = tuple(authors)
+    order: list[tuple[int, ...]] = []
+    buckets: dict[tuple[int, ...], list[Author]] = {}
+    for author in authors:
+        key = author.affiliations
+        if key not in buckets:
+            buckets[key] = []
+            order.append(key)
+        buckets[key].append(author)
+    return [AuthorGroup(tuple(buckets[key]), key) for key in order]
