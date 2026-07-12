@@ -61,22 +61,22 @@ its regression guard.
 
 ## Tier 2 — Medium Impact
 
-5. **Export + display-name frontend** — dropdown uses display names; an Export
-   panel with a Browse button (fills a folder field) and per-artifact
+5. **Export + display-name frontend** — dropdown uses display names (done); an
+   Export panel with a Browse button (fills a folder field) and per-artifact
    checkboxes (project / main.pdf / combined.pdf / audit.pdf / .zip).
-   - [ ] index.html + DOM smoke test
-
-6. **One-column plain-article supplement (emit)** — `_emit_supplement` renders
-   the SI as `\documentclass[11pt]{article}` with S-numbering + shared
-   bib/figures when requested.
-   - [ ] emit mode + tests
-
-7. **One-column SI wiring (CLI + GUI)** — `--supplement-onecolumn` flag and a
-   GUI toggle threaded through `emit_project`.
-   - [ ] CLI flag + GUI form field + tests
+   - [ ] Export panel + DOM smoke test
 
 ## Completed
 
+- ~~**#6/#7 One-column plain-article supplement**~~ (2026-07-12) —
+  `emit_project(supplement_onecolumn=True)` renders the SI as
+  `\documentclass[11pt]{article}` (natbib + unsrtnat, one-column figure env, a
+  wrapped plain `\title`/`\author`/`\maketitle` block via
+  `_plain_article_metadata`) instead of the journal class, keeping S-numbering +
+  shared references/figures. CLI `--supplement-onecolumn` (requires
+  `--supplement`) + GUI toggle + `/api/convert-multi` form field. Compiles the
+  a real supplement to a clean one-column PDF. Tests in `tests/test_supplement.py`,
+  `tests/test_pdf_combine.py`.
 - ~~**#1 Loader: display_name + extends**~~ (2026-07-12) — `Journal` gains
   `display_name` (defaults to the folder name) and `template_root`; a manifest
   may `extends: <base>` to inherit that journal's whole manifest + `.tex.j2`

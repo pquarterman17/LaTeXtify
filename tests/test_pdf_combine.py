@@ -57,3 +57,11 @@ def test_combine_flag_requires_pdf():
     )
     assert result.exit_code == 1
     assert "requires --pdf" in result.output
+
+
+def test_supplement_onecolumn_requires_supplement():
+    result = runner.invoke(
+        app, ["convert", str(CLEAN_DOCX), "-j", "revtex4-2", "--supplement-onecolumn"]
+    )
+    assert result.exit_code == 1
+    assert "requires --supplement" in result.output

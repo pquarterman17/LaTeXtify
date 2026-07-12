@@ -28,6 +28,49 @@ def _copy_fixture(tmp_path: Path, src: Path, name: str | None = None) -> Path:
 
 
 # --------------------------------------------------------------------------- #
+# One-column plain-article supplement (--supplement-onecolumn)
+# --------------------------------------------------------------------------- #
+
+
+def _supplement_generated(result) -> tuple[str, str]:
+    gen = result.output_dir / "generated"
+    return (
+        (gen / "supplement_preamble.tex").read_text(encoding="utf-8"),
+        (gen / "supplement_metadata.tex").read_text(encoding="utf-8"),
+    )
+
+
+def test_supplement_onecolumn_emits_plain_article(tmp_path):
+    docx = _copy_fixture(tmp_path, FIGURES_DOCX)
+    si = _copy_fixture(tmp_path, SUPPLEMENT_DOCX)
+    result = emit_project(
+        docx, "revtex4-2", tmp_path / "out",
+        supplement_docx_path=si, supplement_onecolumn=True,
+    )
+    preamble, metadata = _supplement_generated(result)
+
+    assert "\\documentclass[11pt]{article}" in preamble
+    assert "revtex4-2" not in preamble  # not the journal class
+    assert "\\bibliographystyle{unsrtnat}" in preamble
+    # Plain-article title block, no REVTeX-only macros.
+    assert "\\maketitle" in metadata
+    assert "\\affiliation" not in metadata
+    # S-numbering still applied.
+    assert "\\thefigure}{S" in preamble
+
+
+def test_supplement_default_uses_journal_class(tmp_path):
+    docx = _copy_fixture(tmp_path, FIGURES_DOCX)
+    si = _copy_fixture(tmp_path, SUPPLEMENT_DOCX)
+    result = emit_project(
+        docx, "revtex4-2", tmp_path / "out", supplement_docx_path=si,
+    )
+    preamble, _ = _supplement_generated(result)
+    assert "\\documentclass[aps,prb,reprint]{revtex4-2}" in preamble
+    assert "\\documentclass[11pt]{article}" not in preamble
+
+
+# --------------------------------------------------------------------------- #
 # Without --supplement: byte-identical to today
 # --------------------------------------------------------------------------- #
 

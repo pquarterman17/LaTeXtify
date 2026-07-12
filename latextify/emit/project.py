@@ -150,6 +150,30 @@ _SUPPLEMENT_NUMBERING = (
     "\\renewcommand{\\thesection}{S\\arabic{section}}\n"
 )
 
+# One-column plain-article supplement (--supplement-onecolumn): a deliberately
+# simple document class for the "less strict" SI format many journals accept.
+# 11pt article + natbib with a PORTABLE numeric bibstyle -- the journal's own
+# apsrev4-2/aipnum4-2 are REVTeX-specific and do not compile under article, and
+# an SI shares references.bib, so unsrtnat (bundled, natbib-native) renders the
+# cited subset without pulling in the journal machinery. S-numbering is appended
+# exactly like the journal-class path.
+_PLAIN_ARTICLE_SUPPLEMENT_PREAMBLE = (
+    "% One-column plain-article supplement (--supplement-onecolumn).\n"
+    "\\documentclass[11pt]{article}\n"
+    "\\usepackage{amsmath}\n"
+    "\\usepackage{amssymb}\n"
+    "\\usepackage{graphicx}\n"
+    "\\usepackage{bm}\n"
+    "\\usepackage{booktabs}\n"
+    "\\usepackage[numbers]{natbib}\n"
+    "\\usepackage[colorlinks=true,linkcolor=blue,citecolor=blue,urlcolor=blue]{hyperref}\n"
+    "\\bibliographystyle{unsrtnat}\n"
+)
+# A one-column document has no page-width float, so a wide figure falls back to
+# the ordinary single-column figure environment (figure* is a two-column-only
+# construct).
+_ONECOLUMN_FIGURE_ENV = FigureEnv(single="figure", wide="figure")
+
 # Bibliography inclusion lives in a regenerated file (plan item 26), NOT
 # directly in the write-once main.tex, so a citation-free manuscript emits no
 # ``\bibliography`` line at all and still compiles under classes whose
@@ -218,6 +242,7 @@ def emit_project(
     report: bool = True,
     supplement_docx_path: Path | str | None = None,
     references_bib_path: Path | str | None = None,
+    supplement_onecolumn: bool = False,
 ) -> EmitResult:
     """Convert ``docx_path`` into a journal-ready LaTeX project.
 
@@ -243,6 +268,12 @@ def emit_project(
             field codes). Defaults to the ``LATEXTIFY_CROSSREF_MAILTO`` env var
             or a documented placeholder; override it with a real address.
         report: if True (default), generate report.md; if False, skip it.
+        supplement_onecolumn: when True (and a supplement is given), the
+            Supplementary Information is emitted as a simplified one-column
+            ``\\documentclass[11pt]{article}`` instead of the journal's class,
+            keeping the shared references/figures and S-numbering. Ignored when
+            no supplement is given. The many journals with looser SI formatting
+            rules accept this.
         references_bib_path: optional ``.bib`` export of the author's reference
             manager. Used only on the plain-text citation path (a document with
             no field codes): each typed reference is matched against these
@@ -392,6 +423,7 @@ def emit_project(
             crossref_mailto=crossref_mailto,
             main_entries=entries,
             bib_entries=bib_entries,
+            onecolumn=supplement_onecolumn,
         )
         # references.bib is shared by main.tex and supplement.tex; rewrite it
         # with the merged set now that any new SI-only references were
@@ -849,6 +881,32 @@ def _remap_cite_keys_in_text(tex: str, key_remap: dict[str, str]) -> str:
     return _CITE_KEYS_RE.sub(replace_keys, tex)
 
 
+def _plain_article_metadata(meta: Meta) -> str:
+    """Article-class title block for the one-column supplement.
+
+    REVTeX/IEEE metadata macros (``\\affiliation``, ``\\email``,
+    ``\\IEEEauthorblockN``) are undefined in ``article``, so the one-column SI
+    needs a plain ``\\title``/``\\author``/``\\maketitle`` block instead. Author
+    names and affiliations are flattened into the single ``\\author`` field
+    (article has no structured affiliation model); every field is LaTeX-escaped
+    at this boundary, exactly like :meth:`Journal.render_metadata`.
+    """
+    title = escape_latex(meta.title)
+    names = ", ".join(escape_latex(a.name) for a in meta.authors)
+    affils = " \\\\ ".join(escape_latex(a.name) for a in meta.affiliations)
+    # Wrap in a centered \parbox: article's \author centers but does not wrap, so
+    # a long author/affiliation list would otherwise overrun the page margins.
+    inner = names + (" \\\\[4pt]\\footnotesize " + affils if affils else "")
+    author_field = "\\parbox{0.92\\linewidth}{\\centering " + inner + "}"
+    return (
+        "% Plain-article supplement title block (--supplement-onecolumn).\n"
+        f"\\title{{{title}}}\n"
+        f"\\author{{{author_field}}}\n"
+        "\\date{}\n"
+        "\\maketitle\n"
+    )
+
+
 def _emit_supplement(
     supplement_docx_path: Path,
     *,
@@ -861,6 +919,7 @@ def _emit_supplement(
     crossref_mailto: str | None,
     main_entries: list[RefEntry],
     bib_entries: list[RefEntry] | None = None,
+    onecolumn: bool = False,
 ) -> tuple[SupplementResult, list[RefEntry]]:
     """Emit the supplementary-material project (plan item 21).
 
@@ -949,8 +1008,11 @@ def _emit_supplement(
     )
     si_raw_tex = _remap_cite_keys_in_text(si_raw_tex, key_remap)
 
+    # A one-column plain-article SI has no page-width float, so wide figures
+    # resolve to the ordinary single-column environment.
+    si_figure_env = _ONECOLUMN_FIGURE_ENV if onecolumn else journal.figure_env
     si_resolved_tex, si_anchor_warnings = _resolve_anchors(
-        si_raw_tex, si_figures, si_figure_files, si_citations, journal.figure_env
+        si_raw_tex, si_figures, si_figure_files, si_citations, si_figure_env
     )
     warnings.extend(
         EmitWarning(message=f"supplement: {w.message}") for w in si_anchor_warnings
@@ -961,10 +1023,14 @@ def _emit_supplement(
     else:
         si_citation_count = si_resolved_tex.count("\\cite{")
 
-    # -- generated/supplement_preamble.tex: journal preamble + S-numbering --
-    si_preamble_text = _ensure_raggedbottom(
-        _ensure_hyperref(journal.render_preamble(mode=citation_style))
-    )
+    # -- generated/supplement_preamble.tex: (journal | plain article) + S-numbering --
+    if onecolumn:
+        # Plain one-column article; preamble already loads hyperref itself.
+        si_preamble_text = _ensure_raggedbottom(_PLAIN_ARTICLE_SUPPLEMENT_PREAMBLE)
+    else:
+        si_preamble_text = _ensure_raggedbottom(
+            _ensure_hyperref(journal.render_preamble(mode=citation_style))
+        )
     si_preamble_text = si_preamble_text.rstrip("\n") + "\n" + _SUPPLEMENT_NUMBERING
     supplement_preamble_path = generated_dir / "supplement_preamble.tex"
     supplement_preamble_path.write_text(si_preamble_text, encoding="utf-8")
@@ -977,7 +1043,10 @@ def _emit_supplement(
         keywords=(),
     )
     supplement_metadata_path = generated_dir / "supplement_metadata.tex"
-    supplement_metadata_path.write_text(journal.render_metadata(si_meta), encoding="utf-8")
+    si_metadata_text = (
+        _plain_article_metadata(si_meta) if onecolumn else journal.render_metadata(si_meta)
+    )
+    supplement_metadata_path.write_text(si_metadata_text, encoding="utf-8")
 
     # -- generated/supplement_body.tex --
     supplement_body_path = generated_dir / "supplement_body.tex"

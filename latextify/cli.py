@@ -99,6 +99,13 @@ def convert(
         "(authoritative, offline); only references it doesn't cover fall back to "
         "Crossref. Shared with the supplement.",
     ),
+    supplement_onecolumn: bool = typer.Option(
+        False,
+        "--supplement-onecolumn",
+        help="Emit the supplement as a simplified one-column article "
+        "(\\documentclass[11pt]{article}) instead of the journal class, keeping "
+        "S-numbering and the shared references/figures. Needs --supplement.",
+    ),
 ) -> None:
     """Convert DOCX_PATH into a journal-ready LaTeX project under output/<journal>/."""
     if combine_supplement and supplement is None:
@@ -106,6 +113,9 @@ def convert(
         raise typer.Exit(code=1)
     if combine_supplement and not pdf:
         typer.echo("error: --combine-supplement requires --pdf", err=True)
+        raise typer.Exit(code=1)
+    if supplement_onecolumn and supplement is None:
+        typer.echo("error: --supplement-onecolumn requires --supplement", err=True)
         raise typer.Exit(code=1)
     try:
         journal_obj = load(journal)
@@ -118,6 +128,7 @@ def convert(
             report=report,
             supplement_docx_path=supplement,
             references_bib_path=references,
+            supplement_onecolumn=supplement_onecolumn,
         )
     except ManifestError as exc:
         typer.echo(f"error: {exc}", err=True)

@@ -179,6 +179,7 @@
     <div class="options-grid">
       <label class="checkbox-row"><input id="opt-pdf" type="checkbox" checked /> Compile PDF</label>
       <label class="checkbox-row"><input id="opt-combine" type="checkbox" /> Combine supplement into one PDF</label>
+      <label class="checkbox-row"><input id="opt-si1col" type="checkbox" /> One-column (article) supplement</label>
       <label class="checkbox-row"><input id="opt-zip" type="checkbox" /> Download project as .zip</label>
       <label class="checkbox-row"><input id="opt-audit" type="checkbox" /> Equation-audit PDF</label>
     </div>
@@ -235,6 +236,7 @@
   const crossrefEmail = el("crossref-email");
   const optPdf = el("opt-pdf");
   const optCombine = el("opt-combine");
+  const optSi1col = el("opt-si1col");
   const optZip = el("opt-zip");
   const optAudit = el("opt-audit");
   const convertBtn = el("convert-btn");
@@ -467,6 +469,7 @@
     });
     fd.append("pdf", optPdf.checked ? "true" : "false");
     fd.append("combine", optCombine.checked ? "true" : "false");
+    fd.append("supplement_onecolumn", optSi1col.checked ? "true" : "false");
     fd.append("want_zip", optZip.checked ? "true" : "false");
     fd.append("equation_audit", optAudit.checked ? "true" : "false");
     return fd;
