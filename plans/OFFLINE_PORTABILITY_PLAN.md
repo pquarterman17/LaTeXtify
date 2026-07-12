@@ -125,28 +125,39 @@ instance — tests must cover members beyond the motivating example.
 
 ## Tier 3 — Nice-to-Have
 
-8. **Usage example scripts** (added 2026-07-12, user request)
-   **Model:** Sonnet 5 · **Touches:** new `examples/` tree, README link.
-   **Context:** Three runnable, self-contained examples covering the input
-   shapes a real user hits, each with a fixture-generator (python-docx, as
-   the tests do — no committed binaries) + a run script + an expected-output
-   note. The three scenarios:
-   (a) **all-embedded** — one `.docx` with figures embedded and citations
-       inline; a single `latextify convert paper.docx -j revtex4-2 --pdf`.
-   (b) **Word + separate figures** — a `.docx` plus a sibling `figures/`
-       folder (folder-convention overrides) and/or a `figures.yaml` manifest;
-       shows the figure-override tiers.
-   (c) **fully multi-part** — a main `.docx` + a separate supplementary
-       `.docx` (`--supplement`) + externally-managed references (citations
-       carried as Zotero/Mendeley/EndNote field codes in the docx, reconciled
-       via Crossref; document how a reference-manager library feeds in).
-   VERIFY which of these the tool supports end-to-end today (esp. the
-   reference-manager path in (c)); build examples on the supported paths and
-   record any gap as a new item rather than faking it.
-   **Done when:** each example runs from a clean checkout to a PDF (or a clear
-   "needs Tectonic/network" note) and is linked from the README.
+9. **Optional external reference-library ingest** (surfaced 2026-07-12 by item 8)
+   **Context:** Example 03 confirmed the ONLY way a reference manager feeds in
+   today is Word field codes embedded by its Cite-While-You-Write plugin
+   (Zotero/Mendeley/EndNote/Word-native). There is no ingest for a standalone
+   library **file** — no `--bib`, no `.ris`/`.enl`/CSL-JSON import, no
+   dependency for it (verified: `cli.py` has no such flag; `references.bib` is
+   an output only). A user with a plain manuscript + an exported library must
+   fall back to the typed-list + Crossref path, which ignores the library.
+   Would add a `--references path.bib` (and/or `.ris`/CSL-JSON) that merges the
+   supplied entries with extracted ones (same `merge_ref_entries` dedup), so a
+   library export can seed the bibliography directly and offline.
+   **Done when:** `latextify convert paper.docx --references lib.bib` uses the
+   file's entries for matching in-text markers, deduped against field-code /
+   Crossref entries.
 
 ## Completed
+
+- ~~**Item 8 — Usage example scripts**~~ (2026-07-12) — new `examples/` tree
+  with three self-contained, tested examples, linked from the README:
+  **01-all-embedded** (python-docx: embedded figures + typed references →
+  Crossref reconstruction, degrading to verify-flagged raw entries offline),
+  **02-word-plus-figures** (embedded placeholders overridden by a `figures/`
+  folder file and a `figures.yaml` manifest — exercises both override tiers),
+  **03-multipart-refmanager** (hand-assembled Zotero + Mendeley field-code
+  OOXML + a `paper.yaml` sidecar + `--supplement`, producing a shared,
+  DOI-deduped `references.bib` with no network). Each folder ships a
+  `make_manuscript.py` generator (no committed binaries), a `run.py` that
+  converts to PDF with a graceful "needs Tectonic" fallback, and a README; all
+  three verified end-to-end to PDF. Regression-guarded by `tests/test_examples.py`
+  (offline: Crossref neutralised for 01). Added `latextify/__main__.py` so the
+  runners can invoke `python -m latextify` regardless of PATH. **Gap recorded**
+  as item 9: no external reference-library FILE ingest (managers feed in only
+  via embedded field codes).
 
 - ~~**Item 4 — Offline CI verification**~~ (2026-07-12) — new `offline-kit` job in
   `.github/workflows/ci.yml`: builds a current-platform kit (network ON), then

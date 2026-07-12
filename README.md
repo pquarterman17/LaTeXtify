@@ -112,6 +112,20 @@ On first conversion a `paper.yaml` sidecar is written beside your docx with
 the guessed title/authors/affiliations — correct it once; it is the source
 of truth afterwards.
 
+## Examples
+
+Three runnable, self-contained examples live in [`examples/`](examples/) —
+each generates its own Word document(s) (no committed binaries) and converts
+them to a PDF with a single `python run.py`:
+
+- [01 – all-embedded](examples/01-all-embedded/): one `.docx` with embedded
+  figures and a typed reference list (Crossref reconstruction).
+- [02 – word-plus-figures](examples/02-word-plus-figures/): external figure
+  files via the `figures/` folder convention and a `figures.yaml` manifest.
+- [03 – multipart-refmanager](examples/03-multipart-refmanager/): main +
+  `--supplement` documents with Zotero/Mendeley field-code citations and a
+  shared, de-duplicated bibliography.
+
 ## Input expectations
 
 LaTeXtify targets *manuscripts that use Word styles*: styled headings,
