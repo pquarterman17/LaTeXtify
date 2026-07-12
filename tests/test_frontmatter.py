@@ -207,6 +207,77 @@ def test_convert_body_drops_title_page(tmp_path):
 # --------------------------------------------------------------------------- #
 
 
+def _build_unstyled_manuscript(path: Path) -> Path:
+    """A manuscript in the messy real-world shape the YIG paper exposed: NO
+    Word title/heading styles, a large-font title, composite "1*" markers, an
+    "ABSTRACT:" label (colon), and a bare ALL-CAPS "INTRODUCTION" section
+    heading. Everything the clean-styled fixtures don't stress.
+    """
+    docx = pytest.importorskip("docx")
+    from docx.shared import Pt
+
+    doc = docx.Document()
+
+    title = doc.add_paragraph()
+    trun = title.add_run("UNDERSTANDING FRUSTRATED COUPLING IN HETEROSTRUCTURES")
+    trun.font.size = Pt(18)  # largest font -> title (no Title style used)
+
+    authors = doc.add_paragraph()
+    authors.add_run("Alice Author")
+    _add_superscript(authors, "1*")
+    authors.add_run(", Bob Builder")
+    _add_superscript(authors, "2")
+
+    aff1 = doc.add_paragraph()
+    _add_superscript(aff1, "1")
+    aff1.add_run("Institute of Physics, Example University")
+
+    aff2 = doc.add_paragraph()
+    _add_superscript(aff2, "2")
+    aff2.add_run("Department of Materials, Sample Institute")
+
+    corr = doc.add_paragraph()
+    _add_superscript(corr, "*")
+    corr.add_run("To whom correspondence should be addressed. Email: alice@example.edu")
+
+    doc.add_paragraph("ABSTRACT:")
+    doc.add_paragraph(
+        "We report a study of frustrated magnetic coupling in model "
+        "heterostructures and its dependence on layer composition."
+    )
+
+    doc.add_paragraph("INTRODUCTION")  # bare all-caps section heading, no style
+    doc.add_paragraph(
+        "The study of magnetic frustration has a long history in condensed "
+        "matter physics."
+    )
+
+    doc.save(path)
+    return path
+
+
+def test_unstyled_manuscript_strips_through_abstract(tmp_path):
+    """The YIG-shaped case: unstyled title page + 'ABSTRACT:' + all-caps
+    section heading. The whole title page (including the corresponding line and
+    abstract) is stripped; the all-caps body heading and body survive."""
+    path = _build_unstyled_manuscript(tmp_path / "unstyled.docx")
+
+    span = front_matter_span(path)
+    assert span is not None
+    # p0 title, p1 authors, p2/p3 affiliations, p4 corresponding line,
+    # p5 "ABSTRACT:", p6 abstract body -> body "INTRODUCTION" is p7.
+    assert span == (0, 7)
+
+    body = convert_docx_to_body(path, tmp_path / "media", strip_front_matter=True).tex
+    assert "UNDERSTANDING FRUSTRATED COUPLING" not in body
+    assert "alice@example.edu" not in body
+    assert "We report a study of frustrated" not in body
+    # The all-caps body heading and the body itself remain. (pandoc hard-wraps
+    # lines, so match a fragment that can't straddle a wrap.)
+    assert "INTRODUCTION" in body
+    assert "long history in condensed matter" in body
+
+
 def test_emit_title_in_metadata_not_body(tmp_path):
     from latextify.emit.project import emit_project
 

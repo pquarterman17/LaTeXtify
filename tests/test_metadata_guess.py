@@ -475,6 +475,69 @@ def test_nonnumeric_unlabeled_nonsequential_markers_fall_back_with_check(tmp_pat
     assert round_tripped == result.meta
 
 
+@pytest.mark.parametrize(
+    "heading", ["Abstract", "ABSTRACT:", "Abstract.", "Abstract —", "ABSTRACT"]
+)
+def test_abstract_heading_variants_recognized(tmp_path, heading):
+    """Real manuscripts label the abstract "ABSTRACT:", "Abstract.", etc. The
+    strict "^abstract$" recognized only a bare "Abstract" and left the field
+    empty (and, via the emitter, the abstract un-stripped from the body).
+    """
+    docx_module = pytest.importorskip("docx")
+    doc = docx_module.Document()
+    doc.add_paragraph(style="Title").add_run("A Study of Something")
+    authors = doc.add_paragraph()
+    authors.add_run("Ada Lovelace")
+    marker = authors.add_run("1")
+    marker.font.superscript = True
+    aff = doc.add_paragraph()
+    m = aff.add_run("1")
+    m.font.superscript = True
+    aff.add_run("Institute One")
+    doc.add_paragraph(heading)
+    doc.add_paragraph("We report a careful measurement of the effect in question.")
+    doc.add_heading("INTRODUCTION", level=1)
+    doc.add_paragraph("Body text follows.")
+
+    path = tmp_path / f"abstract_{heading.strip(': .—')}.docx"
+    doc.save(path)
+
+    result = guess_meta(path)
+    assert "careful measurement of the effect" in result.meta.abstract
+    # The abstract must stop at the section heading, not swallow the body.
+    assert "Body text follows" not in result.meta.abstract
+
+
+def test_abstract_terminates_at_unstyled_allcaps_section_heading(tmp_path):
+    """A manuscript that types its section headings as bare ALL-CAPS lines
+    with no Word heading style (the common real-world shape) must still
+    terminate the abstract there -- otherwise the abstract swallows, and the
+    emitter strips, the entire body.
+    """
+    docx_module = pytest.importorskip("docx")
+    doc = docx_module.Document()
+    doc.add_paragraph(style="Title").add_run("A Study of Something")
+    authors = doc.add_paragraph()
+    authors.add_run("Ada Lovelace")
+    marker = authors.add_run("1")
+    marker.font.superscript = True
+    aff = doc.add_paragraph()
+    m = aff.add_run("1")
+    m.font.superscript = True
+    aff.add_run("Institute One")
+    doc.add_paragraph("ABSTRACT:")
+    doc.add_paragraph("We summarize the measurement in a single sentence here.")
+    doc.add_paragraph("INTRODUCTION")  # bare all-caps, NO heading style
+    doc.add_paragraph("The introduction body begins here and continues.")
+
+    path = tmp_path / "unstyled_sections.docx"
+    doc.save(path)
+
+    result = guess_meta(path)
+    assert "single sentence" in result.meta.abstract
+    assert "introduction body begins" not in result.meta.abstract
+
+
 def test_guess_low_confidence_flags_when_cues_are_missing(tmp_path):
     """A docx with no recognizable cues should guess conservatively and flag every field."""
     docx_module = pytest.importorskip("docx")

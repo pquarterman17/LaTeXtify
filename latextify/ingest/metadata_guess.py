@@ -56,7 +56,15 @@ DEFAULT_SIDECAR_NAME = "paper.yaml"
 _W_NS = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
 _NSMAP = {"w": _W_NS}
 
-_ABSTRACT_HEADING_RE = re.compile(r"^abstract$", re.IGNORECASE)
+# An "Abstract" heading, possibly labeled with trailing punctuation. Real
+# manuscripts write "Abstract", "ABSTRACT:", "Abstract.", "Abstract —", etc.
+# (the strict "^abstract$" missed "ABSTRACT:" and left the abstract empty in
+# paper.yaml AND unstripped from the body). Trailing text after the label
+# ("Abstract: Using depth...") is intentionally NOT matched here -- that
+# inline-abstract shape is a separate case.
+_ABSTRACT_HEADING_RE = re.compile(r"^abstract\s*[:.–—-]?\s*$", re.IGNORECASE)
+# A roman-numeral section heading typed inline, e.g. "I. Introduction".
+_ROMAN_SECTION_RE = re.compile(r"^[IVXLC]+\.\s+\S")
 _KEYWORDS_RE = re.compile(r"^(?:keywords|key\s*words)\s*[:.]\s*(.*)$", re.IGNORECASE)
 _EMAIL_RE = re.compile(r"[\w.+-]+@(?:[\w-]+\.)+[\w-]+")
 _CORRESPONDING_RE = re.compile(r"correspond", re.IGNORECASE)
@@ -428,6 +436,32 @@ def _link_author_affiliations(
     return per_author, checks
 
 
+def _looks_like_section_heading(para: _Para) -> bool:
+    """Heuristic: does this paragraph read as a body SECTION heading?
+
+    Terminates abstract consumption (and thus the front-matter span) at the
+    start of the body. Real manuscripts frequently type section headings as
+    bare all-caps or roman-numbered lines with NO Word heading style
+    (e.g. "INTRODUCTION", "I. Introduction"), so a style-only check misses
+    them and the abstract swallows the whole body. Over-detection here is
+    safe (the abstract ends early -> the extra text stays in the body, i.e.
+    merely duplicated, never lost); under-detection is the failure mode to
+    avoid (the abstract would consume, and the emitter would then strip, the
+    real body).
+    """
+    if para.style_id and "heading" in para.style_id.lower():
+        return True
+    text = para.text.strip()
+    if not text or len(text) > 60:
+        return False
+    if text[-1] in ".!?:;,":
+        return False  # trailing sentence/label punctuation -> not a bare heading
+    if _ROMAN_SECTION_RE.match(text):
+        return True  # "I. Introduction", "II. Methods"
+    letters = [c for c in text if c.isalpha()]
+    return bool(letters) and all(c.isupper() for c in letters)  # "INTRODUCTION"
+
+
 def _guess_abstract(paras: list[_Para], start_idx: int) -> tuple[str, int, list[str]]:
     heading_idx = None
     for i in range(start_idx, len(paras)):
@@ -446,8 +480,7 @@ def _guess_abstract(paras: list[_Para], start_idx: int) -> tuple[str, int, list[
         if not text:
             idx += 1
             continue
-        style_is_heading = bool(paras[idx].style_id and "heading" in paras[idx].style_id.lower())
-        if _KEYWORDS_RE.match(text) or style_is_heading:
+        if _KEYWORDS_RE.match(text) or _looks_like_section_heading(paras[idx]):
             break
         parts.append(text)
         idx += 1
