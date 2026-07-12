@@ -5,6 +5,18 @@ __pycache__/
 *.egg-info/
 .pytest_cache/
 .ruff_cache/
+.mypy_cache/
+
+# Packaging output (uv build / python -m build)
+dist/
+
+# Secrets / local env (none tracked; ignore proactively)
+.env
+.env.*
+
+# Editors / IDEs (may embed local absolute paths)
+.vscode/
+.idea/
 
 # LaTeX build artifacts
 *.aux

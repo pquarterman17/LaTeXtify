@@ -78,6 +78,21 @@ build-backend = "hatchling.build"
 [tool.hatch.build.targets.wheel]
 packages = ["latextify"]
 
+# The examples/ scripts generate their .docx/.yaml/figures at runtime; those
+# artifacts are gitignored per-directory, but hatchling's sdist walk does not
+# honor nested .gitignore files, so exclude them explicitly. This keeps
+# locally-generated (potentially private) manuscripts a contributor drops under
+# examples/ out of any `uv build` source distribution.
+[tool.hatch.build.targets.sdist]
+exclude = [
+    "examples/**/*.docx",
+    "examples/**/*.yaml",
+    "examples/**/figures/**",
+    "examples/**/output/**",
+    "build/",
+    "dist/",
+]
+
 [tool.ruff]
 line-length = 100
 target-version = "py310"
