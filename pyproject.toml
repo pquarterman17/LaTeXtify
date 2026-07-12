@@ -2,6 +2,19 @@
 name = "latextify"
 version = "0.1.0"
 description = "Convert Word manuscripts to journal-ready LaTeX projects and PDFs"
+readme = "README.md"
+license = "Apache-2.0"
+license-files = ["LICENSE", "NOTICE"]
+authors = [{ name = "Paige Quarterman" }]
+keywords = ["latex", "docx", "word", "journal", "manuscript", "bibtex", "tectonic"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Science/Research",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Text Processing :: Markup :: LaTeX",
+]
 requires-python = ">=3.11"
 dependencies = [
     "pypandoc-binary>=1.13",  # pandoc engine, bundled binary (no system install)
@@ -46,6 +59,10 @@ dev = [
     "uvicorn>=0.30",
     "python-multipart>=0.0.9",
 ]
+
+[project.urls]
+Repository = "https://github.com/pquarterman17/LaTeXtify"
+Issues = "https://github.com/pquarterman17/LaTeXtify/issues"
 
 [project.scripts]
 latextify = "latextify.cli:main"

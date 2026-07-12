@@ -1,0 +1,65 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+      - name: Install
+        run: uv sync --locked
+      - name: Ruff
+        run: uv run ruff check .
+
+  test:
+    name: test (${{ matrix.os }}, py${{ matrix.python }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        python: ["3.11", "3.13"]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Install
+        run: uv sync --locked
+      - name: Unit tests (no TeX engine, no network)
+        run: uv run pytest -q -m "not tectonic and not network"
+
+  integration:
+    # Full suite including real Tectonic compiles. One platform is enough:
+    # the compile path is exercised on Windows by local development.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+      - name: Cache Tectonic binary and package bundle
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/latextify
+            ~/.cache/Tectonic
+          key: tectonic-${{ runner.os }}-v1
+      - name: Install
+        run: uv sync --locked
+      - name: Full test suite (real docx -> PDF compiles)
+        run: uv run pytest -q -m "not network"

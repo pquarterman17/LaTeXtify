@@ -1,0 +1,9 @@
+LaTeXtify
+Copyright 2026 Paige Quarterman
+
+This product includes vendored LaTeX class and bibliography style files
+under latextify/templates/journals/*/vendor/. Those files are NOT covered
+by this project's Apache-2.0 license; each remains under its own license
+(LaTeX Project Public License), as recorded in the accompanying
+VENDOR_LICENSE.txt files and the files' own headers. They are
+redistributed unmodified as their licenses permit.
