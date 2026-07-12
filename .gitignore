@@ -31,6 +31,9 @@ dist/
 # Tool output trees (per-paper conversion output lives next to the paper, not here)
 output/
 
+# Launcher error log (startup.bat / startup.sh write this next to themselves)
+latextify-startup.log
+
 # OS
 .DS_Store
 Thumbs.db

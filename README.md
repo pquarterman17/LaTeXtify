@@ -87,6 +87,14 @@ cd LaTeXtify
 uv sync
 ```
 
+### One-click launcher
+
+To start the web GUI without touching a command line, double-click
+**`startup.bat`** (Windows) or run **`./startup.sh`** (macOS/Linux). It installs
+dependencies on first run, opens the GUI in your browser, and — if anything
+goes wrong — writes an easy-to-find `latextify-startup.log` next to the script
+and prints it for you to copy.
+
 ## Usage
 
 ```
