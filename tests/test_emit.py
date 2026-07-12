@@ -13,6 +13,7 @@ from pathlib import Path
 
 import pytest
 
+from latextify.compile.tectonic import find_tectonic
 from latextify.emit.project import _copy_figures, emit_project
 from latextify.model import BodyConversionResult
 from latextify.model.figure import Figure
@@ -538,13 +539,12 @@ def test_report_stable_across_runs(tmp_path):
 
 
 def _tectonic_available() -> bool:
-    from latextify.compile.tectonic import TectonicNotAvailableError, ensure_tectonic
-
-    try:
-        ensure_tectonic()
-        return True
-    except TectonicNotAvailableError:
-        return False
+    # Detection only -- must NOT download at collection time: anonymous
+    # GitHub API calls from CI runners hit rate limits, and unit jobs
+    # deselect tectonic tests anyway. ensure_tectonic() still runs (and
+    # downloads if needed) inside the marked tests themselves; CI's
+    # integration job pre-fetches the binary before pytest.
+    return find_tectonic() is not None
 
 
 def test_bibliography_include_is_a_generated_file_not_in_main_tex(tmp_path):

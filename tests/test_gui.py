@@ -8,6 +8,7 @@ established in tests/test_cli.py.
 
 from __future__ import annotations
 
+import re
 import sys
 from pathlib import Path
 
@@ -16,6 +17,7 @@ from fastapi.testclient import TestClient
 from typer.testing import CliRunner
 
 from latextify.cli import app
+from latextify.compile.tectonic import find_tectonic
 from latextify.gui.server import create_app
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -185,13 +187,12 @@ def test_pdf_endpoint_without_pdf_flag_convert_never_issues_a_token(tmp_path):
 
 
 def _tectonic_available() -> bool:
-    from latextify.compile.tectonic import TectonicNotAvailableError, ensure_tectonic
-
-    try:
-        ensure_tectonic()
-        return True
-    except TectonicNotAvailableError:
-        return False
+    # Detection only -- must NOT download at collection time: anonymous
+    # GitHub API calls from CI runners hit rate limits, and unit jobs
+    # deselect tectonic tests anyway. ensure_tectonic() still runs (and
+    # downloads if needed) inside the marked tests themselves; CI's
+    # integration job pre-fetches the binary before pytest.
+    return find_tectonic() is not None
 
 
 @pytest.mark.tectonic
@@ -248,9 +249,15 @@ def test_gui_command_without_optional_deps_prints_actionable_error(monkeypatch):
 
 
 def test_gui_command_help_documents_flags():
-    result = runner.invoke(app, ["gui", "--help"])
+    # Typer renders help through Rich, which on CI terminals injects ANSI
+    # styling and wraps to a narrow width, breaking naive substring asserts.
+    # Force plain, wide output for a stable assertion surface.
+    result = runner.invoke(
+        app, ["gui", "--help"], env={"NO_COLOR": "1", "TERM": "dumb", "COLUMNS": "200"}
+    )
 
     assert result.exit_code == 0
-    assert "--port" in result.output
-    assert "--no-browser" in result.output
-    assert "--workdir" in result.output
+    plain = re.sub(r"\x1b\[[0-9;]*m", "", result.output)
+    assert "--port" in plain
+    assert "--no-browser" in plain
+    assert "--workdir" in plain

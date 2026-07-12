@@ -19,9 +19,8 @@ from pathlib import Path
 import pytest
 
 from latextify.compile.tectonic import (
-    TectonicNotAvailableError,
     compile_document,
-    ensure_tectonic,
+    find_tectonic,
 )
 from latextify.figures import convert as convert_mod
 from latextify.figures.convert import convert_for_latex
@@ -298,11 +297,12 @@ def test_unrecognized_extension_falls_back_to_passthrough(tmp_path):
 
 
 def _tectonic_available() -> bool:
-    try:
-        ensure_tectonic()
-        return True
-    except TectonicNotAvailableError:
-        return False
+    # Detection only -- must NOT download at collection time: anonymous
+    # GitHub API calls from CI runners hit rate limits, and unit jobs
+    # deselect tectonic tests anyway. ensure_tectonic() still runs (and
+    # downloads if needed) inside the marked tests themselves; CI's
+    # integration job pre-fetches the binary before pytest.
+    return find_tectonic() is not None
 
 
 @pytest.mark.tectonic

@@ -24,7 +24,7 @@ from pathlib import Path
 
 import pytest
 
-from latextify.compile.tectonic import compile_document, ensure_tectonic
+from latextify.compile.tectonic import compile_document, ensure_tectonic, find_tectonic
 from latextify.model.meta import Affiliation, Author, Meta
 from latextify.templates import loader
 from latextify.templates.authors import (
@@ -414,11 +414,12 @@ def test_rendered_ieeetran_metadata_groups_globally_not_consecutively():
 
 
 def _tectonic_available() -> bool:
-    try:
-        ensure_tectonic()
-        return True
-    except Exception:
-        return False
+    # Detection only -- must NOT download at collection time: anonymous
+    # GitHub API calls from CI runners hit rate limits, and unit jobs
+    # deselect tectonic tests anyway. ensure_tectonic() still runs (and
+    # downloads if needed) inside the marked tests themselves; CI's
+    # integration job pre-fetches the binary before pytest.
+    return find_tectonic() is not None
 
 
 _TECTONIC_AVAILABLE = _tectonic_available()

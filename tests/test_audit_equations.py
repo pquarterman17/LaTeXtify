@@ -24,7 +24,7 @@ from latextify.audit.equations import (
     write_equation_audit,
 )
 from latextify.cli import app
-from latextify.compile.tectonic import TectonicNotAvailableError, ensure_tectonic
+from latextify.compile.tectonic import find_tectonic
 from latextify.model.equations import EquationAuditResult, EquationRecord
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -400,11 +400,12 @@ def test_cli_equations_default_output_dir_is_equation_audit(tmp_path, monkeypatc
 
 
 def _tectonic_available() -> bool:
-    try:
-        ensure_tectonic()
-        return True
-    except TectonicNotAvailableError:
-        return False
+    # Detection only -- must NOT download at collection time: anonymous
+    # GitHub API calls from CI runners hit rate limits, and unit jobs
+    # deselect tectonic tests anyway. ensure_tectonic() still runs (and
+    # downloads if needed) inside the marked tests themselves; CI's
+    # integration job pre-fetches the binary before pytest.
+    return find_tectonic() is not None
 
 
 requires_tectonic = pytest.mark.tectonic

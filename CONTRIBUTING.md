@@ -18,6 +18,14 @@ Fast subset (no TeX engine, no network):
 uv run pytest -m "not tectonic and not network"
 ```
 
+The `tectonic`-marked tests skip unless the Tectonic binary is already on
+PATH or in the cache — the skip guards deliberately never download at
+collection time. Fetch it once and they activate:
+
+```
+uv run python -c "from latextify.compile.tectonic import ensure_tectonic; print(ensure_tectonic())"
+```
+
 ## Ground rules
 
 - **Tests first-class:** every bug fix carries a minimal reproducing test;

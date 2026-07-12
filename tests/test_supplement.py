@@ -12,6 +12,7 @@ from pathlib import Path
 
 import pytest
 
+from latextify.compile.tectonic import find_tectonic
 from latextify.emit.project import emit_project
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -371,13 +372,12 @@ def test_report_supplement_section_has_counts_and_no_warnings(tmp_path):
 
 
 def _tectonic_available() -> bool:
-    from latextify.compile.tectonic import TectonicNotAvailableError, ensure_tectonic
-
-    try:
-        ensure_tectonic()
-        return True
-    except TectonicNotAvailableError:
-        return False
+    # Detection only -- must NOT download at collection time: anonymous
+    # GitHub API calls from CI runners hit rate limits, and unit jobs
+    # deselect tectonic tests anyway. ensure_tectonic() still runs (and
+    # downloads if needed) inside the marked tests themselves; CI's
+    # integration job pre-fetches the binary before pytest.
+    return find_tectonic() is not None
 
 
 @pytest.mark.tectonic

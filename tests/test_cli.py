@@ -14,6 +14,7 @@ import pytest
 from typer.testing import CliRunner
 
 from latextify.cli import app
+from latextify.compile.tectonic import find_tectonic
 
 FIXTURES = Path(__file__).parent / "fixtures"
 FIGURES_DOCX = FIXTURES / "figures.docx"
@@ -388,13 +389,12 @@ def test_image_in_table_cell_resolves_without_unresolved_placeholder(tmp_path):
 
 
 def _tectonic_available() -> bool:
-    from latextify.compile.tectonic import TectonicNotAvailableError, ensure_tectonic
-
-    try:
-        ensure_tectonic()
-        return True
-    except TectonicNotAvailableError:
-        return False
+    # Detection only -- must NOT download at collection time: anonymous
+    # GitHub API calls from CI runners hit rate limits, and unit jobs
+    # deselect tectonic tests anyway. ensure_tectonic() still runs (and
+    # downloads if needed) inside the marked tests themselves; CI's
+    # integration job pre-fetches the binary before pytest.
+    return find_tectonic() is not None
 
 
 @pytest.mark.tectonic

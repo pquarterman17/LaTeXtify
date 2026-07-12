@@ -61,5 +61,12 @@ jobs:
           key: tectonic-${{ runner.os }}-v1
       - name: Install
         run: uv sync --locked
+      - name: Pre-fetch Tectonic binary
+        # Test skip-guards detect the binary at collection time without
+        # downloading (anonymous GitHub API calls rate-limit on runners), so
+        # the integration job fetches it explicitly, authenticated.
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: uv run python -c "from latextify.compile.tectonic import ensure_tectonic; print(ensure_tectonic())"
       - name: Full test suite (real docx -> PDF compiles)
         run: uv run pytest -q -m "not network"

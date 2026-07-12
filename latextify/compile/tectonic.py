@@ -15,6 +15,7 @@ directory before compiling, since Tectonic only sees files under its cwd
 from __future__ import annotations
 
 import io
+import os
 import platform
 import shutil
 import stat
@@ -104,8 +105,19 @@ def download_tectonic(*, client: httpx.Client | None = None, force: bool = False
     owns_client = client is None
     http_client = client or httpx.Client(follow_redirects=True, timeout=120.0)
     try:
-        resp = http_client.get(GITHUB_LATEST_RELEASE_API, headers={"User-Agent": _USER_AGENT})
-        resp.raise_for_status()
+        headers = {"User-Agent": _USER_AGENT}
+        # Anonymous GitHub API calls are aggressively rate-limited from shared
+        # IPs (CI runners). Use a token when the environment provides one.
+        token = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN")
+        if token:
+            headers["Authorization"] = f"Bearer {token}"
+        try:
+            resp = http_client.get(GITHUB_LATEST_RELEASE_API, headers=headers)
+            resp.raise_for_status()
+        except httpx.HTTPError as exc:
+            raise TectonicNotAvailableError(
+                f"Could not query the Tectonic release API: {exc}"
+            ) from exc
         release = resp.json()
 
         triple = _target_triple()

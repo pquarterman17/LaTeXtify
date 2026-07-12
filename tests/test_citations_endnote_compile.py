@@ -20,7 +20,7 @@ from pathlib import Path
 
 import pytest
 
-from latextify.compile.tectonic import TectonicNotAvailableError, ensure_tectonic
+from latextify.compile.tectonic import ensure_tectonic, find_tectonic
 from latextify.emit.project import emit_project
 
 FIXTURE_DIR = Path(__file__).parent / "fixtures"
@@ -54,11 +54,12 @@ def _ensure_fixture() -> None:
 
 
 def _tectonic_available() -> bool:
-    try:
-        ensure_tectonic()
-        return True
-    except TectonicNotAvailableError:
-        return False
+    # Detection only -- must NOT download at collection time: anonymous
+    # GitHub API calls from CI runners hit rate limits, and unit jobs
+    # deselect tectonic tests anyway. ensure_tectonic() still runs (and
+    # downloads if needed) inside the marked tests themselves; CI's
+    # integration job pre-fetches the binary before pytest.
+    return find_tectonic() is not None
 
 
 pytestmark = [
