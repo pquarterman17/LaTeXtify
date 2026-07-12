@@ -9,7 +9,7 @@ and self-contained executor context so a cheaper model can run it standalone.
 
 **Status:** Active
 **Created:** 2026-07-11
-**Updated:** 2026-07-11
+**Updated:** 2026-07-12
 
 ---
 
@@ -123,29 +123,6 @@ instance — tests must cover members beyond the motivating example.
 
 ---
 
-## Tier 1 — High Impact
-
-4. **Offline CI verification**
-   **Model:** Sonnet 5 · **Touches:** `.github/workflows/ci.yml` (new job)
-   **Context:** One job proving the whole story end to end on ubuntu:
-   build kit (current platform) → fresh venv → bootstrap with proxies
-   poisoned (`HTTPS_PROXY=http://127.0.0.1:9` etc.) → fixture convert
-   `--pdf` → assert PDF exists. Cache the kit build's downloads where
-   sensible. This is the regression gate that keeps offline support from
-   silently rotting.
-   **Done when:** job green in CI and fails if someone adds a runtime
-   network call to the convert path.
-
-## Tier 2 — Medium Impact
-
-7. **Release kits from CI**
-   **Model:** Sonnet 5 · **Context:** on version tag, CI builds kits for
-   all three targets (bundle warming runs once on ubuntu and is shared —
-   or per-platform if item 2's portability verification said otherwise)
-   and attaches them as release artifacts alongside a source zip, so
-   "download from the releases page" needs no online build machine at all.
-   **Done when:** a tagged release carries three kit artifacts + checksums.
-
 ## Tier 3 — Nice-to-Have
 
 8. **Usage example scripts** (added 2026-07-12, user request)
@@ -171,6 +148,22 @@ instance — tests must cover members beyond the motivating example.
 
 ## Completed
 
+- ~~**Item 4 — Offline CI verification**~~ (2026-07-12) — new `offline-kit` job in
+  `.github/workflows/ci.yml`: builds a current-platform kit (network ON), then
+  installs it and compiles a fixture `.docx` to PDF with HTTP(S)/ALL proxies
+  poisoned (`127.0.0.1:9`). Asserts `main.pdf` exists — so a stray runtime network
+  call on the convert→compile path fails the job. Fixture is generated in-CI with
+  the dev-group `python-docx` (no committed binary); kept to one Python (3.13) and
+  one journal (revtex4-2) for speed. Reuses the integration job's Tectonic cache +
+  authenticated pre-fetch pattern.
+- ~~**Item 7 — Release kits from CI**~~ (2026-07-12) — new
+  `.github/workflows/release.yml`: on a `v*` tag, builds all three kits and
+  attaches them + a `git archive` source zip + `SHA256SUMS.txt` to a GitHub
+  release via the preinstalled `gh` CLI (no third-party action). Warms the TeX
+  cache ONCE on the native Linux build and copies it into the cross-built
+  Windows/macOS kits (the item-2 portability finding makes this sound: the cache
+  is host-independent TeX sources; the target regenerates its format offline),
+  patching each cross kit's `bundle-info.json` so the manifest stays honest.
 - ~~**Item 2 — offline kit builder `latextify make-kit`**~~ (2026-07-12) — new
   `latextify/kit/` package + CLI command builds
   `latextify-offline-<os>-<arch>/` with wheelhouse (latextify wheel + all deps
