@@ -19,6 +19,7 @@ Endpoints
     POST /api/convert-multi   main + supplement + figures + .bib + options
     GET  /api/pdf/{token}     stream a compiled PDF (server-issued token only)
     GET  /api/zip/{token}     stream a project .zip (server-issued token only)
+    POST /api/pick-folder     open a native folder dialog on the server host
 
 Security
 --------
@@ -39,6 +40,8 @@ and every upload is written under a fresh per-session subdirectory of
 from __future__ import annotations
 
 import shutil
+import subprocess
+import sys
 import tempfile
 import uuid
 from pathlib import Path
@@ -103,6 +106,16 @@ class ConvertMultiResponse(BaseModel):
     combined_pdf_url: str | None = None
     audit_pdf_url: str | None = None
     zip_url: str | None = None
+    #: Folder the selected artifacts were copied to (when an export was requested).
+    exported_to: str | None = None
+    #: Names of the artifacts copied to ``exported_to``.
+    exported: list[str] = []
+
+
+class PickFolderResponse(BaseModel):
+    """Body of ``POST /api/pick-folder``. ``path`` is "" when cancelled/unavailable."""
+
+    path: str
 
 
 def _safe_filename(name: str | None) -> str:
@@ -126,6 +139,83 @@ def _issue_token(tokens: dict[str, Path], path: Path) -> str:
     token = uuid.uuid4().hex
     tokens[token] = path
     return token
+
+
+# Artifact types the Export panel can copy to a chosen folder. Keys are the
+# values the frontend sends; each maps to a produced path (or the project tree).
+_EXPORTABLE = ("project", "main_pdf", "combined_pdf", "audit_pdf", "zip")
+
+_PICK_FOLDER_SCRIPT = (
+    "import tkinter, tkinter.filedialog as fd, sys\n"
+    "r = tkinter.Tk(); r.withdraw()\n"
+    "try: r.attributes('-topmost', True)\n"
+    "except Exception: pass\n"
+    "p = fd.askdirectory(title='Choose an export folder') or ''\n"
+    "r.destroy()\n"
+    "sys.stdout.write(p)\n"
+)
+
+
+def _pick_folder_native(timeout: float = 300.0) -> str:
+    """Open a native folder picker on the server host; return the chosen path or "".
+
+    Runs tkinter's ``askdirectory`` in a SEPARATE process: a GUI dialog cannot
+    run on uvicorn's worker thread on every platform (macOS requires the main
+    thread), and a subprocess also contains a crash/hang. Returns "" when the
+    user cancels or no GUI/tkinter is available (a headless server), so the
+    caller falls back to manual path entry -- never raises.
+    """
+    try:
+        proc = subprocess.run(
+            [sys.executable, "-c", _PICK_FOLDER_SCRIPT],
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+        )
+    except (subprocess.SubprocessError, OSError):
+        return ""
+    return proc.stdout.strip() if proc.returncode == 0 else ""
+
+
+def _export_artifacts(
+    export_dir: str, types: set[str], *, output_dir: Path, produced: dict[str, Path]
+) -> tuple[str, list[str], list[str]]:
+    """Copy the selected artifact ``types`` into ``export_dir`` (created if needed).
+
+    Returns ``(destination, exported, warnings)``. A requested type that was not
+    produced (e.g. ``combined_pdf`` without combine) is reported as a warning
+    rather than failing the whole export. ``project`` copies the whole output
+    tree; ``zip`` copies the produced archive or builds one on demand.
+    """
+    dest = Path(export_dir).expanduser()
+    dest.mkdir(parents=True, exist_ok=True)
+    exported: list[str] = []
+    warnings: list[str] = []
+    for kind in _EXPORTABLE:
+        if kind not in types:
+            continue
+        if kind == "project":
+            target = dest / output_dir.name
+            if target.exists():
+                shutil.rmtree(target)
+            shutil.copytree(output_dir, target)
+            exported.append(f"project ({output_dir.name}/)")
+        elif kind == "zip":
+            zip_dest = dest / "latextify-project.zip"
+            if "zip" in produced:
+                shutil.copy2(produced["zip"], zip_dest)
+            else:
+                shutil.make_archive(str(zip_dest.with_suffix("")), "zip", root_dir=output_dir)
+            exported.append("latextify-project.zip")
+        elif kind in produced:
+            shutil.copy2(produced[kind], dest / produced[kind].name)
+            exported.append(produced[kind].name)
+        else:
+            warnings.append(
+                f"export: '{kind}' was requested but not produced -- enable the "
+                "matching option (Compile PDF / Combine supplement / Equation-audit)."
+            )
+    return str(dest), exported, warnings
 
 
 async def _stream_upload(
@@ -302,6 +392,8 @@ def create_app(*, workdir: Path | None = None) -> FastAPI:
         equation_audit: bool = Form(False),
         want_zip: bool = Form(False),
         pdf: bool = Form(True),
+        export_dir: str | None = Form(None),
+        export_types: list[str] = Form([]),
     ) -> ConvertMultiResponse:
         """Convert a main manuscript plus optional supplement/figures/.bib in one call.
 
@@ -383,6 +475,8 @@ def create_app(*, workdir: Path | None = None) -> FastAPI:
         audit_pdf_url: str | None = None
         zip_url: str | None = None
         success = True
+        # Real paths of every produced artifact, for the optional folder export.
+        produced: dict[str, Path] = {"project": result.output_dir}
 
         pdf_tokens = app.state.pdf_tokens
         if pdf:
@@ -395,6 +489,7 @@ def create_app(*, workdir: Path | None = None) -> FastAPI:
                 success = main_compile.success
                 if main_compile.success and main_compile.pdf_path is not None:
                     pdf_url = f"/api/pdf/{_issue_token(pdf_tokens, main_compile.pdf_path)}"
+                    produced["main_pdf"] = main_compile.pdf_path
 
                 supplement_compile = None
                 if result.supplement is not None:
@@ -417,6 +512,7 @@ def create_app(*, workdir: Path | None = None) -> FastAPI:
                     combined = result.output_dir / "combined.pdf"
                     staple_pdfs([main_compile.pdf_path, supplement_compile.pdf_path], combined)
                     combined_pdf_url = f"/api/pdf/{_issue_token(pdf_tokens, combined)}"
+                    produced["combined_pdf"] = combined
 
                 if result.report_path is not None:
                     write_report(
@@ -446,6 +542,7 @@ def create_app(*, workdir: Path | None = None) -> FastAPI:
                 )
                 if audit.audit_pdf_path is not None and audit.audit_pdf_path.is_file():
                     audit_pdf_url = f"/api/pdf/{_issue_token(pdf_tokens, audit.audit_pdf_path)}"
+                    produced["audit_pdf"] = audit.audit_pdf_path
             except Exception as exc:
                 raise HTTPException(
                     status_code=500, detail=f"equation audit failed: {exc}"
@@ -455,7 +552,27 @@ def create_app(*, workdir: Path | None = None) -> FastAPI:
             archive = shutil.make_archive(
                 str(session_dir / "project"), "zip", root_dir=result.output_dir
             )
+            produced["zip"] = Path(archive)
             zip_url = f"/api/zip/{_issue_token(app.state.zip_tokens, Path(archive))}"
+
+        # Optional export: copy the selected artifact types to a chosen folder on
+        # the user's machine (this is a localhost tool; the folder came from the
+        # native picker or manual entry). Never fatal to a successful conversion.
+        exported_to: str | None = None
+        exported: list[str] = []
+        if export_dir and export_dir.strip():
+            try:
+                exported_to, exported, export_warnings = _export_artifacts(
+                    export_dir.strip(),
+                    set(export_types),
+                    output_dir=result.output_dir,
+                    produced=produced,
+                )
+                warnings.extend(export_warnings)
+            except OSError as exc:
+                raise HTTPException(
+                    status_code=400, detail=f"could not export to {export_dir!r}: {exc}"
+                ) from exc
 
         report_md = ""
         if result.report_path is not None and result.report_path.is_file():
@@ -471,6 +588,8 @@ def create_app(*, workdir: Path | None = None) -> FastAPI:
             combined_pdf_url=combined_pdf_url,
             audit_pdf_url=audit_pdf_url,
             zip_url=zip_url,
+            exported_to=exported_to,
+            exported=exported,
         )
 
     @app.get("/api/pdf/{token}", include_in_schema=False)
@@ -488,5 +607,12 @@ def create_app(*, workdir: Path | None = None) -> FastAPI:
         return FileResponse(
             zip_path, media_type="application/zip", filename="latextify-project.zip"
         )
+
+    @app.post("/api/pick-folder", response_model=PickFolderResponse)
+    def pick_folder() -> PickFolderResponse:
+        # Opens a native folder dialog on the machine hosting the server (the
+        # user's own machine -- this is a localhost tool). Returns "" when
+        # cancelled or unavailable; the UI then falls back to manual entry.
+        return PickFolderResponse(path=_pick_folder_native())
 
     return app

@@ -192,6 +192,27 @@
     <div id="error-box" class="error-box hidden"></div>
   </section>
 
+  <section class="panel">
+    <h2>Export to a folder (optional)</h2>
+    <p class="hint">Leave empty to just preview + download below. Pick a folder and choose which files to copy there.</p>
+    <div class="controls">
+      <div class="field">
+        <label for="export-dir">Destination folder</label>
+        <input id="export-dir" type="text" placeholder="e.g. C:\Users\you\Documents\my-paper" />
+      </div>
+      <div class="field" style="align-self: end;">
+        <button id="browse-btn" type="button" class="secondary">Browse…</button>
+      </div>
+    </div>
+    <div class="options-grid">
+      <label class="checkbox-row"><input id="exp-project" type="checkbox" checked /> LaTeX project folder</label>
+      <label class="checkbox-row"><input id="exp-main_pdf" type="checkbox" /> Main PDF</label>
+      <label class="checkbox-row"><input id="exp-combined_pdf" type="checkbox" /> Combined PDF</label>
+      <label class="checkbox-row"><input id="exp-audit_pdf" type="checkbox" /> Equation-audit PDF</label>
+      <label class="checkbox-row"><input id="exp-zip" type="checkbox" /> Project .zip</label>
+    </div>
+  </section>
+
   <section id="warnings-panel" class="panel hidden">
     <h2>Warnings</h2>
     <ul id="warnings-list" class="warnings-list"></ul>
@@ -239,6 +260,13 @@
   const optSi1col = el("opt-si1col");
   const optZip = el("opt-zip");
   const optAudit = el("opt-audit");
+  const exportDir = el("export-dir");
+  const browseBtn = el("browse-btn");
+  // Export checkbox id suffix -> the export_types value the server expects.
+  const EXPORT_TYPES = {
+    "exp-project": "project", "exp-main_pdf": "main_pdf",
+    "exp-combined_pdf": "combined_pdf", "exp-audit_pdf": "audit_pdf", "exp-zip": "zip",
+  };
   const convertBtn = el("convert-btn");
   const statusEl = el("status");
   const errorBox = el("error-box");
@@ -403,6 +431,25 @@
   }
   journalSelect.addEventListener("change", () => { populateCitationModes(); updateButton(); });
 
+  // -- export folder browse --
+  async function browseFolder() {
+    browseBtn.disabled = true;
+    const previous = browseBtn.textContent;
+    browseBtn.textContent = "Opening…";
+    try {
+      const resp = await fetch("/api/pick-folder", { method: "POST" });
+      const body = await resp.json();
+      if (resp.ok && body.path) exportDir.value = body.path;
+    } catch (err) {
+      // A headless host has no dialog; the text field is the fallback.
+      showError("Folder picker unavailable — type a path instead: " + err.message);
+    } finally {
+      browseBtn.disabled = false;
+      browseBtn.textContent = previous;
+    }
+  }
+  browseBtn.addEventListener("click", browseFolder);
+
   // -- result rendering --
   function resetResultPanels() {
     warningsPanel.classList.add("hidden"); warningsList.innerHTML = "";
@@ -472,6 +519,14 @@
     fd.append("supplement_onecolumn", optSi1col.checked ? "true" : "false");
     fd.append("want_zip", optZip.checked ? "true" : "false");
     fd.append("equation_audit", optAudit.checked ? "true" : "false");
+
+    const dest = exportDir.value.trim();
+    if (dest) {
+      fd.append("export_dir", dest);
+      Object.entries(EXPORT_TYPES).forEach(([id, value]) => {
+        if (el(id).checked) fd.append("export_types", value);
+      });
+    }
     return fd;
   }
 
@@ -504,7 +559,12 @@
       const body = await resp.json();
       if (!resp.ok) throw new Error(body.detail || "conversion failed (" + resp.status + ")");
 
-      setStatus((body.success ? "Done. " : "Finished with errors. ") + "Output: " + body.output_dir);
+      let statusMsg = (body.success ? "Done. " : "Finished with errors. ") + "Output: " + body.output_dir;
+      if (body.exported_to) {
+        const what = body.exported && body.exported.length ? body.exported.join(", ") : "nothing";
+        statusMsg += " · Exported " + what + " to " + body.exported_to;
+      }
+      setStatus(statusMsg);
 
       if (body.warnings && body.warnings.length) {
         body.warnings.forEach((message) => {

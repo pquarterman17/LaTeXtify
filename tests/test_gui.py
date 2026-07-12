@@ -62,8 +62,20 @@ def test_index_wires_the_multifile_ui(tmp_path):
     assert "multiple" in html  # multi-file input
     assert 'id="filelist"' in html  # per-file role table
     assert 'id="crossref-email"' in html
-    for toggle in ("opt-pdf", "opt-combine", "opt-zip", "opt-audit"):
+    for toggle in ("opt-pdf", "opt-combine", "opt-zip", "opt-audit", "opt-si1col"):
         assert f'id="{toggle}"' in html, toggle
+
+
+def test_index_wires_the_export_panel(tmp_path):
+    """The Export panel offers a Browse button (drives /api/pick-folder), a
+    destination field, and one checkbox per exportable artifact type."""
+    html = _client(tmp_path).get("/").text
+
+    assert "/api/pick-folder" in html
+    assert 'id="browse-btn"' in html
+    assert 'id="export-dir"' in html
+    for box in ("exp-project", "exp-main_pdf", "exp-combined_pdf", "exp-audit_pdf", "exp-zip"):
+        assert f'id="{box}"' in html, box
 
 
 # --------------------------------------------------------------------------- #
@@ -291,6 +303,105 @@ def test_convert_multi_want_zip_streams_a_project_zip(tmp_path):
 def test_zip_endpoint_unknown_token_is_404(tmp_path):
     client = _client(tmp_path)
     assert client.get("/api/zip/does-not-exist").status_code == 404
+
+
+# --------------------------------------------------------------------------- #
+# POST /api/convert-multi -- export selected artifacts to a chosen folder
+# --------------------------------------------------------------------------- #
+
+
+def test_convert_multi_exports_selected_artifacts_to_a_folder(tmp_path):
+    client = _client(tmp_path)
+    export_dir = tmp_path / "chosen-folder"
+    with FIGURES_DOCX.open("rb") as fh:
+        response = client.post(
+            "/api/convert-multi",
+            files={"main": ("figures.docx", fh, "application/octet-stream")},
+            data={
+                "journal": "revtex4-2",
+                "pdf": "false",
+                "export_dir": str(export_dir),
+                # httpx sends a list value as repeated form fields.
+                "export_types": ["project", "zip"],
+            },
+        )
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["exported_to"] == str(export_dir)
+    # The project tree was copied under the chosen folder, and a zip was written.
+    project_copy = export_dir / Path(body["output_dir"]).name
+    assert (project_copy / "main.tex").is_file()
+    assert (export_dir / "latextify-project.zip").is_file()
+    assert any("project" in name for name in body["exported"])
+    assert "latextify-project.zip" in body["exported"]
+
+
+def test_convert_multi_export_warns_on_unproduced_artifact(tmp_path):
+    """Requesting an artifact that was not produced (combined PDF without a
+    combine step) is a warning, not a fatal error -- the export still runs."""
+    client = _client(tmp_path)
+    export_dir = tmp_path / "partial-export"
+    with FIGURES_DOCX.open("rb") as fh:
+        response = client.post(
+            "/api/convert-multi",
+            files={"main": ("figures.docx", fh, "application/octet-stream")},
+            data={
+                "journal": "revtex4-2",
+                "pdf": "false",
+                "export_dir": str(export_dir),
+                "export_types": ["project", "combined_pdf"],
+            },
+        )
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["exported_to"] == str(export_dir)
+    # project still copied...
+    assert (export_dir / Path(body["output_dir"]).name / "main.tex").is_file()
+    # ...but the unproduced combined_pdf surfaced as a warning.
+    assert any("combined_pdf" in w for w in body["warnings"])
+
+
+def test_convert_multi_without_export_dir_does_not_export(tmp_path):
+    client = _client(tmp_path)
+    with FIGURES_DOCX.open("rb") as fh:
+        response = client.post(
+            "/api/convert-multi",
+            files={"main": ("figures.docx", fh, "application/octet-stream")},
+            data={"journal": "revtex4-2", "pdf": "false"},
+        )
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["exported_to"] is None
+    assert body["exported"] == []
+
+
+# --------------------------------------------------------------------------- #
+# POST /api/pick-folder -- native dialog on the server host
+# --------------------------------------------------------------------------- #
+
+
+def test_pick_folder_returns_the_chosen_path(tmp_path, monkeypatch):
+    monkeypatch.setattr(
+        "latextify.gui.server._pick_folder_native", lambda *a, **k: "/home/user/papers"
+    )
+    client = _client(tmp_path)
+    response = client.post("/api/pick-folder")
+
+    assert response.status_code == 200
+    assert response.json()["path"] == "/home/user/papers"
+
+
+def test_pick_folder_returns_empty_when_cancelled_or_headless(tmp_path, monkeypatch):
+    # Simulate a cancel / headless host: the picker returns "".
+    monkeypatch.setattr("latextify.gui.server._pick_folder_native", lambda *a, **k: "")
+    client = _client(tmp_path)
+    response = client.post("/api/pick-folder")
+
+    assert response.status_code == 200
+    assert response.json()["path"] == ""
 
 
 def test_convert_multi_invalid_journal_is_400(tmp_path):
