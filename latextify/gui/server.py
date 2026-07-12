@@ -20,6 +20,7 @@ Endpoints
     GET  /api/pdf/{token}     stream a compiled PDF (server-issued token only)
     GET  /api/zip/{token}     stream a project .zip (server-issued token only)
     POST /api/pick-folder     open a native folder dialog on the server host
+    POST /api/export          copy a previewed conversion's artifacts to a folder
 
 Security
 --------
@@ -106,16 +107,42 @@ class ConvertMultiResponse(BaseModel):
     combined_pdf_url: str | None = None
     audit_pdf_url: str | None = None
     zip_url: str | None = None
-    #: Folder the selected artifacts were copied to (when an export was requested).
+    #: Folder the selected artifacts were copied to (when an inline export was requested).
     exported_to: str | None = None
     #: Names of the artifacts copied to ``exported_to``.
     exported: list[str] = []
+    #: Opaque handle to this conversion's produced artifacts, for a later
+    #: ``POST /api/export`` (the preview-then-export flow). None only if the
+    #: session store is somehow unavailable.
+    export_token: str | None = None
 
 
 class PickFolderResponse(BaseModel):
     """Body of ``POST /api/pick-folder``. ``path`` is "" when cancelled/unavailable."""
 
     path: str
+
+
+class ExportRequest(BaseModel):
+    """Body of ``POST /api/export`` -- copy a prior conversion's artifacts out.
+
+    ``export_token`` is the handle returned by ``/api/convert-multi``; it maps,
+    server side only, to that run's produced artifacts. This lets the UI preview
+    a conversion first and export the *same* result afterwards without
+    recompiling.
+    """
+
+    export_token: str
+    export_dir: str
+    export_types: list[str] = []
+
+
+class ExportResponse(BaseModel):
+    """Body of ``POST /api/export``."""
+
+    exported_to: str
+    exported: list[str]
+    warnings: list[str] = []
 
 
 def _safe_filename(name: str | None) -> str:
@@ -270,6 +297,11 @@ def create_app(*, workdir: Path | None = None) -> FastAPI:
     # GET /api/zip/{token}). Populated only by a convert-multi run with
     # want_zip=True.
     app.state.zip_tokens: dict[str, Path] = {}
+    # Opaque token -> {"output_dir": Path, "produced": dict[str, Path]} for a
+    # completed convert-multi run, so POST /api/export can copy that exact
+    # result's artifacts out later (the preview-then-export flow) without
+    # recompiling. Same lifetime/growth characteristics as the token dicts above.
+    app.state.export_sessions: dict[str, dict[str, object]] = {}
 
     @app.get("/", include_in_schema=False)
     def index() -> FileResponse:
@@ -574,6 +606,15 @@ def create_app(*, workdir: Path | None = None) -> FastAPI:
                     status_code=400, detail=f"could not export to {export_dir!r}: {exc}"
                 ) from exc
 
+        # Register this run's artifacts so the UI can export them later without
+        # recompiling (preview-then-export). The inline export above stays for
+        # one-shot/programmatic callers.
+        export_token = uuid.uuid4().hex
+        app.state.export_sessions[export_token] = {
+            "output_dir": result.output_dir,
+            "produced": produced,
+        }
+
         report_md = ""
         if result.report_path is not None and result.report_path.is_file():
             report_md = result.report_path.read_text(encoding="utf-8")
@@ -590,6 +631,7 @@ def create_app(*, workdir: Path | None = None) -> FastAPI:
             zip_url=zip_url,
             exported_to=exported_to,
             exported=exported,
+            export_token=export_token,
         )
 
     @app.get("/api/pdf/{token}", include_in_schema=False)
@@ -614,5 +656,33 @@ def create_app(*, workdir: Path | None = None) -> FastAPI:
         # user's own machine -- this is a localhost tool). Returns "" when
         # cancelled or unavailable; the UI then falls back to manual entry.
         return PickFolderResponse(path=_pick_folder_native())
+
+    @app.post("/api/export", response_model=ExportResponse)
+    def export(req: ExportRequest) -> ExportResponse:
+        # Copy a previously-previewed conversion's artifacts to a chosen folder.
+        # The token maps to that run's produced paths; an unknown/expired token
+        # (e.g. server restarted, or inputs changed so the UI dropped it) is a
+        # 404 telling the user to convert again -- never a path lookup from the
+        # request.
+        session = app.state.export_sessions.get(req.export_token)
+        if session is None:
+            raise HTTPException(
+                status_code=404,
+                detail="unknown or expired export token -- preview the conversion again",
+            )
+        if not req.export_dir.strip():
+            raise HTTPException(status_code=400, detail="no destination folder given")
+        try:
+            dest, exported, warnings = _export_artifacts(
+                req.export_dir.strip(),
+                set(req.export_types),
+                output_dir=session["output_dir"],  # type: ignore[arg-type]
+                produced=session["produced"],  # type: ignore[arg-type]
+            )
+        except OSError as exc:
+            raise HTTPException(
+                status_code=400, detail=f"could not export to {req.export_dir!r}: {exc}"
+            ) from exc
+        return ExportResponse(exported_to=dest, exported=exported, warnings=warnings)
 
     return app

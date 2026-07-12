@@ -135,10 +135,11 @@ Drop your whole submission in at once — **main `.docx`, supplement `.docx`,
 figure files, and a `.bib` reference library together** — then set each
 file's role, pick a journal from the full publisher list, choose options
 (compile PDF, combine supplement, one-column SI, equation audit, project
-`.zip`), and convert. Preview the compiled PDFs inline. An optional **Export**
-panel lets you pick a destination folder (a native "Browse…" dialog) and copy
-any subset of the outputs — the LaTeX project, individual PDFs, or the `.zip` —
-straight to where you want them.
+`.zip`), and click **Preview**. The compiled PDFs render inline so you can
+confirm the conversion worked — **nothing is written to your disk yet**. Once
+it looks good, the **Export** panel lets you pick a destination folder (a
+native "Browse…" dialog) and copy any subset of the outputs — the LaTeX
+project, individual PDFs, or the `.zip` — to where you want them.
 
 Output layout per conversion:
 

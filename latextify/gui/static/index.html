@@ -185,7 +185,7 @@
     </div>
 
     <div class="actions">
-      <button id="convert-btn" type="button" disabled>Convert</button>
+      <button id="convert-btn" type="button" disabled>Preview</button>
     </div>
 
     <div id="status" class="status"></div>
@@ -193,8 +193,9 @@
   </section>
 
   <section class="panel">
-    <h2>Export to a folder (optional)</h2>
-    <p class="hint">Leave empty to just preview + download below. Pick a folder and choose which files to copy there.</p>
+    <h2>Export to a folder</h2>
+    <p class="hint">Preview first (above) to check the conversion compiled. Once it looks good, pick a
+      folder and copy the files you want — nothing is written to disk until you click Export.</p>
     <div class="controls">
       <div class="field">
         <label for="export-dir">Destination folder</label>
@@ -211,6 +212,10 @@
       <label class="checkbox-row"><input id="exp-audit_pdf" type="checkbox" /> Equation-audit PDF</label>
       <label class="checkbox-row"><input id="exp-zip" type="checkbox" /> Project .zip</label>
     </div>
+    <div class="actions">
+      <button id="export-btn" type="button" disabled title="Preview a conversion first">Export</button>
+    </div>
+    <div id="export-status" class="status"></div>
   </section>
 
   <section id="warnings-panel" class="panel hidden">
@@ -262,6 +267,8 @@
   const optAudit = el("opt-audit");
   const exportDir = el("export-dir");
   const browseBtn = el("browse-btn");
+  const exportBtn = el("export-btn");
+  const exportStatus = el("export-status");
   // Export checkbox id suffix -> the export_types value the server expects.
   const EXPORT_TYPES = {
     "exp-project": "project", "exp-main_pdf": "main_pdf",
@@ -283,6 +290,10 @@
   // Each entry: {file, role, number}. `number` only meaningful for figures.
   let entries = [];
   let journals = [];
+  // Token for the most recent successful preview; the Export step copies THAT
+  // result's artifacts. Cleared whenever inputs change so a stale preview can
+  // never be exported (you must re-preview first).
+  let lastExportToken = null;
 
   const ext = (name) => (name.split(".").pop() || "").toLowerCase();
   const setStatus = (t) => { statusEl.textContent = t || ""; };
@@ -316,6 +327,7 @@
     });
     renderFiles();
     updateButton();
+    invalidatePreview();
   }
 
   function renderFiles() {
@@ -343,6 +355,7 @@
         if (entry.role === "figure" && entry.number == null) entry.number = nextFigureNumber();
         renderFiles();
         updateButton();
+        invalidatePreview();
       });
       roleTd.appendChild(roleSel);
       tr.appendChild(roleTd);
@@ -357,6 +370,7 @@
       numInput.addEventListener("change", () => {
         const v = parseInt(numInput.value, 10);
         entry.number = Number.isFinite(v) && v > 0 ? v : null;
+        invalidatePreview();
       });
       numTd.appendChild(numInput);
       tr.appendChild(numTd);
@@ -371,6 +385,7 @@
         entries.splice(index, 1);
         renderFiles();
         updateButton();
+        invalidatePreview();
       });
       rmTd.appendChild(rm);
       tr.appendChild(rmTd);
@@ -383,6 +398,22 @@
   function updateButton() {
     const hasMain = entries.filter((x) => x.role === "main").length === 1;
     convertBtn.disabled = !(hasMain && journalSelect.value);
+  }
+
+  // Export is only allowed after a successful preview, with a folder chosen and
+  // at least one artifact ticked.
+  function updateExportButton() {
+    const dest = exportDir.value.trim();
+    const anyType = Object.keys(EXPORT_TYPES).some((id) => el(id).checked);
+    exportBtn.disabled = !(lastExportToken && dest && anyType);
+    exportBtn.title = lastExportToken ? "" : "Preview a conversion first";
+  }
+
+  // Any change to the inputs makes the last preview stale, so its artifacts must
+  // not be exported until the user previews again.
+  function invalidatePreview() {
+    lastExportToken = null;
+    updateExportButton();
   }
 
   // -- dropzone + input wiring --
@@ -429,7 +460,14 @@
       showError("Could not load journal list: " + err.message);
     }
   }
-  journalSelect.addEventListener("change", () => { populateCitationModes(); updateButton(); });
+  journalSelect.addEventListener("change", () => {
+    populateCitationModes(); updateButton(); invalidatePreview();
+  });
+  // Changing any option makes an earlier preview stale.
+  [citationSelect, optPdf, optCombine, optSi1col, optZip, optAudit].forEach(
+    (ctrl) => ctrl.addEventListener("change", invalidatePreview)
+  );
+  crossrefEmail.addEventListener("input", invalidatePreview);
 
   // -- export folder browse --
   async function browseFolder() {
@@ -446,9 +484,58 @@
     } finally {
       browseBtn.disabled = false;
       browseBtn.textContent = previous;
+      updateExportButton();
     }
   }
   browseBtn.addEventListener("click", browseFolder);
+
+  // The Export button only lights up with a fresh preview + a folder + a ticked box.
+  exportDir.addEventListener("input", updateExportButton);
+  Object.keys(EXPORT_TYPES).forEach((id) => el(id).addEventListener("change", updateExportButton));
+
+  // -- export the previewed result to a folder --
+  async function runExport() {
+    if (!lastExportToken) {
+      showError("Preview a conversion first, then export.");
+      return;
+    }
+    const dest = exportDir.value.trim();
+    const types = Object.entries(EXPORT_TYPES)
+      .filter(([id]) => el(id).checked)
+      .map(([, value]) => value);
+    if (!dest || !types.length) {
+      showError("Pick a destination folder and at least one file type to export.");
+      return;
+    }
+    clearError();
+    exportBtn.disabled = true;
+    exportStatus.textContent = "Exporting…";
+    try {
+      const resp = await fetch("/api/export", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ export_token: lastExportToken, export_dir: dest, export_types: types }),
+      });
+      const body = await resp.json();
+      if (!resp.ok) throw new Error(body.detail || "export failed (" + resp.status + ")");
+      const what = body.exported && body.exported.length ? body.exported.join(", ") : "nothing";
+      exportStatus.textContent = "Exported " + what + " to " + body.exported_to;
+      if (body.warnings && body.warnings.length) {
+        body.warnings.forEach((message) => {
+          const li = document.createElement("li");
+          li.textContent = message;
+          warningsList.appendChild(li);
+        });
+        warningsPanel.classList.remove("hidden");
+      }
+    } catch (err) {
+      exportStatus.textContent = "";
+      showError(err.message);
+    } finally {
+      updateExportButton();
+    }
+  }
+  exportBtn.addEventListener("click", runExport);
 
   // -- result rendering --
   function resetResultPanels() {
@@ -519,14 +606,8 @@
     fd.append("supplement_onecolumn", optSi1col.checked ? "true" : "false");
     fd.append("want_zip", optZip.checked ? "true" : "false");
     fd.append("equation_audit", optAudit.checked ? "true" : "false");
-
-    const dest = exportDir.value.trim();
-    if (dest) {
-      fd.append("export_dir", dest);
-      Object.entries(EXPORT_TYPES).forEach(([id, value]) => {
-        if (el(id).checked) fd.append("export_types", value);
-      });
-    }
+    // Preview never exports — the Export button copies the previewed result via
+    // its export_token (see /api/export).
     return fd;
   }
 
@@ -553,18 +634,19 @@
     }
 
     convertBtn.disabled = true;
+    invalidatePreview();
     setStatus(optPdf.checked ? "Converting and compiling…" : "Converting…");
     try {
       const resp = await fetch("/api/convert-multi", { method: "POST", body: buildFormData() });
       const body = await resp.json();
       if (!resp.ok) throw new Error(body.detail || "conversion failed (" + resp.status + ")");
 
-      let statusMsg = (body.success ? "Done. " : "Finished with errors. ") + "Output: " + body.output_dir;
-      if (body.exported_to) {
-        const what = body.exported && body.exported.length ? body.exported.join(", ") : "nothing";
-        statusMsg += " · Exported " + what + " to " + body.exported_to;
-      }
+      lastExportToken = body.export_token || null;
+      let statusMsg = (body.success ? "Preview ready. " : "Finished with errors — check the report below. ")
+        + "Compiled from: " + body.output_dir;
+      if (body.success) statusMsg += " · Choose a folder below and click Export to save.";
       setStatus(statusMsg);
+      updateExportButton();
 
       if (body.warnings && body.warnings.length) {
         body.warnings.forEach((message) => {

@@ -68,12 +68,15 @@ def test_index_wires_the_multifile_ui(tmp_path):
 
 def test_index_wires_the_export_panel(tmp_path):
     """The Export panel offers a Browse button (drives /api/pick-folder), a
-    destination field, and one checkbox per exportable artifact type."""
+    destination field, one checkbox per exportable artifact type, and a
+    dedicated Export button that posts to /api/export (preview-then-export)."""
     html = _client(tmp_path).get("/").text
 
     assert "/api/pick-folder" in html
+    assert "/api/export" in html
     assert 'id="browse-btn"' in html
     assert 'id="export-dir"' in html
+    assert 'id="export-btn"' in html
     for box in ("exp-project", "exp-main_pdf", "exp-combined_pdf", "exp-audit_pdf", "exp-zip"):
         assert f'id="{box}"' in html, box
 
@@ -376,6 +379,85 @@ def test_convert_multi_without_export_dir_does_not_export(tmp_path):
     body = response.json()
     assert body["exported_to"] is None
     assert body["exported"] == []
+
+
+# --------------------------------------------------------------------------- #
+# POST /api/export -- preview-then-export (copy a prior run's artifacts)
+# --------------------------------------------------------------------------- #
+
+
+def test_convert_multi_returns_an_export_token(tmp_path):
+    """Every convert-multi run hands back a token for a later /api/export."""
+    client = _client(tmp_path)
+    with FIGURES_DOCX.open("rb") as fh:
+        response = client.post(
+            "/api/convert-multi",
+            files={"main": ("figures.docx", fh, "application/octet-stream")},
+            data={"journal": "revtex4-2", "pdf": "false"},
+        )
+    assert response.status_code == 200, response.text
+    assert response.json()["export_token"]
+
+
+def test_export_endpoint_copies_previewed_artifacts(tmp_path):
+    """The two-step flow: preview (no export), then export that result via token."""
+    client = _client(tmp_path)
+    with FIGURES_DOCX.open("rb") as fh:
+        preview = client.post(
+            "/api/convert-multi",
+            files={"main": ("figures.docx", fh, "application/octet-stream")},
+            data={"journal": "revtex4-2", "pdf": "false"},
+        )
+    assert preview.status_code == 200, preview.text
+    body = preview.json()
+    # Preview alone never writes to a destination folder.
+    assert body["exported_to"] is None
+    token = body["export_token"]
+
+    export_dir = tmp_path / "later-folder"
+    export = client.post(
+        "/api/export",
+        json={
+            "export_token": token,
+            "export_dir": str(export_dir),
+            "export_types": ["project", "zip"],
+        },
+    )
+    assert export.status_code == 200, export.text
+    exported = export.json()
+    assert exported["exported_to"] == str(export_dir)
+    assert (export_dir / Path(body["output_dir"]).name / "main.tex").is_file()
+    assert (export_dir / "latextify-project.zip").is_file()
+
+
+def test_export_endpoint_unknown_token_is_404(tmp_path):
+    client = _client(tmp_path)
+    response = client.post(
+        "/api/export",
+        json={
+            "export_token": "does-not-exist",
+            "export_dir": str(tmp_path),
+            "export_types": ["project"],
+        },
+    )
+    assert response.status_code == 404
+    assert "token" in response.json()["detail"]
+
+
+def test_export_endpoint_blank_folder_is_400(tmp_path):
+    client = _client(tmp_path)
+    with FIGURES_DOCX.open("rb") as fh:
+        token = client.post(
+            "/api/convert-multi",
+            files={"main": ("figures.docx", fh, "application/octet-stream")},
+            data={"journal": "revtex4-2", "pdf": "false"},
+        ).json()["export_token"]
+
+    response = client.post(
+        "/api/export",
+        json={"export_token": token, "export_dir": "   ", "export_types": ["project"]},
+    )
+    assert response.status_code == 400
 
 
 # --------------------------------------------------------------------------- #
