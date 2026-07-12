@@ -28,6 +28,7 @@ dependencies = [
     "platformdirs>=4.0",      # cross-platform cache dir for the Tectonic binary
     "svglib>=1.5",            # SVG->PDF fallback converter (pure-Python, always works)
     "reportlab>=4.0",         # svglib's PDF rendering backend
+    "pillow>=10.0",           # TIFF->PNG figure conversion (Word embeds TIFF constantly)
 ]
 
 [project.optional-dependencies]
