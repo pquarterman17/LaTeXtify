@@ -398,6 +398,34 @@ def emit_project(
 # --------------------------------------------------------------------------- #
 
 
+#: A figure whose pixel width-to-height ratio meets this threshold is emitted
+#: as the journal's wide float (usually ``figure*``) so it spans both columns
+#: of a two-column layout instead of being squeezed unreadably into one. 1.3
+#: sits between portrait/near-square single-panel plots (kept single-column)
+#: and the landscape multi-panel composites that dominate real papers.
+#: Deliberately a general ratio, not tuned to any single manuscript (see the
+#: generalize-fixes rule).
+_WIDE_ASPECT_THRESHOLD = 1.3
+
+
+def _is_wide_figure(path: Path) -> bool:
+    """True when the raster image at ``path`` is landscape past the threshold.
+
+    Measures the copied output file's pixel aspect ratio with Pillow. Any
+    failure -- a vector/PDF figure Pillow cannot open, a corrupt file, a zero
+    height -- degrades to ``False`` (single-column), never an exception: figure
+    *sizing* must not be able to fail a conversion that otherwise compiles.
+    """
+    try:
+        from PIL import Image
+
+        with Image.open(path) as image:
+            width, height = image.size
+        return height > 0 and width / height >= _WIDE_ASPECT_THRESHOLD
+    except Exception:  # Pillow's failure modes vary; never crash the emit
+        return False
+
+
 def _copy_figures(
     figures: tuple[Figure, ...], figures_dir: Path, *, prefix: str = ""
 ) -> tuple[dict[int, str], tuple[Figure, ...], tuple[EmitWarning, ...]]:
@@ -442,6 +470,8 @@ def _copy_figures(
         files[figure.number] = f"figures/{outcome.dest_path.name}"
         if outcome.note is not None:
             figure = replace(figure, conversion_note=outcome.note)
+        if not figure.in_table and _is_wide_figure(outcome.dest_path):
+            figure = replace(figure, wide=True)
         if outcome.warning is not None:
             warnings.append(EmitWarning(message=f"figure {figure.number}: {outcome.warning}"))
         updated.append(figure)
@@ -510,7 +540,7 @@ def _figure_block(path: str, caption: str, env: str) -> str:
     return (
         f"\\begin{{{env}}}\n"
         f"\\centering\n"
-        f"\\includegraphics{{{path}}}\n"
+        f"\\includegraphics[width=\\linewidth]{{{path}}}\n"
         f"{caption_line}"
         f"\\end{{{env}}}"
     )
@@ -562,7 +592,8 @@ def _resolve_one_figure(
         )
     if figure.in_table:
         return _in_table_figure(path)
-    return _figure_block(path, figure.caption, figure_env.single)
+    env = figure_env.wide if figure.wide else figure_env.single
+    return _figure_block(path, figure.caption, env)
 
 
 def _resolve_figure_anchors(

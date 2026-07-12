@@ -80,7 +80,7 @@ def test_embedded_tiff_lands_as_png_in_output_tree(tiff_docx, tmp_path):
 def test_embedded_tiff_body_includes_the_converted_png(tiff_docx, tmp_path):
     result = emit_project(tiff_docx, "revtex4-2", tmp_path / "output", report=False)
     body = result.body_tex_path.read_text(encoding="utf-8")
-    assert "\\includegraphics{figures/fig1.png}" in body
+    assert "\\includegraphics[width=\\linewidth]{figures/fig1.png}" in body
     assert ".tif" not in body
 
 

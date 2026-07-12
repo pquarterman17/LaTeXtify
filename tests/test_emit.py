@@ -89,7 +89,7 @@ def test_second_run_preserves_manual_main_tex_edit_and_regenerates_body(tmp_path
 
     regenerated_body = result2.body_tex_path.read_text(encoding="utf-8")
     assert regenerated_body != "CORRUPTED PLACEHOLDER"
-    assert "\\includegraphics{figures/fig1.png}" in regenerated_body
+    assert "\\includegraphics[width=\\linewidth]{figures/fig1.png}" in regenerated_body
 
 
 def test_generated_files_are_always_overwritten_even_if_hand_edited(tmp_path):
@@ -153,7 +153,7 @@ def test_svg_override_lands_as_pdf_in_output_tree(tmp_path):
     assert not (result.figures_dir / "fig1.svg").exists()
 
     body = result.body_tex_path.read_text(encoding="utf-8")
-    assert "\\includegraphics{figures/fig1.pdf}" in body
+    assert "\\includegraphics[width=\\linewidth]{figures/fig1.pdf}" in body
 
     # The Figure IR exposes what conversion occurred (plan item 15).
     fig1 = next(f for f in result.figures if f.number == 1)
@@ -184,7 +184,7 @@ def test_figures_yaml_manifest_beats_folder_override_in_full_emit(tmp_path):
     assert not (result.figures_dir / "fig2.pdf").exists()
 
     body = result.body_tex_path.read_text(encoding="utf-8")
-    assert "\\includegraphics{figures/fig2.png}" in body
+    assert "\\includegraphics[width=\\linewidth]{figures/fig2.png}" in body
 
 
 def test_eps_override_without_ghostscript_warns_and_passes_through(tmp_path, monkeypatch):
@@ -215,7 +215,7 @@ def test_wrapped_figure_anchor_resolves_without_duplicate_caption(tmp_path):
 
     assert body.count("\\begin{figure}") == 3
     assert body.count("\\end{figure}") == 3
-    assert "\\includegraphics{figures/fig1.png}" in body
+    assert "\\includegraphics[width=\\linewidth]{figures/fig1.png}" in body
     assert "\\caption{A red placeholder figure, captioned via Word's Caption style.}" in body
     # The duplicate, label-prefixed pandoc caption must not survive.
     assert "Figure 1:" not in body
@@ -229,9 +229,9 @@ def test_bare_figure_anchor_swallows_adjacent_duplicate_caption_paragraph(tmp_pa
     result = emit_project(docx, "revtex4-2", tmp_path / "output")
     body = result.body_tex_path.read_text(encoding="utf-8")
 
-    assert "\\includegraphics{figures/fig2.png}" in body
+    assert "\\includegraphics[width=\\linewidth]{figures/fig2.png}" in body
     assert "\\caption{A green placeholder figure, captioned via a plain paragraph.}" in body
-    assert "\\includegraphics{figures/fig3.png}" in body
+    assert "\\includegraphics[width=\\linewidth]{figures/fig3.png}" in body
     assert "\\caption{A blue placeholder figure, captioned with the abbreviated label.}" in body
     # The leftover raw caption paragraphs must not survive as separate text.
     assert "Figure 2:" not in body

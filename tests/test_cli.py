@@ -454,9 +454,10 @@ def test_anchor_numbering_stays_aligned_around_a_table_image(
 
     # Two images total (one top-level, one in-table) -> figures 1 and 2, each
     # resolved exactly once: one as a normal figure environment (the
-    # top-level image), one as a bare width-limited \includegraphics (the
-    # in-table image) -- regardless of which side of the table it sits on.
-    float_includes = body_tex.count("\\includegraphics{figures/fig")
+    # top-level image, \linewidth-bounded), one as a bare width-limited
+    # \includegraphics (the in-table image, an absolute cap) -- regardless of
+    # which side of the table it sits on.
+    float_includes = body_tex.count("\\includegraphics[width=\\linewidth]{figures/fig")
     bare_includes = body_tex.count("\\includegraphics[width=3cm]{figures/fig")
     assert float_includes == 1
     assert bare_includes == 1

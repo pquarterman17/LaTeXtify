@@ -128,7 +128,7 @@ def test_supplement_tex_edit_survives_rerun_and_generated_files_regenerate(tmp_p
 
     regenerated_body = result2.supplement.supplement_body_tex_path.read_text(encoding="utf-8")
     assert regenerated_body != "CORRUPTED PLACEHOLDER"
-    assert "\\includegraphics{figures/figS1.png}" in regenerated_body
+    assert "\\includegraphics[width=\\linewidth]{figures/figS1.png}" in regenerated_body
 
     # main.tex is completely unaffected by the supplement's own rerun.
     assert result2.main_tex_written is False
@@ -258,10 +258,10 @@ def test_supplement_figure_anchors_resolve_to_s_numbered_files_not_main(tmp_path
     )
 
     supplement_body = result.supplement.supplement_body_tex_path.read_text(encoding="utf-8")
-    assert "\\includegraphics{figures/figS1.png}" in supplement_body
-    assert "\\includegraphics{figures/figS2.png}" in supplement_body
+    assert "\\includegraphics[width=\\linewidth]{figures/figS1.png}" in supplement_body
+    assert "\\includegraphics[width=\\linewidth]{figures/figS2.png}" in supplement_body
     # No unresolved/duplicated-number confusion with the main doc's fig1/fig2.
-    assert "\\includegraphics{figures/fig1.png}" not in supplement_body
+    assert "figures/fig1.png" not in supplement_body
     assert "%%FIGURE" not in supplement_body
 
     main_body = result.body_tex_path.read_text(encoding="utf-8")

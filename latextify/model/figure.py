@@ -74,6 +74,17 @@ class Figure:
             adjacent-sibling caption search was attempted for this figure
             (see ``latextify.figures.extract``'s module docstring) --
             :attr:`caption` is always empty for an in-table figure.
+        wide: True when the resolved image is landscape enough that it should
+            span both columns of a two-column journal (emitted as the
+            journal's ``figure_env.wide`` -- usually ``figure*`` -- instead of
+            the single-column ``figure``). Set at emit time by
+            ``latextify.emit.project._copy_figures``, which measures the
+            copied file's aspect ratio (multi-panel horizontal figures are
+            wide and render unreadably small squeezed into one column). Left
+            ``False`` when the aspect ratio is portrait/near-square or cannot
+            be measured (e.g. a PDF figure), and always ``False`` for an
+            in-table figure. Harmless on single-column journals, where
+            ``figure*`` and ``figure`` render identically.
     """
 
     number: int
@@ -83,6 +94,7 @@ class Figure:
     source: FigureSource = FigureSource.EMBEDDED
     conversion_note: str | None = None
     in_table: bool = False
+    wide: bool = False
 
     @property
     def resolved_path(self) -> Path:
