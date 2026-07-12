@@ -59,25 +59,9 @@ caught and verified. Compare against the published YIG PDFs in `~/Downloads`.
 
 ---
 
-## Tier 2 — Medium Impact
-
-2. **Strip MathML leaking into `.bib` titles** — Crossref sometimes returns a
-   title containing raw `<mml:math>…</mml:math>` (the `klingler2018spintorque`
-   entry's "YIG/Co" arrived this way); it should be stripped or converted to
-   plain/LaTeX math before landing in `references.bib`.
-   - [ ] Detect + strip/convert MathML in reconciled Crossref titles (tests on
-     a title carrying an `<mml:math>` block)
-
-## Tier 3 — Nice-to-Have
-
-3. **Re-associate a stray "Table N:" caption paragraph** — when the caption is
-   typed as a separate paragraph after the table (not Word's Caption style) it
-   lands as body text instead of the float's `\caption{}`. Figure captions
-   already get this sibling-paragraph search; tables do not yet.
-
-4. **Drop the trailing `\textbf{\hfill\break}` artifact** — an empty
-   bold/line-break paragraph survives at the end of the YIG body (from a blank
-   styled paragraph in the source). Harmless but untidy.
+_No open items — all known real-manuscript gaps are fixed. The next real paper
+is the best way to surface the next class; render the output PDF (screenshot
+loop above) to catch it._
 
 ## Completed
 
@@ -111,6 +95,30 @@ caught and verified. Compare against the published YIG PDFs in `~/Downloads`.
   ≥ 4 columns overflowed a single revtex column; such tables now emit as a
   spanning `table*` hard-bounded to `\textwidth` via `\resizebox` (narrow tables
   unchanged, never upscaled). `latextify/ingest/filters.py`.
+- ~~**Gap 13 — JATS/MathML in `.bib` titles**~~ (2026-07-12) — Crossref titles
+  carrying `<mml:math>…` and JATS inline tags (`<i>`/`<sub>`/`<sup>`) now have
+  markup stripped, entities decoded, and whitespace collapsed at the `_first`
+  cleaning boundary (`klingler2018spintorque` "YIG/Co"). `latextify/citations/crossref.py`.
+- ~~**Gap 14 — stray "Table N:" caption paragraph**~~ (2026-07-12) — a caption
+  typed as a paragraph after the table (not Word's Caption style) is now moved
+  into the table's `\caption{}` with the "Table N:" label stripped (revtex
+  renumbers); mirrors the figure sibling-caption search.
+  `latextify/ingest/filters.py` (`associate_table_captions`).
+- ~~**Gap 15 — trailing blank-paragraph artifact**~~ (2026-07-12) — an empty
+  styled paragraph (bold line break / stray non-breaking space) rendered as
+  `\textbf{\hfill\break}` / a lone `~`; `strip_word_junk` now drops any
+  paragraph holding only whitespace/breaks (guarding image/cite/math/raw/note
+  content). `latextify/ingest/filters.py`.
+
+## Verification note
+
+The full YIG manuscript now converts and compiles clean (revtex4-2): 5 real
+`\section`s, one numbered reference list, all figures bounded (3 spanning
+`figure*`), both tables spanning with proper captions, all in-text markers
+resolved, no MathML in the bibliography, no trailing artifact. The rendered PDF
+was screenshot-verified page by page (see the QA methodology in Context). The
+user's local `~/Downloads/LaTeXtify-YIG-output/` output was regenerated with
+the fixed code on 2026-07-12.
 
 - ~~**Gap 1 — `[N]`/`(N)`-prefixed reference lists**~~ (2026-07-11) — segmentation
   now recognizes bracket/paren numbering prefixes (incl. the no-space `[4]Author`
