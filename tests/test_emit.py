@@ -247,8 +247,8 @@ def test_unresolved_figure_anchor_degrades_to_comment_and_warning(tmp_path, monk
 
     docx = _copy_fixture(tmp_path, FIGURES_DOCX)
 
-    def fake_convert(docx_path, media_dir):
-        real = real_convert(docx_path, media_dir)
+    def fake_convert(docx_path, media_dir, **kwargs):
+        real = real_convert(docx_path, media_dir, **kwargs)
         return BodyConversionResult(
             tex=real.tex + "\n\nSee also %%FIGURE:99%% for a figure that doesn't exist.\n",
             media_dir=real.media_dir,
@@ -286,8 +286,8 @@ def _inject_cite_anchors(monkeypatch, tex: str) -> None:
     import latextify.emit.project as project_mod
     from latextify.ingest.pandoc import convert_docx_to_body as real_convert
 
-    def fake_convert(docx_path, media_dir):
-        real = real_convert(docx_path, media_dir)
+    def fake_convert(docx_path, media_dir, **kwargs):
+        real = real_convert(docx_path, media_dir, **kwargs)
         return BodyConversionResult(
             tex=tex,
             media_dir=real.media_dir,

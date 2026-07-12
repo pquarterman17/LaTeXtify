@@ -34,16 +34,28 @@ import pypandoc
 
 from latextify.ingest.citation_sentinels import plant_citation_sentinels
 from latextify.ingest.filters import apply_all
+from latextify.ingest.frontmatter import strip_front_matter_from_docx
 from latextify.model import BodyConversionResult
 
 
-def convert_docx_to_body(docx_path: Path | str, media_dir: Path | str) -> BodyConversionResult:
+def convert_docx_to_body(
+    docx_path: Path | str,
+    media_dir: Path | str,
+    *,
+    strip_front_matter: bool = False,
+) -> BodyConversionResult:
     """Convert a .docx manuscript body to a LaTeX fragment.
 
     Args:
         docx_path: path to the source .docx manuscript.
         media_dir: directory embedded images are extracted into (created if
             missing).
+        strip_front_matter: when True (the emitter sets this for the main
+            document), remove the manuscript's own title page from the body
+            before conversion so it does not duplicate the journal metadata
+            template's rendering (gap 4). Off by default so a document with no
+            metadata context -- a supplement, or a direct body-fragment call --
+            converts verbatim. See :mod:`latextify.ingest.frontmatter`.
 
     Returns:
         A :class:`~latextify.model.BodyConversionResult` with the emitted
@@ -60,6 +72,12 @@ def convert_docx_to_body(docx_path: Path | str, media_dir: Path | str) -> BodyCo
     try:
         with tempfile.TemporaryDirectory(prefix="latextify-cite-") as cite_tmp:
             prepared_docx = plant_citation_sentinels(docx_path, cite_tmp)
+            if strip_front_matter:
+                # Sentinels rewrite runs inside citation fields but never add or
+                # remove paragraphs, so the title-page paragraph indices are
+                # identical in the sentinel copy -- detecting and stripping on
+                # it removes exactly the recognized front matter.
+                prepared_docx = strip_front_matter_from_docx(prepared_docx, cite_tmp)
             ast_json = pypandoc.convert_file(
                 str(prepared_docx),
                 to="json",

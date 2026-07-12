@@ -263,7 +263,10 @@ def emit_project(
 
     with tempfile.TemporaryDirectory(prefix="latextify-media-") as tmp:
         media_dir = Path(tmp)
-        body_result = convert_docx_to_body(docx_path, media_dir)
+        # strip_front_matter: the manuscript's own title page is re-rendered
+        # by the journal metadata template, so remove it from the body to
+        # avoid it appearing twice in the PDF (gap 4).
+        body_result = convert_docx_to_body(docx_path, media_dir, strip_front_matter=True)
         figures = resolve_overrides(extract_figures(docx_path, media_dir), docx_path)
         figure_files, figures, conversion_warnings = _copy_figures(figures, figures_dir)
 

@@ -136,12 +136,17 @@ def plant_citation_sentinels(docx_path: Path | str, work_dir: Path | str) -> Pat
     work_dir = Path(work_dir)
     work_dir.mkdir(parents=True, exist_ok=True)
     dest = work_dir / f"sentinel-{docx_path.name}"
-    _rewrite_archive(docx_path, dest, {_DOCUMENT_PART: new_xml})
+    rewrite_archive_parts(docx_path, dest, {_DOCUMENT_PART: new_xml})
     return dest
 
 
-def _rewrite_archive(src: Path, dest: Path, replacements: dict[str, bytes]) -> None:
-    """Copy the ``src`` zip to ``dest``, overwriting the named archive parts."""
+def rewrite_archive_parts(src: Path, dest: Path, replacements: dict[str, bytes]) -> None:
+    """Copy the ``src`` zip to ``dest``, overwriting the named archive parts.
+
+    Shared by the docx-preprocessing steps that rewrite only ``word/document.xml``
+    (citation sentinels here, front-matter stripping in
+    :mod:`latextify.ingest.frontmatter`).
+    """
     with (
         zipfile.ZipFile(src) as zin,
         zipfile.ZipFile(dest, "w", zipfile.ZIP_DEFLATED) as zout,

@@ -597,6 +597,100 @@ def guess_meta(docx_path: Path | str, *, max_paragraphs: int = 20) -> MetaGuess:
 
 
 # --------------------------------------------------------------------------
+# front-matter span (for stripping the title page out of the body)
+# --------------------------------------------------------------------------
+
+
+def _abstract_heading_index(paras: list[_Para], start_idx: int) -> int | None:
+    """Index of the first 'Abstract' heading at/after ``start_idx``, or None.
+
+    Mirrors the heading scan inside :func:`_guess_abstract`; kept separate so
+    :func:`front_matter_span` can tell "abstract heading present" apart from
+    "abstract body empty" (both leave ``_guess_abstract``'s returned text "").
+    """
+    for i in range(start_idx, len(paras)):
+        if _ABSTRACT_HEADING_RE.match(paras[i].text.strip()):
+            return i
+    return None
+
+
+def _keywords_line_index(paras: list[_Para], start_idx: int) -> int | None:
+    """Index of the first 'Keywords:' line at/after ``start_idx``, or None.
+
+    Mirrors the scan inside :func:`_guess_keywords`.
+    """
+    for i in range(start_idx, len(paras)):
+        if _KEYWORDS_RE.match(paras[i].text.strip()):
+            return i
+    return None
+
+
+def front_matter_span(
+    docx_path: Path | str, *, max_paragraphs: int = 20
+) -> tuple[int, int] | None:
+    """Paragraph span ``[start, end)`` occupied by the manuscript's title page.
+
+    A journal's metadata template re-renders title / authors / affiliations /
+    corresponding line / abstract / keywords from ``paper.yaml``. Pandoc,
+    meanwhile, converts the manuscript body verbatim -- so without stripping,
+    the manuscript's own title page appears in the body too and the compiled
+    PDF shows all of it TWICE. :func:`latextify.ingest.frontmatter.strip_front_matter_from_docx`
+    removes this span before pandoc runs.
+
+    This runs the SAME detection sequence as :func:`guess_meta` (so the span
+    removed from the body matches exactly what is re-rendered as metadata --
+    no duplication, no content loss) but returns only the consumed paragraph
+    range. Because it re-detects from the docx directly, it works whether or
+    not a ``paper.yaml`` sidecar already exists (``load_or_create_meta`` skips
+    guessing once the sidecar is written, but the stripping decision still
+    needs the docx-side spans).
+
+    Conservative gate -- returns ``None`` (strip nothing) unless there is a
+    STRONG title-page signal: an author line carrying affiliation markers, or
+    an "Abstract" heading. A bare Title-styled heading alone is NOT enough,
+    because the paragraph after it may be ordinary body text rather than an
+    author line (that is exactly what separates a real title page from a
+    stray top-of-document heading, e.g. a figures-only fixture). Indices are
+    0-based into the top-level ``w:p`` children of ``w:body``, matching
+    :func:`_extract_paragraphs` and the stripping mechanism.
+    """
+    root = _read_document_root(Path(docx_path))
+    paras = _extract_paragraphs(root, max_paragraphs)
+
+    _, title_idx, _ = _guess_title(paras)
+    if title_idx < 0:
+        return None
+
+    author_result = _guess_authors(paras, title_idx + 1)
+    _, aff_end_idx, _ = _guess_affiliations(
+        paras, author_result.next_idx, author_result.expected_affiliation_count
+    )
+
+    has_markers = author_result.expected_affiliation_count > 0
+    has_abstract = _abstract_heading_index(paras, aff_end_idx) is not None
+    if not (has_markers or has_abstract):
+        return None
+
+    # End = the furthest paragraph guess_meta itself consumes, so the stripped
+    # span equals the rendered metadata exactly. _guess_abstract returns
+    # aff_end_idx unchanged when there is no heading, so this stays bounded by
+    # the real structure (author markers cap affiliations; an Abstract heading
+    # / Keywords line cap the rest).
+    end = title_idx + 1
+    if author_result.authors:
+        end = max(end, author_result.next_idx, aff_end_idx)
+    _, abstract_end_idx, _ = _guess_abstract(paras, aff_end_idx)
+    end = max(end, abstract_end_idx)
+    kw_idx = _keywords_line_index(paras, abstract_end_idx)
+    if kw_idx is not None:
+        end = max(end, kw_idx + 1)
+
+    if end <= title_idx:
+        return None
+    return (title_idx, end)
+
+
+# --------------------------------------------------------------------------
 # schema validation
 # --------------------------------------------------------------------------
 
