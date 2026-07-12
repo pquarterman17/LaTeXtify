@@ -93,21 +93,28 @@ class ConversionOutcome:
     warning: str | None = None
 
 
-def convert_for_latex(src: Path, dest_dir: Path, number: int) -> ConversionOutcome:
+def convert_for_latex(
+    src: Path, dest_dir: Path, number: int, *, prefix: str = ""
+) -> ConversionOutcome:
     """Prepare figure ``number``'s resolved file ``src`` for inclusion in ``dest_dir``.
 
     Dispatches purely on ``src``'s extension: SVG is always converted to
     PDF, EPS is converted via Ghostscript when available (else passed
     through with a warning), and everything else (PDF/PNG/JPG/JPEG, or any
     other extension the override tiers happened to resolve to) is copied
-    through unchanged as ``fig<number><ext>``.
+    through unchanged as ``fig<prefix><number><ext>``.
+
+    ``prefix`` (plan item 21) defaults to ``""``; a supplementary document's
+    figures pass ``prefix="S"`` so they land as ``figS<number>.<ext>`` in the
+    shared ``figures/`` directory, never colliding with the main document's
+    ``fig<number>.<ext>``.
     """
     ext = src.suffix.lower()
     if ext in SVG_EXTENSIONS:
-        return _convert_svg(src, dest_dir, number)
+        return _convert_svg(src, dest_dir, number, prefix=prefix)
     if ext in EPS_EXTENSIONS:
-        return _convert_eps(src, dest_dir, number)
-    dest = dest_dir / f"fig{number}{ext}"
+        return _convert_eps(src, dest_dir, number, prefix=prefix)
+    dest = dest_dir / f"fig{prefix}{number}{ext}"
     shutil.copy2(src, dest)
     return ConversionOutcome(dest_path=dest)
 
@@ -135,8 +142,8 @@ def _svglib_convert(src: Path, dest: Path) -> None:
     renderPDF.drawToFile(drawing, str(dest))
 
 
-def _convert_svg(src: Path, dest_dir: Path, number: int) -> ConversionOutcome:
-    dest = dest_dir / f"fig{number}.pdf"
+def _convert_svg(src: Path, dest_dir: Path, number: int, *, prefix: str = "") -> ConversionOutcome:
+    dest = dest_dir / f"fig{prefix}{number}.pdf"
 
     # NOTE: an `except ... as name:` binding is implicitly deleted at the end
     # of its own except block (Python 3 scoping), so the message is copied
@@ -152,7 +159,7 @@ def _convert_svg(src: Path, dest_dir: Path, number: int) -> ConversionOutcome:
     try:
         _svglib_convert(src, dest)
     except Exception as svglib_exc:  # last resort: svglib/reportlab failed too
-        svg_dest = dest_dir / f"fig{number}.svg"
+        svg_dest = dest_dir / f"fig{prefix}{number}.svg"
         shutil.copy2(src, svg_dest)
         return ConversionOutcome(
             dest_path=svg_dest,
@@ -214,10 +221,10 @@ _EPS_UNSUPPORTED_NOTE = (
 )
 
 
-def _convert_eps(src: Path, dest_dir: Path, number: int) -> ConversionOutcome:
+def _convert_eps(src: Path, dest_dir: Path, number: int, *, prefix: str = "") -> ConversionOutcome:
     gs_binary = _find_ghostscript()
     if gs_binary is None:
-        dest = dest_dir / f"fig{number}.eps"
+        dest = dest_dir / f"fig{prefix}{number}.eps"
         shutil.copy2(src, dest)
         return ConversionOutcome(
             dest_path=dest,
@@ -228,11 +235,11 @@ def _convert_eps(src: Path, dest_dir: Path, number: int) -> ConversionOutcome:
             ),
         )
 
-    dest = dest_dir / f"fig{number}.pdf"
+    dest = dest_dir / f"fig{prefix}{number}.pdf"
     try:
         _ghostscript_convert(gs_binary, src, dest)
     except (subprocess.CalledProcessError, OSError) as exc:
-        eps_dest = dest_dir / f"fig{number}.eps"
+        eps_dest = dest_dir / f"fig{prefix}{number}.eps"
         shutil.copy2(src, eps_dest)
         return ConversionOutcome(
             dest_path=eps_dest,

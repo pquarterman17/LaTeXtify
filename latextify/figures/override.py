@@ -104,8 +104,14 @@ def load_manifest(manifest_path: Path | str) -> dict[int, Path]:
     return resolved
 
 
-def find_override(figures_dir: Path | str, number: int) -> Path | None:
-    """Return the highest-priority ``fig<number>.<ext>`` file in ``figures_dir``.
+def find_override(figures_dir: Path | str, number: int, *, prefix: str = "") -> Path | None:
+    """Return the highest-priority ``fig<prefix><number>.<ext>`` file in ``figures_dir``.
+
+    ``prefix`` defaults to ``""`` (the plain ``fig<N>.<ext>`` convention).
+    Supplementary-material figures (plan item 21) pass ``prefix="S"`` to look
+    for ``figS<N>.<ext>`` instead, so a main-document override and an SI
+    override for the same nominal figure number never collide in the same
+    ``figures/`` folder.
 
     Returns ``None`` if ``figures_dir`` doesn't exist or has no matching file
     for ``number`` in any of the recognized extensions.
@@ -114,13 +120,15 @@ def find_override(figures_dir: Path | str, number: int) -> Path | None:
     if not figures_dir.is_dir():
         return None
     for ext in EXTENSION_PRIORITY:
-        candidate = figures_dir / f"fig{number}.{ext}"
+        candidate = figures_dir / f"fig{prefix}{number}.{ext}"
         if candidate.is_file():
             return candidate
     return None
 
 
-def resolve_overrides(figures: tuple[Figure, ...], docx_path: Path | str) -> tuple[Figure, ...]:
+def resolve_overrides(
+    figures: tuple[Figure, ...], docx_path: Path | str, *, prefix: str = ""
+) -> tuple[Figure, ...]:
     """Resolve manifest + folder-convention overrides for each figure, beside ``docx_path``.
 
     Looks for ``figures.yaml`` and a ``figures/`` directory next to
@@ -135,11 +143,21 @@ def resolve_overrides(figures: tuple[Figure, ...], docx_path: Path | str) -> tup
     immediately (see :func:`load_manifest`) rather than silently falling
     through to the folder convention -- a broken manifest should never
     resolve as if it were absent.
+
+    ``prefix`` (plan item 21): pass ``"S"`` when resolving a supplementary
+    document's figures, so the folder convention looks for
+    ``figures/figS<N>.<ext>`` instead of ``figures/fig<N>.<ext>``. The
+    ``figures.yaml`` manifest tier is keyed by plain figure number only and
+    is skipped entirely for a prefixed figure set -- a main-document
+    manifest entry must never silently resolve an SI figure it was never
+    meant for.
     """
     docx_path = Path(docx_path)
     figures_dir = docx_path.parent / "figures"
     manifest_path = docx_path.parent / MANIFEST_FILENAME
-    manifest_map = load_manifest(manifest_path) if manifest_path.is_file() else {}
+    manifest_map = (
+        load_manifest(manifest_path) if not prefix and manifest_path.is_file() else {}
+    )
 
     resolved: list[Figure] = []
     for figure in figures:
@@ -149,7 +167,7 @@ def resolve_overrides(figures: tuple[Figure, ...], docx_path: Path | str) -> tup
                 replace(figure, override_path=manifest_override, source=FigureSource.MANIFEST)
             )
             continue
-        override_path = find_override(figures_dir, figure.number)
+        override_path = find_override(figures_dir, figure.number, prefix=prefix)
         if override_path is not None:
             resolved.append(
                 replace(figure, override_path=override_path, source=FigureSource.OVERRIDE)

@@ -6,6 +6,10 @@ ordered, content sorted within each section, and empty sections display "none"
 rather than disappearing so diffs are meaningful across runs. All free text
 (messages, captions, diagnostics) is flattened to a single line before
 insertion so a stray newline can't inject broken markdown structure.
+
+The Supplement section (plan item 21) always renders -- "_None_ (use
+--supplement ...)" when no SI was emitted this run, so the section's
+presence/absence never depends on which arguments happened to be passed.
 """
 
 from __future__ import annotations
@@ -14,7 +18,7 @@ from datetime import datetime
 from pathlib import Path
 
 from latextify.model.compile import CompileResult
-from latextify.model.emit import EmitResult
+from latextify.model.emit import EmitResult, SupplementResult
 from latextify.model.preflight import PreflightReport
 from latextify.model.reconcile import ReconciliationReport
 
@@ -36,6 +40,7 @@ def render_report(
     emit_result: EmitResult | None = None,
     reconciliation: ReconciliationReport | None = None,
     compile_result: CompileResult | None = None,
+    supplement: SupplementResult | None = None,
 ) -> str:
     """Render all aggregated findings into a markdown report string.
 
@@ -45,6 +50,8 @@ def render_report(
         reconciliation: plain-text citation reconstruction records (only present
             when the document had no citation field codes).
         compile_result: Tectonic compilation outcome (errors, warnings, success).
+        supplement: supplementary-material emission outcome (plan item 21),
+            only present when ``latextify convert`` was given ``--supplement``.
 
     Returns:
         Markdown string (deterministically ordered, stable across runs).
@@ -173,6 +180,33 @@ def render_report(
     else:
         lines.append("_None_\n")
 
+    # Supplementary material (plan item 21): files written, S-figure/citation
+    # counts, and any SI-specific warnings (preflight/anchor/conversion),
+    # each already prefixed "supplement: " at the source so they read clearly
+    # even scanned in isolation from the rest of the report.
+    lines.append("\n## Supplement\n")
+    if supplement is not None:
+        status = (
+            "written"
+            if supplement.supplement_tex_written
+            else "already existed (left untouched)"
+        )
+        lines.append(f"`supplement.tex` {status}.\n")
+        lines.append(f"S-figures: {supplement.figure_count}.\n")
+        lines.append(
+            f"SI citations: {supplement.citation_count} "
+            f"({supplement.new_reference_count} new reference(s) added to "
+            "references.bib; the rest were deduplicated against the main "
+            "document's bibliography).\n"
+        )
+        if supplement.warnings:
+            for message in sorted(_flatten(w.message) for w in supplement.warnings):
+                lines.append(f"- {message}\n")
+        else:
+            lines.append("No supplement-specific warnings.\n")
+    else:
+        lines.append("_None_ (use `--supplement` to add supplementary material).\n")
+
     return "".join(lines)
 
 
@@ -183,12 +217,14 @@ def write_report(
     emit_result: EmitResult | None = None,
     reconciliation: ReconciliationReport | None = None,
     compile_result: CompileResult | None = None,
+    supplement: SupplementResult | None = None,
 ) -> Path:
     """Render and write the report to a file.
 
     Args:
         output_path: destination for report.md (must be a file path, not a directory).
-        preflight, emit_result, reconciliation, compile_result: see :func:`render_report`.
+        preflight, emit_result, reconciliation, compile_result, supplement:
+            see :func:`render_report`.
 
     Returns:
         The path to the written report file.
@@ -198,6 +234,7 @@ def write_report(
         emit_result=emit_result,
         reconciliation=reconciliation,
         compile_result=compile_result,
+        supplement=supplement,
     )
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(report_text, encoding="utf-8")
