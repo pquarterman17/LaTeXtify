@@ -252,6 +252,31 @@ def test_raw_refentry_parses_surname_and_year():
     assert entry.title.startswith("Foster")
 
 
+def test_raw_refentry_surname_skips_leading_initials():
+    # An initials-first name ("L. J. Cornelissen") must yield the real surname,
+    # not the initial -- the surname seeds the cite-key, and a degenerate
+    # first-initial key (every "B." author -> "b20xx") makes apsrev4-2 render a
+    # stray "()" disambiguation marker on colliding keys.
+    assert raw_refentry("L. J. Cornelissen, J. Liu, Nature Physics (2015).").authors[0].family == (
+        "Cornelissen"
+    )
+    assert raw_refentry("B. L. Giles, Z. Yang, Phys. Rev. B (2015).").authors[0].family == "Giles"
+    # The name particle "v." in "A. v. Chumak" is skipped like an initial.
+    assert raw_refentry("A. v. Chumak, Magnon Spintronics (2015).").authors[0].family == "Chumak"
+
+
+def test_raw_refentry_keys_do_not_collide_on_initials():
+    # Two different first authors who share a first initial must NOT collapse to
+    # the same key stem (the root of the "()" bibliography artifact).
+    a = raw_refentry("B. L. Giles, A paper, Phys. Rev. B 92, 1 (2015).")
+    b = raw_refentry("D. Gilbert, Another paper, Phys. Rev. B 96, 2 (2016).")
+    from latextify.citations.bib import make_base_key
+
+    assert make_base_key(a) != make_base_key(b)
+    assert make_base_key(a).startswith("giles")
+    assert make_base_key(b).startswith("gilbert")
+
+
 def _mock_client(mapping: dict[str, dict]):
     """A client whose response depends on a keyword found in the query."""
 

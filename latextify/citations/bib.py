@@ -261,8 +261,63 @@ _CONTAINER_FIELD = {
 }
 
 
+# A trailing publication year on a raw reference, in any of the common shapes:
+# " (2015).", " (2015)", ", 2016.", " 2016". Lifted into a real ``year`` field so
+# apsrev4-2 renders it exactly once (see :func:`_raw_to_bibtex`).
+_RAW_TRAILING_YEAR_RE = re.compile(r"[\s,]*\(?\s*((?:18|19|20)\d{2})[a-z]?\s*\)?\.?\s*$")
+
+
+def _raw_to_bibtex(entry: RefEntry) -> str:
+    """Render a raw (Crossref-unmatched) entry as a verbatim reference.
+
+    A raw entry's ``title`` is the *entire* typed reference -- it already
+    contains the author list, title, journal, volume, page, AND year. Emitting
+    those as separate BibTeX fields makes the bibliography style re-format them:
+    apsrev4-2 sentence-cases a ``title`` field (so "L. J. Cornelissen" renders
+    "L. j. cornelissen" and "Nature Physics" renders "nature physics"). So the
+    text goes out as a single ``title``, wrapped in an extra ``{...}`` group --
+    BibTeX's universal "already cased, do not re-format" signal -- with the
+    author list left embedded in it, never as a separate field.
+
+    The one field that IS lifted out is the trailing year. apsrev4-2 builds an
+    author-less entry's label from the cite-key's leading characters plus the
+    year and, when two entries collide (keys ``giles*``/``gilbert*`` both -> the
+    stem ``gil``; ``yu2017``/``yu2018`` both -> ``yu2``), disambiguates them by
+    rendering "(<year><letter>)" after the entry. With NO year field that marker
+    renders as an empty "()"; supplying the year both fills that slot (so it
+    reads as an ordinary "(2015)") and, because the years usually differ,
+    removes the collision outright. The year is stripped from the visible text
+    so apsrev re-appends it exactly once. Verified against apsrev4-2 under
+    Tectonic, including a same-surname/same-year pair. When the text carries no
+    recognizable trailing year, it is emitted title-only (unchanged).
+    """
+    text = (entry.title or "").strip()
+    if not text:
+        # Degenerate (empty) raw reference: emit a valid, field-less record
+        # rather than a malformed one. In practice segmentation never yields
+        # an empty reference, but never emit broken BibTeX.
+        return f"@{entry.entry_type}{{{entry.key},\n}}\n"
+
+    year: str | None = None
+    match = _RAW_TRAILING_YEAR_RE.search(text)
+    if match:
+        year = match.group(1)
+        text = text[: match.start()].rstrip()
+
+    # Inner braces protect casing; the outer pair is the field delimiter added
+    # by the surrounding format string -> the .bib carries ``title = {{...}}``.
+    title_value = "{" + escape_latex(text) + "}"
+    lines = [f"  title = {{{title_value}}}"]
+    if year:
+        lines.append(f"  year = {{{year}}}")
+    body = ",\n".join(lines)
+    return f"@{entry.entry_type}{{{entry.key},\n{body}\n}}\n"
+
+
 def to_bibtex(entry: RefEntry) -> str:
     """Render a single ``RefEntry`` to a BibTeX record."""
+    if entry.source == "raw":
+        return _raw_to_bibtex(entry)
     fields: list[tuple[str, str]] = []
     if entry.authors:
         fields.append(("author", _format_authors(entry.authors)))

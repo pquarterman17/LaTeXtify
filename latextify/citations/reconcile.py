@@ -37,7 +37,13 @@ _W_YEAR = 0.2
 _W_AUTHOR = 0.2
 
 _YEAR_RE = re.compile(r"(?:18|19|20)\d{2}")
-_LEADING_SURNAME_RE = re.compile(r"^\s*(?:\[\d+\]\s*)?([A-Z][A-Za-zÀ-ɏ'`-]+)")
+_LEADING_NUMBER_RE = re.compile(r"^\s*\[\d+\]\s*")
+# A single-letter initial, optionally dotted: "L", "L.", the name particle "v."
+# in "A. v. Chumak". These are skipped when hunting for the first real surname.
+_INITIAL_RE = re.compile(r"^[A-Za-zÀ-ɏ]\.?$")
+# A real (2+ char) name word, anchored so a token starting with a digit ("40th")
+# is rejected rather than yielding a garbage surname.
+_NAME_WORD_RE = re.compile(r"^[A-Za-zÀ-ɏ][A-Za-zÀ-ɏ'`-]+")
 
 
 @dataclass(frozen=True)
@@ -97,8 +103,27 @@ def best_candidate(
 
 
 def _guess_surname(text: str) -> str | None:
-    match = _LEADING_SURNAME_RE.match(text)
-    return match.group(1) if match else None
+    """Best-effort first-author surname from a raw reference string.
+
+    Skips leading single-letter initials so an initials-first name yields the
+    real surname ("L. J. Cornelissen" -> "Cornelissen", not the initial "L").
+    Also handles the surname-first form ("Foster, G." -> "Foster") since the
+    first token there is already a real word. Getting this right matters beyond
+    provenance: the surname seeds the BibTeX cite-key, and apsrev4-2 derives an
+    author-less entry's disambiguation label from the key's first characters --
+    so when every "B." author collapsed to key ``b20xx`` the labels collided and
+    the bibliography rendered a stray "()" disambiguation marker. Real surnames
+    give distinct keys and clean output. Only the leading names are scanned.
+    """
+    text = _LEADING_NUMBER_RE.sub("", text)
+    for token in text.split()[:6]:
+        core = token.strip(",;:")
+        if not core or _INITIAL_RE.match(core):
+            continue
+        match = _NAME_WORD_RE.match(core)
+        if match:
+            return match.group(0)
+    return None
 
 
 def _guess_year(text: str) -> str | None:

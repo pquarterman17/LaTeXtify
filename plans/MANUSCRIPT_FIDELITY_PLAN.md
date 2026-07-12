@@ -65,6 +65,20 @@ loop above) to catch it._
 
 ## Completed
 
+- ~~**Gap 19 — raw (Crossref-unmatched) references mis-rendered**~~ (2026-07-12) —
+  a raw entry's whole verbatim reference was emitted as a BibTeX `title` plus a
+  separate `year`, so apsrev4-2 sentence-cased the author names ("L. J.
+  Cornelissen" → "L. j. cornelissen", "Nature Physics" → "nature physics") and
+  printed the year twice ("(2015). (2015)."). Now emitted as a single
+  double-brace-protected `title` (BibTeX "already-cased" signal) with only the
+  trailing year lifted into a `year` field. The year field also cures a stray
+  "()" disambiguation marker: apsrev builds an author-less entry's label from
+  the cite-key stem + year, and colliding stems rendered an empty "()"— the
+  year fills that slot and usually breaks the collision. `_guess_surname` now
+  skips leading initials so raw cite-keys are surname-based (every "B." author
+  no longer collapses to `b20xx`). `latextify/citations/bib.py` +
+  `reconcile.py`. Verified against apsrev4-2 under Tectonic (incl. a
+  same-surname/same-year pair) and on the regenerated YIG PDF: 0 stray markers.
 - ~~**Gap 16 — wide tables upscaled / inconsistent with narrow ones**~~ (2026-07-12) —
   the spanning `table*` was hard-scaled with `\resizebox{\textwidth}{!}`, which
   *upscales* any table narrower than the page (bigger fonts/rules), so Table II

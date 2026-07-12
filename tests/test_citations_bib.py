@@ -211,3 +211,71 @@ def test_entries_to_bib_joins_records():
     bib = entries_to_bib([a, b])
     assert "@article{a," in bib
     assert "@article{b," in bib
+
+
+# --- raw (Crossref-unmatched) verbatim entries -------------------------------
+
+
+def _raw_entry(text: str, **kw) -> RefEntry:
+    base = dict(key="l2015", entry_type="misc", source="raw", title=text)
+    base.update(kw)
+    return RefEntry(**base)
+
+
+def test_raw_entry_double_braces_title_and_lifts_trailing_year():
+    # The verbatim reference already contains the authors and journal, so those
+    # stay embedded in a double-braced title (apsrev4-2 would otherwise lowercase
+    # them). The TRAILING year alone is lifted into a `year` field so the style
+    # renders it once and builds a collision-free entry label from it.
+    text = "L. J. Cornelissen, J. Liu, Nature Physics 11, 1022 (2015)."
+    e = _raw_entry(text, authors=(Name(family="Cornelissen"),), year="2015")
+    out = to_bibtex(e)
+
+    assert out.startswith("@misc{l2015,")
+    # Double-braced title = BibTeX "already cased, don't reformat".
+    assert "title = {{" in out
+    # The title keeps the verbatim body but NOT the trailing year (which moves
+    # to its own field so apsrev does not print it twice).
+    assert "L. J. Cornelissen, J. Liu, Nature Physics 11, 1022" in out
+    assert "(2015)" not in out.split("year =")[0]  # year gone from the title
+    assert "year = {2015}" in out
+    # The author list stays in the title; it is never a separate field.
+    assert "author =" not in out
+
+
+def test_raw_entry_without_trailing_year_is_title_only():
+    text = "J. Doe, Some Internal Memo With No Year"
+    e = _raw_entry(text, key="doendmemo")
+    out = to_bibtex(e)
+    assert "title = {{" in out
+    assert text in out
+    assert "year =" not in out  # nothing to lift
+
+
+def test_raw_entry_escapes_specials_and_stays_brace_balanced():
+    e = _raw_entry("Smith & Co., 50% yield, Fe_2 (2019). Odd { brace")
+    out = to_bibtex(e)
+    assert r"\&" in out and r"\%" in out and r"Fe\_2" in out
+    assert _brace_depth_ok(out)  # a lone raw brace must not unbalance the record
+
+
+def test_raw_entry_empty_title_emits_valid_record():
+    e = _raw_entry("   ")  # degenerate: whitespace-only reference text
+    out = to_bibtex(e)
+    assert out.startswith("@misc{l2015,")
+    assert _brace_depth_ok(out)
+
+
+def test_non_raw_entry_still_emits_year_and_author():
+    # Guard: the raw path must not change how a normal (matched) entry renders.
+    e = RefEntry(
+        key="k",
+        entry_type="article",
+        source="crossref",
+        title="Real Title",
+        authors=(Name(family="Doe", given="Jane"),),
+        year="2021",
+    )
+    out = to_bibtex(e)
+    assert "year = {2021}" in out
+    assert "author = {Doe, Jane}" in out
