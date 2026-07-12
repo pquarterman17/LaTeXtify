@@ -57,7 +57,9 @@ from __future__ import annotations
 
 import io
 import re
+import zipfile
 from pathlib import Path
+from xml.etree import ElementTree as ET
 
 import panflute as pf
 import pypandoc
@@ -65,6 +67,10 @@ import pypandoc
 from latextify.model import Figure
 
 _CAPTION_LABEL_RE = re.compile(r"^(?:Figure|Fig\.?)\s*(\d+)\s*[.:]?\s*(.*)$", re.IGNORECASE)
+
+# WordprocessingML namespace; a floating text box's text lives in
+# <w:txbxContent><w:p>...<w:t>text</w:t>... anchored to the body.
+_W = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
 
 
 def extract_figures(docx_path: Path | str, media_dir: Path | str) -> tuple[Figure, ...]:
@@ -92,6 +98,7 @@ def extract_figures(docx_path: Path | str, media_dir: Path | str) -> tuple[Figur
         extra_args=["--extract-media", str(media_dir)],
     )
     doc = pf.load(io.StringIO(ast_json))
+    textbox_captions = _textbox_captions(docx_path)
 
     blocks = list(doc.content)
     # id() -> index, so an image's top-level ancestor block can be looked up
@@ -113,6 +120,11 @@ def extract_figures(docx_path: Path | str, media_dir: Path | str) -> tuple[Figur
             caption = ""
         else:
             caption = _caption_for_top_level_image(elem, blocks, top_level_index)
+            # Fallback for captions authored as floating TEXT BOXES: pandoc
+            # drops text-box content, so the AST search above finds nothing.
+            # Match this figure's number to a "FIG. N: ..." text box.
+            if not caption:
+                caption = textbox_captions.get(number, "")
         figures.append(
             Figure(
                 number=number,
@@ -130,6 +142,38 @@ def extract_figures(docx_path: Path | str, media_dir: Path | str) -> tuple[Figur
     # cell.
     doc.walk(collect)
     return tuple(figures)
+
+
+def _textbox_captions(docx_path: Path) -> dict[int, str]:
+    """Map figure number -> caption text for captions authored as text boxes.
+
+    Word manuscripts commonly float each figure's caption in a text box
+    anchored beside the image rather than as an inline paragraph. Pandoc drops
+    text-box content entirely, so those captions never reach the AST. This
+    reads ``word/document.xml`` directly, pulls the text of every ``w:txbx
+    Content`` box, and keys any box whose text reads as ``FIG. N: ...`` /
+    ``Figure N ...`` by its label number ``N`` (with the label stripped, since
+    LaTeX renumbers). Boxes are typically duplicated (a DrawingML box plus a
+    VML fallback with identical text), so the first wins. A docx that cannot be
+    opened, or has no such text boxes, yields an empty map -- a pure fallback,
+    never an error.
+    """
+    captions: dict[int, str] = {}
+    try:
+        with zipfile.ZipFile(docx_path) as archive:
+            xml = archive.read("word/document.xml")
+        root = ET.fromstring(xml)
+    except (OSError, KeyError, zipfile.BadZipFile, ET.ParseError):
+        return captions
+    for box in root.iter(_W + "txbxContent"):
+        text = "".join(node.text or "" for node in box.iter(_W + "t")).strip()
+        match = _CAPTION_LABEL_RE.match(text)
+        if match:
+            number = int(match.group(1))
+            body = match.group(2).strip()
+            if body and number not in captions:
+                captions[number] = body
+    return captions
 
 
 def _in_table_cell(elem: pf.Element) -> bool:

@@ -464,20 +464,17 @@ def _find_bare_reference_heading(tex: str) -> int | None:
     return None
 
 
-def strip_reference_section(tex: str, result: PlaintextResult) -> str:
-    """Remove the typed reference list from the body (to EOF from its heading).
+def strip_reference_section_to_eof(tex: str) -> str:
+    """Cut from a reference-list heading (to EOF) out of ``tex``.
 
-    The generated project renders the bibliography from ``references.bib`` via
-    ``\\bibliography``; leaving the typed list in the body would duplicate it
-    (and, because each retained entry gets a ``\\cite`` prepended, render it a
-    second time with scrambled numbering). Cuts from the reference-list heading
-    to the end of the body. Prefers a real ``\\section{References}`` (headings
-    are promoted upstream); falls back to a bold/bare "References" line that was
-    never promoted (Title-case, not ALL-CAPS). Unchanged if no reference heading
-    is present in ``tex`` at all.
+    Prefers a real ``\\section{References}`` (headings are promoted upstream);
+    falls back to a bold/bare "References" line that was never promoted
+    (Title-case, not ALL-CAPS). Returns ``tex`` unchanged if no reference-list
+    heading is present. Shared by both citation paths: the plaintext path
+    (below) strips the typed list it reconstructed, and the field-code path
+    (:mod:`latextify.emit.project`) strips the reference manager's own
+    formatted bibliography, which duplicates the generated ``\\bibliography``.
     """
-    if not result.has_reference_list:
-        return tex
     for match in _REF_SECTION_RE.finditer(tex):
         if _is_heading_paragraph(match.group(1).strip()):
             return tex[: match.start()].rstrip() + "\n"
@@ -485,6 +482,20 @@ def strip_reference_section(tex: str, result: PlaintextResult) -> str:
     if offset is not None:
         return tex[:offset].rstrip() + "\n"
     return tex
+
+
+def strip_reference_section(tex: str, result: PlaintextResult) -> str:
+    """Remove the typed reference list from the body (to EOF from its heading).
+
+    The generated project renders the bibliography from ``references.bib`` via
+    ``\\bibliography``; leaving the typed list in the body would duplicate it
+    (and, because each retained entry gets a ``\\cite`` prepended, render it a
+    second time with scrambled numbering). Unchanged if this manuscript had no
+    reconstructed reference list, or if no reference heading is present.
+    """
+    if not result.has_reference_list:
+        return tex
+    return strip_reference_section_to_eof(tex)
 
 
 def _body_start_index(tex: str) -> int:

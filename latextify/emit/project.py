@@ -94,6 +94,7 @@ from latextify.citations.plaintext import (
     link_body_markers,
     reconstruct_citations,
     strip_reference_section,
+    strip_reference_section_to_eof,
 )
 from latextify.emit.metadata import load_meta, write_metadata_tex
 from latextify.figures.convert import convert_for_latex
@@ -292,6 +293,23 @@ def emit_project(
         entries: list[RefEntry] = citation_result.entries
         warnings.extend(_citation_linkage_warning(citation_result.citations, resolved_tex))
         citation_count = len(citation_result.citations)
+        # A reference manager's Word plugin often drops a FORMATTED bibliography
+        # into the document too. The project renders its own \bibliography from
+        # references.bib, so that leftover list is a duplicate -- strip it (to
+        # EOF from its heading), same as the plaintext path strips its typed
+        # list. Unchanged when the document carries no such section.
+        stripped_tex = strip_reference_section_to_eof(resolved_tex)
+        if stripped_tex != resolved_tex:
+            resolved_tex = stripped_tex
+            warnings.append(
+                EmitWarning(
+                    message=(
+                        "removed the reference manager's formatted bibliography from the "
+                        "body -- the reference list is rendered from references.bib via "
+                        "\\bibliography instead (avoids a duplicate list)."
+                    )
+                )
+            )
     else:
         # No field codes anywhere -> plain-text reconstruction safety net (item 14).
         entries, resolved_tex, plaintext_warnings, plaintext_records = _link_plaintext_citations(

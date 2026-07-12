@@ -43,8 +43,11 @@ one observed instance. See the `generalize-fixes` memory.
 - `latextify/ingest/frontmatter.py` — strips the recognized title page.
 - `latextify/emit/project.py` — figure emission (`_figure_block`,
   `_is_wide_figure`), where figure width/`figure*` selection lives.
+- `latextify/figures/extract.py` — image ↔ number ↔ caption association;
+  `_textbox_captions` reads floating text-box captions pandoc drops.
 - `latextify/citations/plaintext.py` — in-text marker linkage and typed
-  reference-list stripping.
+  reference-list stripping (`strip_reference_section_to_eof`, shared with the
+  field-code path).
 
 ### QA methodology: screenshot the render
 
@@ -66,6 +69,24 @@ loop above) to catch it._
 
 ## Completed
 
+- ~~**Gap 21 — duplicate reference list on the FIELD-CODE path**~~ (2026-07-12) —
+  the second real manuscript uses Zotero/EndNote field codes
+  AND left the plugin's formatted bibliography in the body; the emitter renders
+  `\bibliography` from the extracted entries, so the body list was a duplicate.
+  Gap 9 stripped the typed list only on the *plaintext* path; the field-code
+  branch never did. Extracted the cut logic into
+  `plaintext.strip_reference_section_to_eof(tex)` and called it on the
+  field-code branch of `emit/project.py` (with a warning naming what was
+  removed). Screenshot-verified on the second manuscript: one hyperlinked bibliography, not two.
+- ~~**Gap 20 — figure captions authored as TEXT BOXES**~~ (2026-07-12) — the second manuscript's
+  four `FIG. N:` captions float in Word text boxes (`w:txbxContent`), which
+  pandoc drops, so every figure rendered caption-less. Added
+  `figures/extract._textbox_captions(docx)` — reads `word/document.xml`
+  directly, keys each `FIG. N`/`Figure N` text box by its label number (label
+  stripped, first of the DrawingML+VML duplicate pair wins) — used as a fallback
+  when the AST caption search comes up empty. Screenshot-verified: all four
+  captions now render. Pure fallback: a bad/absent docx yields no captions,
+  never an error.
 - ~~**Gap 19 — raw (Crossref-unmatched) references mis-rendered**~~ (2026-07-12) —
   a raw entry's whole verbatim reference was emitted as a BibTeX `title` plus a
   separate `year`, so apsrev4-2 sentence-cased the author names ("L. J.
