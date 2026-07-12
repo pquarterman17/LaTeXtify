@@ -31,6 +31,7 @@ dependencies = [
     "svglib>=1.5",            # SVG->PDF fallback converter (pure-Python, always works)
     "reportlab>=4.0",         # svglib's PDF rendering backend
     "pillow>=10.0",           # TIFF->PNG figure conversion (Word embeds TIFF constantly)
+    "pypdf>=4.0",             # staple main + supplement PDFs (--combine-supplement); BSD, pure-Python
 ]
 
 [project.optional-dependencies]

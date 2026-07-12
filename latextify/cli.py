@@ -4,7 +4,7 @@ Current surface (plan items 5, 16, 18, 19, 20, 21, 23):
 
     latextify convert paper.docx --journal revtex4-2 [--output output] \\
         [--citation-style numeric|authoryear] [--pdf] [--report/--no-report] \\
-        [--supplement si.docx]  # Supplementary Material (item 21)
+        [--supplement si.docx] [--combine-supplement]  # Supplementary Material (item 21)
     latextify batch folder --journal J [--citation-style S] [--pdf] \\
         [--output output] [--recursive]          # batch conversion (item 20)
     latextify journals              # list registered journal templates (item 18)
@@ -82,8 +82,21 @@ def convert(
         "sharing this project's figures/ and references.bib with the main "
         "document.",
     ),
+    combine_supplement: bool = typer.Option(
+        False,
+        "--combine-supplement",
+        help="Staple the main document and the supplement into one combined.pdf "
+        "(requires --supplement and --pdf). The separate main.pdf/supplement.pdf "
+        "are still written.",
+    ),
 ) -> None:
     """Convert DOCX_PATH into a journal-ready LaTeX project under output/<journal>/."""
+    if combine_supplement and supplement is None:
+        typer.echo("error: --combine-supplement requires --supplement", err=True)
+        raise typer.Exit(code=1)
+    if combine_supplement and not pdf:
+        typer.echo("error: --combine-supplement requires --pdf", err=True)
+        raise typer.Exit(code=1)
     try:
         journal_obj = load(journal)
         result = emit_project(
@@ -145,6 +158,22 @@ def convert(
                     typer.echo(f"compiled {supplement_compile_result.pdf_path}")
                 else:
                     typer.echo("supplement compilation failed (see report.md)", err=True)
+
+            # Staple main + supplement into one combined.pdf when asked and both
+            # compiled (validated above to require --supplement and --pdf).
+            if (
+                combine_supplement
+                and compile_result.success
+                and supplement_compile_result is not None
+                and supplement_compile_result.success
+            ):
+                from latextify.compile.pdf import staple_pdfs
+
+                combined = result.output_dir / "combined.pdf"
+                staple_pdfs(
+                    [compile_result.pdf_path, supplement_compile_result.pdf_path], combined
+                )
+                typer.echo(f"combined {combined}")
         except Exception as exc:
             typer.echo(f"error: compilation failed: {exc}", err=True)
             raise typer.Exit(code=1) from exc

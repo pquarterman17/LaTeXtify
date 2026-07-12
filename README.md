@@ -84,6 +84,9 @@ uv run latextify convert paper.docx --journal elsarticle --citation-style author
 # Supplementary material: S-numbered second document sharing the bibliography
 uv run latextify convert paper.docx --journal revtex4-2 --supplement si.docx --pdf
 
+# ...and staple the main text + supplement into one combined.pdf
+uv run latextify convert paper.docx --journal revtex4-2 --supplement si.docx --pdf --combine-supplement
+
 # A folder of manuscripts at once (continue-on-error + summary)
 uv run latextify batch drafts/ --journal revtex4-2 --pdf
 
