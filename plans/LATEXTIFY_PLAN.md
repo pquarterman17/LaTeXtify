@@ -171,15 +171,6 @@ by its context block.
 
 ## Tier 3 — Nice-to-Have
 
-27. **Affiliation marker/paragraph cross-order mismatch** (bug-hunt wave,
-    LOW) — when author superscript markers' first-seen order differs from
-    the physical order of affiliation paragraphs (or marker values don't
-    match paragraphs' own leading markers but counts agree), guess_meta
-    links authors to the wrong affiliation text with no # CHECK flag.
-    Fix requires cross-validating marker VALUES against each affiliation
-    paragraph's leading marker, not just counts — a heuristic-quality
-    improvement in `latextify/ingest/metadata_guess.py`. Repro exists in
-    the bug-hunt report (2026-07-11). **Model:** Sonnet 5.
 
 19. **GUI wrapper** — drag-and-drop, journal picker, PDF preview (FastAPI+Vue or Tauri, reusing thin_film_toolkit patterns). **Model:** Sonnet 5.
 
@@ -193,6 +184,15 @@ by its context block.
 
 ## Completed
 
+- ~~**#27 Affiliation marker/paragraph cross-order mismatch**~~ (2026-07-11)
+  — author→affiliation linking now cross-validates marker VALUES in a
+  three-tier strategy: (1) match against affiliation paragraphs' own
+  leading markers (order-independent; unmatched markers dropped + CHECK,
+  unreferenced labels CHECK-flagged), (2) numeric markers map
+  positionally-by-value when paragraphs are unlabeled, (3) first-seen-order
+  fallback now ALWAYS CHECK-flags non-ascending order. Out-of-range safety
+  net intact; clean fixture byte-identical, zero flags. 5 new tests with
+  yaml round-trips. 543 tests total.
 - ~~**Bug-hunt wave, citations + ingest/CLI areas**~~ (2026-07-11) — 13 bugs
   fixed across two hunters (+ hunter B's 5 recorded under #26). Citations:
   dash-joined ranges `[1]–[3]` silently dropped middle refs (HIGH); Word
