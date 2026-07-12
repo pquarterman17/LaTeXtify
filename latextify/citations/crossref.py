@@ -30,6 +30,7 @@ is marked ``network`` and skips gracefully when offline.
 
 from __future__ import annotations
 
+import html
 import os
 import re
 from dataclasses import dataclass
@@ -122,13 +123,34 @@ class CrossrefCandidate:
         )
 
 
+# Crossref titles carry JATS/MathML markup: "Coupled <mml:math ...><mml:mi>YIG
+# </mml:mi><mml:mo>/</mml:mo><mml:mi>Co</mml:mi></mml:math> Heterostructures",
+# and inline <i>/<sub>/<sup>/<scp> tags. Left raw, that markup lands verbatim in
+# references.bib (an observed "klingler2018spintorque" title). Strip every tag
+# (keeping the text between them, so "<mml:mi>YIG</mml:mi>/<mml:mi>Co</mml:mi>"
+# -> "YIG/Co"), then decode HTML entities and collapse the whitespace the
+# removed multi-line math block leaves behind.
+_MARKUP_TAG_RE = re.compile(r"<[^>]+>")
+_WHITESPACE_RE = re.compile(r"\s+")
+
+
+def _strip_markup(text: str) -> str:
+    text = _MARKUP_TAG_RE.sub("", text)
+    text = html.unescape(text)
+    return _WHITESPACE_RE.sub(" ", text).strip()
+
+
 def _first(value: object) -> str | None:
-    """First element of a Crossref list field (title/container-title), cleaned."""
+    """First element of a Crossref list field (title/container-title), cleaned.
+
+    Markup is stripped (see :func:`_strip_markup`) so JATS/MathML from Crossref
+    never reaches ``references.bib``.
+    """
     if isinstance(value, list) and value:
-        text = str(value[0]).strip()
+        text = _strip_markup(str(value[0]))
         return text or None
     if isinstance(value, str):
-        text = value.strip()
+        text = _strip_markup(value)
         return text or None
     return None
 
