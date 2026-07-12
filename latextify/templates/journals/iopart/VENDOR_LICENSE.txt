@@ -1,0 +1,63 @@
+Files in this directory (iopart.cls, iopart10.clo, iopart12.clo) are the
+classic IOP Publishing LaTeX article class, unmodified.
+
+PROVENANCE (2026-07-11): unlike sn-jnl (item 12) and elsarticle (item 10),
+iopart.cls is NOT distributed via CTAN or TeX Live as a standalone package
+(verified: no `macros/latex/contrib/iopart` path exists on any CTAN mirror,
+and IOP Publishing's own CURRENT author-resources page --
+https://publishingsupport.iopscience.iop.org/questions/latex-template/ --
+now distributes a different, newer class (`iopjournal.cls`, 2024/01/31, with
+different macros: \email{}/\affil{} instead of \ead{}/\address{}). Classic
+iopart.cls (\ProvidesClass{iopart}[1996/06/10 v0.0 IOP Journals LaTeX
+article class]) is no longer hosted at a live "official" IOP URL, but it is
+still the class this manifest targets (plan item 22 asked for
+`\documentclass[12pt]{iopart}` with \ead{}/\address{} -- the still-current,
+widely-used convention for IOP journal submissions, e.g. J. Phys.: Condens.
+Matter, Nanotechnology, Supercond. Sci. Technol.).
+
+These three files were downloaded from two independent long-standing GitHub
+mirrors of the file and confirmed byte-identical between them (40451 bytes
+for iopart.cls, 4700/4698 for iopart10.clo/iopart12.clo):
+
+    https://raw.githubusercontent.com/liubenyuan/latex-tools/master/iop/
+    https://raw.githubusercontent.com/etgroup/iop-latex-template/main/
+
+License: LaTeX Project Public License (LPPL).
+
+    - iopart.cls carries an explicit header, identical in both mirrors:
+      "Licensed under the LPPL: http://www.latex-project.org/lppl.txt" /
+      "Current Maintainer: IOP Publishing Ltd". CTAN's iopart-num page (the
+      companion BibTeX-style package, itself explicitly LPPL and confirmed
+      IN the Tectonic bundle -- see manifest.yaml) independently documents
+      IOP Publishing's LPPL licensing for the iopart family, consistent with
+      the class header.
+    - iopart10.clo / iopart12.clo (docstrip-generated companion files,
+      \ProvidesFile{iopart12.clo}[1997/01/15 v1.0 LaTeX2e file (size
+      option)]) carry the same docstrip boilerplate header as iopart.cls
+      (identical `%% This is file...` / `\CharacterTable` structure) without
+      repeating the LPPL sentence verbatim -- normal for docstrip-split
+      companion files distributed as one work by the same maintainer under
+      one license.
+
+LPPL explicitly permits redistribution of unmodified copies -- that is the
+license every CTAN mirror and TeX distribution relies on to redistribute
+LaTeX packages and classes at all. These three files are unmodified
+byte-for-byte copies of the originals; none have been edited. If they are
+ever modified, LPPL requires renaming per clause 6 of the license
+(https://www.latex-project.org/lppl.txt).
+
+Companion BibTeX style NOT vendored: iopart-num.bst is confirmed present in
+Tectonic's own bundle (a real compile with `\bibliographystyle{iopart-num}`
+and no vendoring succeeds, downloading iopart-num.bst automatically -- see
+manifest.yaml's BUNDLE FINDING), so only the three class/size files above
+need to ship here.
+
+KNOWN QUIRK vendored around in preamble.tex.j2, not in these files: iopart.cls
+unconditionally defines `equation*`/`endequation*` (lines 788-789), which
+collides with amsmath's own definition of the same names ("Command
+\equation* already defined") the moment `\usepackage{amsmath}` loads after
+the class. The standard, widely-documented community fix
+(comp.text.tex/groups.google.com "converting amsmath to iopart" thread) is
+two `\expandafter\let...\relax` lines immediately after \documentclass and
+before \usepackage{amsmath}; preamble.tex.j2 emits exactly that, verified by
+a real Tectonic compile.

@@ -1,0 +1,36 @@
+% Generated metadata -- regenerated every run.
+% NOTE (achemso-specific, see preamble.tex.j2 + manifest.yaml's ARCHITECTURE
+% FINDING): this file is \input TWICE -- once early, from preamble.tex.j2,
+% while still genuinely in the LaTeX preamble (satisfying achemso's
+% \@onlypreamble \title/\author/\affiliation/\email/\keywords), and once for
+% real, from main.tex, after \begin{document}. \ifdefined tells the two
+% reads apart: the first defines \LtxAchemsoMetaLoaded and emits the
+% preamble-only metadata macros; the second (flag already defined) emits only
+% \begin{abstract}...\end{abstract} + \maketitle, which -- unlike the
+% metadata setters -- MUST run in the body (\begin{abstract} itself errors
+% "Missing \begin{document}" if attempted early; verified empirically).
+\ifdefined\LtxAchemsoMetaLoaded
+%% if meta.abstract
+\begin{abstract}
+\VAR{meta.abstract}
+\end{abstract}
+%% endif
+\maketitle
+\else
+\def\LtxAchemsoMetaLoaded{1}%
+\title{\VAR{meta.title}}
+%% for group in group_authors(meta.authors)
+%% for author in group.authors
+\author{\VAR{author.name}}
+%% if author.email
+\email{\VAR{author.email}}
+%% endif
+%% endfor
+%% for idx in group.affiliations
+\affiliation{\VAR{meta.affiliations[idx].name}}
+%% endfor
+%% endfor
+%% if meta.keywords
+\keywords{\VAR{meta.keywords|join(', ')}}
+%% endif
+\fi

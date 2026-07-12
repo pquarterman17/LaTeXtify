@@ -559,7 +559,18 @@ def test_elsarticle_document_compiles(tmp_path, mode):
 # Metadata LaTeX escaping -- specials in real titles must not break compilation
 # --------------------------------------------------------------------------- #
 
-ALL_JOURNALS = ["revtex4-2", "ieeetran", "elsarticle", "sn-jnl"]
+ALL_JOURNALS = [
+    "revtex4-2",
+    "ieeetran",
+    "elsarticle",
+    "sn-jnl",
+    # Plan item 22 additions -- own test file (tests/test_templates_item22.py)
+    # for journal-specific golden/compile tests, additive here (same pattern
+    # sn-jnl used) so the generic escaping/edge-case tests below cover them.
+    "achemso",
+    "iopart",
+    "wiley",
+]
 
 
 def nasty_meta() -> Meta:

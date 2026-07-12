@@ -55,6 +55,7 @@ from latextify.citations.bib import escape_latex
 from latextify.model.meta import Meta
 from latextify.templates.authors import (
     format_affil_refs,
+    format_iopart_superscript,
     group_consecutive_by_affiliation,
     group_globally_by_affiliation,
 )
@@ -159,6 +160,9 @@ class Journal:
         env.globals["group_authors_global"] = group_globally_by_affiliation
         # sn-jnl lists per-author affiliation refs inline (plan item 12).
         env.globals["format_affil_refs"] = format_affil_refs
+        # iopart bakes affiliation refs as a literal LaTeX superscript inline
+        # in \author{}/\address{} text, not a bracketed macro arg (plan item 22).
+        env.globals["format_iopart_superscript"] = format_iopart_superscript
         return env
 
     def resolve_mode(self, mode: str | None) -> BibMode:

@@ -1,0 +1,20 @@
+% Generated preamble -- regenerated every run. Do not edit; edit main.tex instead.
+%% if class_options
+\documentclass[\VAR{class_options|join(',')}]{\VAR{document_class}}
+%% else
+\documentclass{\VAR{document_class}}
+%% endif
+% iopart.cls unconditionally defines its own `equation*`/`endequation*`,
+% which collides with amsmath's own definition ("Command \equation* already
+% defined") -- undefine the class's versions first so amsmath can define its
+% own. Standard community fix; see VENDOR_LICENSE.txt.
+\expandafter\let\csname equation*\endcsname\relax
+\expandafter\let\csname endequation*\endcsname\relax
+%% for pkg in packages
+%% if pkg.options
+\usepackage[\VAR{pkg.options|join(',')}]{\VAR{pkg.name}}
+%% else
+\usepackage{\VAR{pkg.name}}
+%% endif
+%% endfor
+\bibliographystyle{\VAR{bibstyle}}

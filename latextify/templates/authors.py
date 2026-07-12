@@ -47,6 +47,30 @@ def format_affil_refs(indices: tuple[int, ...]) -> str:
     return ",".join(str(i + 1) for i in indices)
 
 
+def format_iopart_superscript(indices: tuple[int, ...]) -> str:
+    """Render 0-based affiliation indices as an IOP-style LaTeX superscript.
+
+    iopart.cls (plan item 22) has no per-author affiliation-reference macro
+    like sn-jnl's ``\\author[refs]{}`` -- its ``\\author{}`` and ``\\address{}``
+    both take a single opaque text blob (see iopart.cls's ``\\@fauthor``/
+    ``\\address`` definitions), so the numeric cross-reference markers have to
+    be typed directly into that text as a literal math-mode superscript, e.g.
+    ``Alice Anderson$^{1,2}$``. This converts ``Author.affiliations`` 0-based
+    indices into that literal ``$^{1,2}$`` form; an author/affiliation with no
+    indices gets no superscript at all (empty string, not a dangling ``$^{}$``).
+
+    >>> format_iopart_superscript((0, 1))
+    '$^{1,2}$'
+    >>> format_iopart_superscript((2,))
+    '$^{3}$'
+    >>> format_iopart_superscript(())
+    ''
+    """
+    if not indices:
+        return ""
+    return "$^{" + ",".join(str(i + 1) for i in indices) + "}$"
+
+
 def group_consecutive_by_affiliation(authors: tuple[Author, ...]) -> list[AuthorGroup]:
     """Group *consecutive* authors sharing an identical affiliation-index tuple.
 

@@ -1,0 +1,102 @@
+# Wiley journals (WileyNJD-v2 class family). Plan item 22.
+#
+# BUNDLE FINDING (2026-07-11): WileyNJD-v2.cls is NOT in the Tectonic bundle
+# -- `\documentclass{WileyNJD-v2}` with nothing vendored fails with "File
+# `WileyNJD-v2.cls' not found." (verified empirically).
+#
+# LICENSE FINDING (2026-07-11) -- DOCUMENTED-SKIP, NOT VENDORED: obtained a
+# copy of WileyNJD-v2.cls (v0.2, 2017/06/23) from a GitHub mirror to inspect
+# its header per this item's decision procedure. It reads, verbatim:
+#
+#     "This file is copyright by SPi Technologies Ltd. All rights reserved."
+#
+# That is an explicit all-rights-reserved copyright notice -- not LPPL, not
+# any free-redistribution license, and there is no separate license grant
+# anywhere else in the file. This is exactly the "forbids redistribution"
+# branch of the decision procedure: the file is deliberately NOT committed to
+# this repo (no vendor/ directory here), matching the plan's own prediction
+# ("if Wiley's files are non-redistributable (likely)"). This finding was
+# reached by reading the file for interoperability purposes only (to write
+# the metadata template below against its real macro names) -- reading a
+# copyrighted file to document its interface is a different act from
+# redistributing it, which is the one thing this manifest deliberately does
+# NOT do.
+#
+# WHERE TO GET IT (for a user who wants to compile this journal locally):
+# Wiley's official author LaTeX template page --
+# https://authors.wiley.com/author-resources/Journal-Authors/Prepare/latex-template.html
+# -- or the vendor-hosted Overleaf gallery entry ("Wiley Journal Template").
+# Drop the downloaded `WileyNJD-v2.cls` (and its companion `.bst` files, e.g.
+# WileyNJD-AMS.bst / WileyNJD-Harvard.bst) directly into this journal's
+# output directory (next to generated/main.tex) before compiling -- Tectonic
+# resolves \documentclass{WileyNJD-v2} from files alongside main.tex the same
+# way it resolves any vendored class, so no code change is needed to use a
+# user-supplied class file; the compile wrapper's missing-file diagnostic
+# (see latextify/compile/logs.py) will name "WileyNJD-v2.cls" directly if
+# it's still absent, which is the actionable error a user hits (verified by
+# this item's own negative-control test, mirroring sn-jnl's).
+#
+# This journal's compile test is therefore an unconditional skip (see
+# tests/test_templates_item22.py) -- there is nothing this repo can compile
+# WileyNJD-v2 against. Rendering (golden-file preamble/metadata tests) does
+# not need the class file at all and runs normally.
+class: WileyNJD-v2
+class_options: [NoteStyle]   # NoteStyle: standard 1-column manuscript layout
+
+# \usepackage[options]{name}, emitted in order. graphicx is excluded --
+# WileyNJD-v2.cls \RequirePackage{graphicx,multicol} unconditionally
+# (verified by reading the class, same "don't redeclare a force-loaded
+# package" convention as achemso/sn-jnl). hyperref is declared explicitly
+# here rather than chasing the class's own `\if@hyperrefon` conditional
+# (tied to an undocumented-here option token) -- this path is never compiled
+# in this repo, so the simple, safe choice is preferred over an unverifiable
+# guess at exact option wiring.
+packages:
+  - name: amsmath
+  - name: amssymb
+  - name: bm
+  - name: booktabs  # table normalization (plan item 17) emits booktabs rules
+  - name: hyperref
+    options: [colorlinks=true, linkcolor=blue, citecolor=blue, urlcolor=blue]
+
+# Bibliography. WileyNJD-v2.cls manages natbib INTERNALLY via a class-option
+# family switch (verified by reading the class: `\if@AMSrefstyle \usepackage
+# [numbers]{natbib} \bibliographystyle{WileyNJD-AMS} \else \if@Harvardstyle
+# \usepackage[authoryear]{natbib} \bibliographystyle{WileyNJD-Harvard} ...`),
+# selected by class options `AMS` / `HARVARD` (among others the class also
+# offers: VANCOUVER, AMA-style "Chemistry", APA) -- so, same "class manages
+# natbib via class options" situation as elsarticle, natbib_options here are
+# folded into \documentclass options by preamble.tex.j2, not a separate
+# \usepackage{natbib} line. UNVERIFIED (never compiled -- see LICENSE FINDING
+# above): if a real WileyNJD-v2.cls is ever vendored, spot-check this block
+# against a real compile before trusting it.
+bib:
+  default_mode: numeric
+  modes:
+    numeric:
+      bibstyle: WileyNJD-AMS
+      natbib_options: [AMS]        # class option -> \usepackage[numbers]{natbib}
+    authoryear:
+      bibstyle: WileyNJD-Harvard
+      natbib_options: [HARVARD]    # class option -> \usepackage[authoryear]{natbib}
+
+# Informal name the emitter maps to this journal's macro scheme.
+metadata_scheme: wiley
+
+# WileyNJD-v2's default page layout is single-column manuscript-review style;
+# figure_env.wide kept for consistency with the other journal folders.
+figure_env:
+  single: figure
+  wide: figure*
+
+# WileyNJD-v2.cls is deliberately NOT vendored (see LICENSE FINDING above).
+vendor: []
+
+# PLAN CORRECTION: the plan text for this item described the affiliation
+# macro as `\affil[1]{}`. Reading the real WileyNJD-v2.cls shows the actual
+# macro is `\address[1]{...}` -- there is no `\affil` command anywhere in the
+# class. metadata.tex.j2 uses the verified `\address[N]{}` name. The
+# `\author[refs]{}` / `\author*[refs]{}` (starred = corresponding) half of
+# the plan's description IS correct, and matches sn-jnl's own convention
+# closely enough to reuse format_affil_refs (registered by the loader)
+# unchanged -- no Wiley-specific author-formatting helper was needed.
