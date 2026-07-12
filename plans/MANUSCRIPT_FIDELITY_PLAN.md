@@ -55,7 +55,8 @@ caught and verified. Compare against the published YIG PDFs in `~/Downloads`.
 
 ### Dependency map
 
-- The remaining items (2–4) are independent polish; each touches one stage.
+- No open items remain; each gap was an independent class touching one stage.
+  Future findings should be appended as new gaps and closed the same way.
 
 ---
 
