@@ -318,13 +318,47 @@ def _merge_dash_joined_markers(tex: str, pattern: re.Pattern[str], wrap) -> str:
         tex = new_tex
 
 
+# The seven canonical low-index cubic crystallographic directions/planes
+# (Miller notation) NOT already caught by the leading-zero check below:
+# 110, 101, 011, 111 (001, 010, 100 all have a leading zero and are already
+# excluded that way). Real manuscripts commonly write these bare -- "grown
+# along the [001], [110], and [111] directions" is a stock materials-science
+# phrase. Deliberately narrow (an exact closed set, not a general "all digits
+# are 0/1" rule) to minimize the chance of ever suppressing a genuine
+# reference number in an unusually long reference list.
+_MILLER_INDEX_TRIADS = frozenset({"110", "101", "011", "111"})
+
+
+def _is_plain_number(chunk: str) -> bool:
+    """True for a chunk that reads as an ordinary reference number.
+
+    All digits, no leading zero, and not one of the non-zero-padded
+    :data:`_MILLER_INDEX_TRIADS`. A leading zero -- ``"001"``, ``"010"``,
+    ``"100"`` -- is virtually always a crystallographic direction/plane index
+    (Miller notation), never a citation: a typed reference list is never
+    padded with leading zeros. Excluding these here (rather than in
+    ``NUMERIC_MARKER_RE``, which cannot know whether a bracketed number is a
+    citation without also knowing the reconstructed reference count) keeps a
+    genuine list like ``"[1,2]"`` unaffected while ``"[001]"``/``"[110]"``/
+    ``"[111]"`` are left untouched as ordinary body text.
+    """
+    chunk = chunk.strip()
+    if not chunk.isdigit():
+        return False
+    if len(chunk) > 1 and chunk[0] == "0":
+        return False
+    return chunk not in _MILLER_INDEX_TRIADS
+
+
 def expand_numeric_range(content: str) -> list[int]:
     """Expand a marker body like ``"3-5,8"`` into ``[3, 4, 5, 8]``.
 
     Accepts commas as separators, ASCII/Unicode hyphens/dashes as ranges. Returns
     numbers in written order (duplicates preserved by position, dropped later by
-    the key de-dup). An unparseable chunk is skipped; an all-unparseable body
-    yields ``[]`` (the marker is then treated as non-citation and left alone).
+    the key de-dup). An unparseable chunk is skipped -- this includes any chunk
+    (or range endpoint) with a leading zero, see :func:`_is_plain_number` -- and
+    an all-unparseable body yields ``[]`` (the marker is then treated as
+    non-citation and left alone).
     """
     numbers: list[int] = []
     for chunk in content.split(","):
@@ -332,13 +366,13 @@ def expand_numeric_range(content: str) -> list[int]:
         if not chunk:
             continue
         parts = _RANGE_SEP.split(chunk)
-        if len(parts) == 2 and parts[0].strip().isdigit() and parts[1].strip().isdigit():
+        if len(parts) == 2 and _is_plain_number(parts[0]) and _is_plain_number(parts[1]):
             start, end = int(parts[0]), int(parts[1])
             if start <= end and end - start < 1000:  # guard against absurd ranges
                 numbers.extend(range(start, end + 1))
             else:
                 numbers.extend([start, end])
-        elif chunk.isdigit():
+        elif _is_plain_number(chunk):
             numbers.append(int(chunk))
     return numbers
 
@@ -370,6 +404,26 @@ def strip_reference_section(tex: str, result: PlaintextResult) -> str:
     return tex
 
 
+def _body_start_index(tex: str) -> int:
+    """Index in ``tex`` where the manuscript body begins.
+
+    Defined as the first sectioning command (``\\section``, ``\\subsection``,
+    ...) -- the same boundary REVTeX/IEEEtran/elsarticle preambles draw
+    between the title/author/affiliation block and the body. A manuscript's
+    Abstract, when typed as a Level-1 Word heading (the common case), lands
+    right at this same boundary, so no separate "abstract" case is needed.
+
+    Used to suppress false-positive superscript CITATION detection on
+    title-page AFFILIATION superscripts ("J. Smith\\textsuperscript{1}, A.
+    Doe\\textsuperscript{2}") -- a manuscript's first real citation never
+    lands before its own first heading. Falls back to ``0`` (nothing
+    excluded) when no sectioning command is found at all, e.g. a bare
+    fragment under test with no headings of its own.
+    """
+    match = _REF_SECTION_RE.search(tex)
+    return match.start() if match else 0
+
+
 def link_body_markers(tex: str, result: PlaintextResult) -> tuple[str, list[str]]:
     """Replace resolvable in-text markers with ``\\cite{...}``.
 
@@ -378,6 +432,12 @@ def link_body_markers(tex: str, result: PlaintextResult) -> tuple[str, list[str]
     superscript markers warn on an unresolved position; author-year markers warn
     only when the year is one the reconstructed bibliography actually contains
     (an unrecognized ``(Word, 1999)`` is far more likely to be ordinary prose).
+    Superscript markers before :func:`_body_start_index`'s boundary are title-page
+    affiliation markers, never citations -- skipped entirely, no warning. Markers
+    at or after that boundary are handled exactly as before, including a genuine
+    out-of-range mismatch (a real body citation whose number(s) exceed the
+    reconstructed reference count) still warning -- only the title-page position
+    is special-cased, never the resolution logic itself.
     """
     messages: list[str] = []
     seen: set[str] = set()
@@ -412,7 +472,11 @@ def link_body_markers(tex: str, result: PlaintextResult) -> tuple[str, list[str]
         replacement = resolve_numeric(match.group(1), f"[{match.group(1).strip()}]")
         return replacement if replacement is not None else match.group(0)
 
-    def superscript_sub(match: re.Match[str]) -> str:
+    def superscript_sub(match: re.Match[str], *, body_start: int) -> str:
+        if match.start() < body_start:
+            # Title-page affiliation superscript (see _body_start_index) --
+            # never a citation marker; leave untouched, no warning.
+            return match.group(0)
         replacement = resolve_numeric(match.group(1), f"^{match.group(1).strip()}")
         return replacement if replacement is not None else match.group(0)
 
@@ -437,6 +501,9 @@ def link_body_markers(tex: str, result: PlaintextResult) -> tuple[str, list[str]
         tex, _SUPERSCRIPT_JOIN_RE, lambda content: "\\textsuperscript{" + content + "}"
     )
     tex = NUMERIC_MARKER_RE.sub(numeric_sub, tex)
-    tex = SUPERSCRIPT_MARKER_RE.sub(superscript_sub, tex)
+    body_start = _body_start_index(tex)
+    tex = SUPERSCRIPT_MARKER_RE.sub(
+        lambda match: superscript_sub(match, body_start=body_start), tex
+    )
     tex = AUTHOR_YEAR_MARKER_RE.sub(author_year_sub, tex)
     return tex, messages

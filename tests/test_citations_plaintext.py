@@ -108,6 +108,37 @@ def test_expand_reversed_range_kept_as_endpoints():
     assert expand_numeric_range("5-3") == [5, 3]
 
 
+def test_expand_leading_zero_number_is_excluded():
+    # "001" is a Miller/crystallographic index, e.g. "grown along [001]" --
+    # never a citation; a typed reference list is never zero-padded.
+    assert expand_numeric_range("001") == []
+
+
+def test_expand_leading_zero_range_is_excluded():
+    assert expand_numeric_range("001-005") == []
+
+
+def test_expand_mixed_leading_zero_and_plain_number():
+    # Only the leading-zero chunk is dropped; a genuine list entry survives.
+    assert expand_numeric_range("1,001") == [1]
+
+
+def test_expand_miller_index_triads_excluded():
+    # "110" and "111" have no leading zero but are the remaining canonical
+    # low-index cubic crystallographic directions -- see _MILLER_INDEX_TRIADS.
+    assert expand_numeric_range("110") == []
+    assert expand_numeric_range("111") == []
+    assert expand_numeric_range("101") == []
+    assert expand_numeric_range("011") == []
+
+
+def test_expand_two_digit_numbers_starting_with_one_are_unaffected():
+    # A genuine 2-digit reference number is NOT swept up by the Miller-index
+    # exclusion -- that set is scoped to exactly the 3-digit triads.
+    assert expand_numeric_range("10") == [10]
+    assert expand_numeric_range("11") == [11]
+
+
 # --------------------------------------------------------------------------- #
 # reference-list segmentation
 # --------------------------------------------------------------------------- #
@@ -424,6 +455,77 @@ def test_no_reference_list_leaves_markers_untouched():
     # keys_by_number empty -> unresolved, warned, left in place.
     assert "{[}1{]}" in tex
     assert warnings
+
+
+# --------------------------------------------------------------------------- #
+# false-positive marker classes (crystallographic indices, title-page
+# affiliation superscripts) -- GAP 3
+# --------------------------------------------------------------------------- #
+
+
+def test_miller_index_bracket_not_treated_as_citation():
+    tex, warnings = link_body_markers("Grown along the {[}001{]} direction.", _result())
+    assert tex == "Grown along the {[}001{]} direction."
+    assert warnings == []
+
+
+def test_multiple_miller_index_brackets_not_treated_as_citations():
+    tex, warnings = link_body_markers(
+        "Facets along {[}110{]} and {[}111{]} were observed.", _result()
+    )
+    assert tex == "Facets along {[}110{]} and {[}111{]} were observed."
+    assert warnings == []
+
+
+def test_miller_index_list_marker_fully_excluded_not_partially_warned():
+    # All three canonical directions typed together as one bracketed list --
+    # must not partially resolve/warn against whatever numbers happen to be
+    # in keys_by_number (1, 2, 3, 4, 8 in _result()).
+    tex, warnings = link_body_markers("Directions {[}001,110,111{]} shown.", _result())
+    assert tex == "Directions {[}001,110,111{]} shown."
+    assert warnings == []
+
+
+def test_title_page_affiliation_superscripts_unwarned_but_in_body_marker_still_links():
+    tex = (
+        "J. Smith\\textsuperscript{1}, A. Doe\\textsuperscript{2,3} here.\n"
+        "\\textsuperscript{1}Dept. of Physics; \\textsuperscript{2}Dept. of Chemistry.\n"
+        "\\section{Introduction}\n"
+        "Prior work\\textsuperscript{1} established the baseline; a later result"
+        "\\textsuperscript{99} went further.\n"
+    )
+    new_tex, warnings = link_body_markers(tex, _result())
+
+    # Title-page affiliation superscripts (before the first heading): left
+    # untouched, no warning raised for them at all.
+    assert "\\textsuperscript{1}Dept. of Physics" in new_tex
+    assert "\\textsuperscript{2}Dept. of Chemistry" in new_tex
+    assert "A. Doe\\textsuperscript{2,3}" in new_tex
+
+    # A genuine in-body marker (after the heading) still resolves normally.
+    assert "Prior work\\cite{smith2020} established" in new_tex
+
+    # A genuine in-body out-of-range marker still warns -- the title-page
+    # boundary must never suppress a real mismatch signal.
+    assert "\\textsuperscript{99}" in new_tex
+    assert len(warnings) == 1
+    assert "99" in warnings[0]
+
+
+def test_superscript_out_of_range_still_warns_with_no_title_page_content():
+    tex = "\\section{Introduction}\nSee ref\\textsuperscript{99} here."
+    new_tex, warnings = link_body_markers(tex, _result())
+    assert "\\textsuperscript{99}" in new_tex
+    assert any("99" in w for w in warnings)
+
+
+def test_superscript_marker_resolves_normally_when_no_heading_present():
+    # No sectioning command anywhere in the fragment (the common case for
+    # these unit tests' bare snippets) -> no title-page boundary detected,
+    # so nothing is suppressed; matches pre-GAP-3 behavior exactly.
+    tex, warnings = link_body_markers("Body text with marker\\textsuperscript{1} only.", _result())
+    assert "\\cite{smith2020}" in tex
+    assert warnings == []
 
 
 # --------------------------------------------------------------------------- #
