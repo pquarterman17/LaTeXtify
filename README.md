@@ -45,15 +45,30 @@ latextify convert paper.docx --journal revtex4-2 --pdf
 
 ## Supported journals
 
-| Template | Family | Citation modes | TeX class source |
+Fourteen journal templates covering the major physics/chemistry publishers.
+The `-j`/`--journal` value is the short id in the first column; the GUI shows
+the full publisher name.
+
+| Template | Journal | Citation modes | TeX class source |
 |---|---|---|---|
-| `revtex4-2` | APS / AIP (PRB, PRL, APL, ...) | numeric | Tectonic bundle |
+| `revtex4-2` | APS — Physical Review B (generic REVTeX) | numeric | Tectonic bundle |
+| `aps-prl` | APS — Physical Review Letters | numeric | Tectonic bundle |
+| `aps-prx` | APS — Physical Review X | numeric | Tectonic bundle |
+| `aps-prapplied` | APS — Physical Review Applied | numeric | Tectonic bundle |
+| `aps-rmp` | APS — Reviews of Modern Physics | numeric | Tectonic bundle |
+| `aip-apl` | AIP — Applied Physics Letters | numeric | Tectonic bundle |
+| `aip-jap` | AIP — Journal of Applied Physics | numeric | Tectonic bundle |
+| `aip-advances` | AIP — AIP Advances | numeric | Tectonic bundle |
 | `elsarticle` | Elsevier | numeric, author-year | vendored (v3.5, LPPL) |
 | `ieeetran` | IEEE | numeric | Tectonic bundle |
-| `sn-jnl` | Nature / Springer | numeric, author-year | vendored (LPPL) |
+| `sn-jnl` | Springer Nature | numeric, author-year | vendored (LPPL) |
 | `achemso` | ACS | numeric | Tectonic bundle |
-| `iopart` | IOP | numeric | vendored (LPPL) |
-| `wiley` | Wiley (NJD) | numeric, author-year | user-supplied¹ |
+| `iopart` | IOP Publishing | numeric | vendored (LPPL) |
+| `wiley` | Wiley (New Journal Design) | numeric, author-year | user-supplied¹ |
+
+The APS and AIP entries are REVTeX variants — the same `revtex4-2` class with
+the publisher's society options and bibliography style, so they compile with
+no extra class files.
 
 ¹ Wiley's class file is proprietary and cannot be redistributed; the
 template works once you place `WileyNJD-v2.cls` in the output directory
@@ -87,6 +102,10 @@ uv run latextify convert paper.docx --journal revtex4-2 --supplement si.docx --p
 # ...and staple the main text + supplement into one combined.pdf
 uv run latextify convert paper.docx --journal revtex4-2 --supplement si.docx --pdf --combine-supplement
 
+# ...or render the supplement as a simplified one-column article (common for SI,
+# where formatting rules are looser), keeping the shared bibliography + S-numbers
+uv run latextify convert paper.docx --journal revtex4-2 --supplement si.docx --pdf --supplement-onecolumn
+
 # A folder of manuscripts at once (continue-on-error + summary)
 uv run latextify batch drafts/ --journal revtex4-2 --pdf
 
@@ -99,6 +118,19 @@ uv run latextify gui
 # List registered journals and their citation modes
 uv run latextify journals
 ```
+
+### Web GUI
+
+`uv run latextify gui` starts a local, browser-based front end (bound to
+`127.0.0.1` only — your uploads never leave your machine) and opens a tab.
+Drop your whole submission in at once — **main `.docx`, supplement `.docx`,
+figure files, and a `.bib` reference library together** — then set each
+file's role, pick a journal from the full publisher list, choose options
+(compile PDF, combine supplement, one-column SI, equation audit, project
+`.zip`), and convert. Preview the compiled PDFs inline. An optional **Export**
+panel lets you pick a destination folder (a native "Browse…" dialog) and copy
+any subset of the outputs — the LaTeX project, individual PDFs, or the `.zip` —
+straight to where you want them.
 
 Output layout per conversion:
 
@@ -139,7 +171,7 @@ than silently mangled.
 ## Development
 
 ```
-uv run pytest                                     # full suite (~650 tests, real docx→PDF compiles)
+uv run pytest                                     # full suite (~875 tests, real docx→PDF compiles)
 uv run pytest -m "not tectonic and not network"   # fast subset
 uv run ruff check .
 ```
