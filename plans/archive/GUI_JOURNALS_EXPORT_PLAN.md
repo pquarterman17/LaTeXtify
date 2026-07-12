@@ -6,7 +6,7 @@ a simplified one-column supplement, and a real "choose where to save" export
 flow with per-artifact selection. Plus the IEEEtran title-page bug (fixed) and
 its regression guard.
 
-**Status:** Active
+**Status:** Complete
 **Created:** 2026-07-12
 **Updated:** 2026-07-12
 
@@ -52,21 +52,22 @@ its regression guard.
 
 ---
 
-## Tier 1 — High Impact
-
-4. **Export endpoint** — native folder picker (`POST /api/pick-folder`, tkinter,
-   graceful when headless) + `/api/convert-multi` copies the selected artifact
-   types into a client-supplied destination folder (validated, no traversal).
-   - [ ] pick-folder + export copy + tests
-
-## Tier 2 — Medium Impact
-
-5. **Export + display-name frontend** — dropdown uses display names (done); an
-   Export panel with a Browse button (fills a folder field) and per-artifact
-   checkboxes (project / main.pdf / combined.pdf / audit.pdf / .zip).
-   - [ ] Export panel + DOM smoke test
-
 ## Completed
+
+- ~~**#4 Export endpoint**~~ (2026-07-12) — `POST /api/pick-folder` opens a
+  native folder dialog on the server host via a tkinter subprocess (isolated
+  from uvicorn's worker thread; returns "" when cancelled/headless, never
+  raises). `/api/convert-multi` grew `export_dir` + repeated `export_types`
+  form fields; `_export_artifacts` copies the selected types (project tree /
+  main.pdf / combined.pdf / audit.pdf / .zip on-demand) into the destination,
+  reporting a requested-but-unproduced type as a warning rather than failing.
+  Tests in `tests/test_gui.py`.
+- ~~**#5 Export + display-name frontend**~~ (2026-07-12) — Export panel with a
+  Browse button (POSTs `/api/pick-folder`, fills the folder field), a
+  destination text field, and per-artifact checkboxes; `buildFormData` sends
+  `export_dir` + repeated `export_types`; the status line reports what was
+  exported where. Dropdown display names shipped with #2. DOM smoke test in
+  `tests/test_gui.py`.
 
 - ~~**#6/#7 One-column plain-article supplement**~~ (2026-07-12) —
   `emit_project(supplement_onecolumn=True)` renders the SI as
