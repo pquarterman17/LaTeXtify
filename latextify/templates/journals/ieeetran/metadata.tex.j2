@@ -6,6 +6,8 @@
 \IEEEauthorblockA{\BLOCK{ for idx in group.affiliations }\VAR{meta.affiliations[idx].name}\BLOCK{ if not loop.last }\\\BLOCK{ endif }\BLOCK{ endfor }\BLOCK{ for author in group.authors }\BLOCK{ if author.email }\\\VAR{author.email}\BLOCK{ endif }\BLOCK{ endfor }}
 %% endfor
 }
+% IEEEtran typesets abstract/IEEEkeywords inline, so \maketitle must precede them.
+\maketitle
 %% if meta.abstract
 \begin{abstract}
 \VAR{meta.abstract}
@@ -16,4 +18,3 @@
 \VAR{meta.keywords|join(', ')}
 \end{IEEEkeywords}
 %% endif
-\maketitle
