@@ -1,0 +1,429 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>LaTeXtify</title>
+<style>
+  :root {
+    color-scheme: light;
+    --bg: #f6f7f9;
+    --panel: #ffffff;
+    --border: #dde1e6;
+    --text: #1c2128;
+    --muted: #5b6472;
+    --accent: #2454ff;
+    --accent-contrast: #ffffff;
+    --warn-bg: #fff8e6;
+    --warn-border: #f0d585;
+    --error-bg: #fdecec;
+    --error-border: #f2b5b5;
+    --error-text: #9a2020;
+    --ok: #1f8a4c;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    line-height: 1.45;
+  }
+  header {
+    padding: 1.5rem 2rem 0.5rem;
+    max-width: 960px;
+    margin: 0 auto;
+  }
+  header h1 {
+    font-size: 1.4rem;
+    margin: 0 0 0.15rem;
+  }
+  header p {
+    margin: 0;
+    color: var(--muted);
+    font-size: 0.92rem;
+  }
+  main {
+    max-width: 960px;
+    margin: 0 auto;
+    padding: 1rem 2rem 3rem;
+    display: grid;
+    gap: 1.25rem;
+  }
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 1.25rem;
+  }
+  .dropzone {
+    border: 2px dashed var(--border);
+    border-radius: 10px;
+    padding: 2.5rem 1rem;
+    text-align: center;
+    cursor: pointer;
+    color: var(--muted);
+    transition: border-color 0.15s, background 0.15s;
+  }
+  .dropzone.dragover {
+    border-color: var(--accent);
+    background: #eef2ff;
+    color: var(--text);
+  }
+  .dropzone.has-file {
+    border-style: solid;
+    color: var(--text);
+  }
+  .dropzone strong { color: var(--text); }
+  .controls {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1rem;
+    margin-top: 1rem;
+  }
+  .field label {
+    display: block;
+    font-size: 0.82rem;
+    color: var(--muted);
+    margin-bottom: 0.3rem;
+  }
+  select {
+    width: 100%;
+    padding: 0.5rem 0.6rem;
+    border-radius: 6px;
+    border: 1px solid var(--border);
+    background: var(--panel);
+    color: var(--text);
+    font-size: 0.95rem;
+  }
+  .actions {
+    margin-top: 1.25rem;
+    display: flex;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+  }
+  button {
+    padding: 0.6rem 1.1rem;
+    border-radius: 7px;
+    border: 1px solid var(--accent);
+    background: var(--accent);
+    color: var(--accent-contrast);
+    font-size: 0.95rem;
+    cursor: pointer;
+  }
+  button.secondary {
+    background: var(--panel);
+    color: var(--accent);
+  }
+  button:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+  }
+  .status {
+    margin-top: 0.9rem;
+    font-size: 0.9rem;
+    color: var(--muted);
+  }
+  .hidden { display: none !important; }
+  .error-box {
+    background: var(--error-bg);
+    border: 1px solid var(--error-border);
+    color: var(--error-text);
+    border-radius: 8px;
+    padding: 0.75rem 1rem;
+    font-size: 0.9rem;
+  }
+  .success-line {
+    color: var(--ok);
+    font-weight: 600;
+  }
+  h2 {
+    font-size: 1.05rem;
+    margin: 0 0 0.75rem;
+  }
+  .warnings-list {
+    margin: 0;
+    padding-left: 1.2rem;
+    font-size: 0.88rem;
+  }
+  .warnings-list li {
+    margin-bottom: 0.35rem;
+    background: var(--warn-bg);
+    border: 1px solid var(--warn-border);
+    border-radius: 6px;
+    padding: 0.4rem 0.6rem;
+    list-style: none;
+    margin-left: -1.2rem;
+  }
+  pre.report {
+    white-space: pre-wrap;
+    word-break: break-word;
+    background: #0f1117;
+    color: #d7dbe0;
+    border-radius: 8px;
+    padding: 1rem;
+    font-size: 0.82rem;
+    max-height: 420px;
+    overflow-y: auto;
+  }
+  .pdf-frame {
+    width: 100%;
+    height: 640px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      color-scheme: dark;
+      --bg: #14161b;
+      --panel: #1b1e25;
+      --border: #2c313a;
+      --text: #e6e9ef;
+      --muted: #929aa7;
+      --accent: #6d8bff;
+      --accent-contrast: #0d1117;
+      --warn-bg: #322b12;
+      --warn-border: #6b5a1f;
+      --error-bg: #341717;
+      --error-border: #7a3232;
+      --error-text: #f0a3a3;
+      --ok: #4fd484;
+    }
+    .dropzone.dragover { background: #1e2440; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>LaTeXtify</h1>
+  <p>Drop a .docx manuscript, pick a journal, convert to a journal-ready LaTeX project.</p>
+</header>
+<main>
+  <section class="panel">
+    <div id="dropzone" class="dropzone" tabindex="0" role="button" aria-label="Choose or drop a .docx file">
+      <div id="dropzone-text">Drag &amp; drop a <strong>.docx</strong> manuscript here, or click to choose a file</div>
+    </div>
+    <input id="file-input" type="file" accept=".docx" class="hidden" />
+
+    <div class="controls">
+      <div class="field">
+        <label for="journal-select">Journal</label>
+        <select id="journal-select"></select>
+      </div>
+      <div class="field">
+        <label for="citation-select">Citation style</label>
+        <select id="citation-select"></select>
+      </div>
+    </div>
+
+    <div class="actions">
+      <button id="convert-btn" type="button" disabled>Convert</button>
+      <button id="convert-pdf-btn" type="button" class="secondary" disabled>Convert &amp; PDF</button>
+    </div>
+
+    <div id="status" class="status"></div>
+    <div id="error-box" class="error-box hidden"></div>
+  </section>
+
+  <section id="warnings-panel" class="panel hidden">
+    <h2>Warnings</h2>
+    <ul id="warnings-list" class="warnings-list"></ul>
+  </section>
+
+  <section id="pdf-panel" class="panel hidden">
+    <h2>PDF preview</h2>
+    <embed id="pdf-embed" class="pdf-frame" type="application/pdf" />
+  </section>
+
+  <section id="report-panel" class="panel hidden">
+    <h2>report.md</h2>
+    <pre id="report-text" class="report"></pre>
+  </section>
+</main>
+
+<script>
+(function () {
+  "use strict";
+
+  const dropzone = document.getElementById("dropzone");
+  const dropzoneText = document.getElementById("dropzone-text");
+  const fileInput = document.getElementById("file-input");
+  const journalSelect = document.getElementById("journal-select");
+  const citationSelect = document.getElementById("citation-select");
+  const convertBtn = document.getElementById("convert-btn");
+  const convertPdfBtn = document.getElementById("convert-pdf-btn");
+  const statusEl = document.getElementById("status");
+  const errorBox = document.getElementById("error-box");
+  const warningsPanel = document.getElementById("warnings-panel");
+  const warningsList = document.getElementById("warnings-list");
+  const reportPanel = document.getElementById("report-panel");
+  const reportText = document.getElementById("report-text");
+  const pdfPanel = document.getElementById("pdf-panel");
+  const pdfEmbed = document.getElementById("pdf-embed");
+
+  let selectedFile = null;
+  let journals = [];
+
+  function setStatus(text) {
+    statusEl.textContent = text || "";
+  }
+
+  function showError(message) {
+    errorBox.textContent = message;
+    errorBox.classList.remove("hidden");
+  }
+
+  function clearError() {
+    errorBox.classList.add("hidden");
+    errorBox.textContent = "";
+  }
+
+  function resetResultPanels() {
+    warningsPanel.classList.add("hidden");
+    warningsList.innerHTML = "";
+    reportPanel.classList.add("hidden");
+    reportText.textContent = "";
+    pdfPanel.classList.add("hidden");
+    pdfEmbed.removeAttribute("src");
+  }
+
+  function updateButtons() {
+    const ready = Boolean(selectedFile) && journalSelect.value;
+    convertBtn.disabled = !ready;
+    convertPdfBtn.disabled = !ready;
+  }
+
+  function setFile(file) {
+    if (!file) return;
+    if (!file.name.toLowerCase().endsWith(".docx")) {
+      showError("Please choose a .docx file.");
+      return;
+    }
+    clearError();
+    selectedFile = file;
+    dropzone.classList.add("has-file");
+    dropzoneText.innerHTML = "Selected: <strong>" + file.name + "</strong> (click to change)";
+    updateButtons();
+  }
+
+  dropzone.addEventListener("click", () => fileInput.click());
+  dropzone.addEventListener("keydown", (evt) => {
+    if (evt.key === "Enter" || evt.key === " ") {
+      evt.preventDefault();
+      fileInput.click();
+    }
+  });
+  fileInput.addEventListener("change", () => setFile(fileInput.files[0]));
+
+  ["dragenter", "dragover"].forEach((evtName) => {
+    dropzone.addEventListener(evtName, (evt) => {
+      evt.preventDefault();
+      dropzone.classList.add("dragover");
+    });
+  });
+  ["dragleave", "drop"].forEach((evtName) => {
+    dropzone.addEventListener(evtName, (evt) => {
+      evt.preventDefault();
+      dropzone.classList.remove("dragover");
+    });
+  });
+  dropzone.addEventListener("drop", (evt) => {
+    const file = evt.dataTransfer && evt.dataTransfer.files && evt.dataTransfer.files[0];
+    setFile(file);
+  });
+
+  function populateCitationModes() {
+    const journal = journals.find((j) => j.name === journalSelect.value);
+    citationSelect.innerHTML = "";
+    if (!journal) return;
+    journal.modes.forEach((mode) => {
+      const opt = document.createElement("option");
+      opt.value = mode;
+      opt.textContent = mode;
+      citationSelect.appendChild(opt);
+    });
+  }
+
+  async function loadJournals() {
+    try {
+      const resp = await fetch("/api/journals");
+      if (!resp.ok) throw new Error("failed to load journals (" + resp.status + ")");
+      journals = await resp.json();
+      journalSelect.innerHTML = "";
+      journals.forEach((journal) => {
+        const opt = document.createElement("option");
+        opt.value = journal.name;
+        opt.textContent = journal.name;
+        journalSelect.appendChild(opt);
+      });
+      populateCitationModes();
+      updateButtons();
+    } catch (err) {
+      showError("Could not load journal list: " + err.message);
+    }
+  }
+
+  journalSelect.addEventListener("change", () => {
+    populateCitationModes();
+    updateButtons();
+  });
+
+  async function runConvert(withPdf) {
+    if (!selectedFile) return;
+    clearError();
+    resetResultPanels();
+    convertBtn.disabled = true;
+    convertPdfBtn.disabled = true;
+    setStatus(withPdf ? "Converting and compiling PDF…" : "Converting…");
+
+    const formData = new FormData();
+    formData.append("file", selectedFile);
+    formData.append("journal", journalSelect.value);
+    if (citationSelect.value) formData.append("citation_style", citationSelect.value);
+    formData.append("pdf", withPdf ? "true" : "false");
+
+    try {
+      const resp = await fetch("/api/convert", { method: "POST", body: formData });
+      const body = await resp.json();
+      if (!resp.ok) {
+        throw new Error(body.detail || "conversion failed (" + resp.status + ")");
+      }
+
+      setStatus(
+        (body.success ? "Done. " : "Finished with errors. ") + "Output: " + body.output_dir
+      );
+
+      if (body.warnings && body.warnings.length) {
+        body.warnings.forEach((message) => {
+          const li = document.createElement("li");
+          li.textContent = message;
+          warningsList.appendChild(li);
+        });
+        warningsPanel.classList.remove("hidden");
+      }
+
+      if (body.report_md) {
+        reportText.textContent = body.report_md;
+        reportPanel.classList.remove("hidden");
+      }
+
+      if (body.pdf_url) {
+        pdfEmbed.setAttribute("src", body.pdf_url);
+        pdfPanel.classList.remove("hidden");
+      }
+    } catch (err) {
+      showError(err.message);
+      setStatus("");
+    } finally {
+      updateButtons();
+    }
+  }
+
+  convertBtn.addEventListener("click", () => runConvert(false));
+  convertPdfBtn.addEventListener("click", () => runConvert(true));
+
+  loadJournals();
+})();
+</script>
+</body>
+</html>

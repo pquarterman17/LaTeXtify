@@ -1,11 +1,12 @@
 """Command-line interface.
 
-Current surface (plan items 5, 16, 18, 23):
+Current surface (plan items 5, 16, 18, 19, 23):
 
     latextify convert paper.docx --journal revtex4-2 [--output output] \\
         [--citation-style numeric|authoryear] [--pdf] [--report/--no-report]
     latextify journals              # list registered journal templates (item 18)
     latextify equations paper.docx [--output DIR] [--pdf]  # equation audit (item 23)
+    latextify gui [--port 8501] [--no-browser] [--workdir DIR]  # local web GUI (item 19)
 
 Planned (later items):
 
@@ -15,6 +16,7 @@ Planned (later items):
 from __future__ import annotations
 
 import subprocess
+import webbrowser
 from pathlib import Path
 
 import typer
@@ -225,6 +227,52 @@ def equations(
 
     if exit_code != 0:
         raise typer.Exit(code=exit_code)
+
+
+@app.command()
+def gui(
+    port: int = typer.Option(
+        8501, "--port", help="Port to bind the local GUI server to."
+    ),
+    no_browser: bool = typer.Option(
+        False,
+        "--no-browser",
+        help="Don't automatically open a browser window.",
+    ),
+    workdir: Path = typer.Option(
+        None,
+        "--workdir",
+        help="Directory for per-conversion working files (default: a fresh temp dir).",
+    ),
+) -> None:
+    """Start a local web GUI (drag-and-drop, journal picker, PDF preview).
+
+    Binds 127.0.0.1 only -- this is a local tool and uploaded manuscripts
+    are private, never exposed on the network. Requires the optional 'gui'
+    extra (fastapi, uvicorn, python-multipart); see the error message below
+    if it isn't installed.
+    """
+    try:
+        import uvicorn
+
+        from latextify.gui.server import create_app
+    except ImportError as exc:
+        typer.echo(
+            "error: the GUI requires optional dependencies that aren't installed.\n"
+            "Install them with:\n"
+            "  uv pip install 'latextify[gui]'\n"
+            "or:\n"
+            "  pip install 'latextify[gui]'",
+            err=True,
+        )
+        raise typer.Exit(code=1) from exc
+
+    application = create_app(workdir=workdir)
+    url = f"http://127.0.0.1:{port}"
+    typer.echo(f"LaTeXtify GUI running at {url} (Ctrl+C to stop)")
+    if not no_browser:
+        webbrowser.open(url)
+    uvicorn.run(application, host="127.0.0.1", port=port)
 
 
 def main() -> None:

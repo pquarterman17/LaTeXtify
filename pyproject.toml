@@ -26,6 +26,14 @@ dependencies = [
 cairo = [
     "cairosvg>=2.7",
 ]
+# Local web GUI (plan item 19): `latextify gui`. Optional so the CLI-only
+# install stays light; latextify.cli's `gui` command imports these lazily
+# and prints an actionable install hint if they're missing.
+gui = [
+    "fastapi>=0.115",
+    "uvicorn>=0.30",
+    "python-multipart>=0.0.9",  # required by fastapi to parse multipart file uploads
+]
 
 [dependency-groups]
 dev = [
@@ -34,6 +42,9 @@ dev = [
     "ruff>=0.5",
     "cairosvg>=2.7",  # installed for dev/test so the primary SVG->PDF path is
                        # exercised too, not just the svglib fallback (item 15)
+    "fastapi>=0.115",  # gui extra, installed for dev/test so tests/test_gui.py runs (item 19)
+    "uvicorn>=0.30",
+    "python-multipart>=0.0.9",
 ]
 
 [project.scripts]
@@ -58,6 +69,9 @@ select = ["E", "F", "I", "UP", "B"]
 # typer's Argument()/Option() calls as parameter defaults are the documented
 # way to declare CLI options -- not the mutable-default footgun B008 flags.
 "latextify/cli.py" = ["B008"]
+# Same pattern, FastAPI's side: File()/Form() calls as parameter defaults are
+# the documented way to declare request-body fields.
+"latextify/gui/server.py" = ["B008"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
