@@ -8,7 +8,7 @@ user-supplied `.bib` (also the long-open offline-plan item 9).
 
 **Status:** Active
 **Created:** 2026-07-12
-**Updated:** 2026-07-12 — items 1–3 shipped; item 4 (frontend) open
+**Updated:** 2026-07-12 — items 1–4 shipped; only Tier 3 item 5 remains
 
 ---
 
@@ -52,14 +52,6 @@ user-supplied `.bib` (also the long-open offline-plan item 9).
 
 ---
 
-## Tier 2 — Medium Impact
-
-4. **Frontend multi-file UI** — multi-file dropzone, a row per file with an
-   auto-detected role dropdown (+ figure-number field), the options panel
-   (checkboxes + Crossref email + citation-style select), and result actions
-   (preview PDF, download project .zip / combined.pdf / audit.pdf).
-   - [ ] rebuilt `index.html` + a light DOM/endpoint smoke test
-
 ## Tier 3 — Nice-to-Have
 
 5. **Fully-separate figures** — insert a dropped figure file for figure N even
@@ -91,3 +83,12 @@ user-supplied `.bib` (also the long-open offline-plan item 9).
   tokens for main/supplement/combined/audit PDFs (`/api/pdf/{token}`) and the
   project `.zip` (new `/api/zip/{token}`). 9 tests incl. a tectonic end-to-end
   (pdf+combine+audit+zip) in `tests/test_gui.py`.
+- ~~**#4 Frontend multi-file UI**~~ (2026-07-12) — rebuilt
+  `latextify/gui/static/index.html` (buildless vanilla JS): multi-file
+  dropzone, a per-file row with an auto-detected role dropdown
+  (Main/Supplement/Figure/References/Ignore) + figure-number field, an options
+  panel (Compile PDF / Combine supplement / Download .zip / Equation-audit
+  checkboxes, Crossref email, citation-style select), and result actions —
+  a PDF preview with Main/Supplement/Combined/Audit tabs plus .zip/combined/
+  audit download links. Posts one `multipart/form-data` to
+  `/api/convert-multi`. DOM-contract smoke test in `tests/test_gui.py`.

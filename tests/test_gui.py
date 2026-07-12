@@ -52,6 +52,20 @@ def test_index_serves_the_static_page(tmp_path):
     assert "LaTeXtify" in response.text
 
 
+def test_index_wires_the_multifile_ui(tmp_path):
+    """The static page drives /api/convert-multi with a multi-file dropzone,
+    per-file role dropdowns, and the four option toggles (buildless, so this
+    is a DOM-contract smoke test rather than a JS execution test)."""
+    html = _client(tmp_path).get("/").text
+
+    assert "/api/convert-multi" in html
+    assert "multiple" in html  # multi-file input
+    assert 'id="filelist"' in html  # per-file role table
+    assert 'id="crossref-email"' in html
+    for toggle in ("opt-pdf", "opt-combine", "opt-zip", "opt-audit"):
+        assert f'id="{toggle}"' in html, toggle
+
+
 # --------------------------------------------------------------------------- #
 # GET /api/journals
 # --------------------------------------------------------------------------- #
