@@ -2,6 +2,13 @@
 passes (see ``latextify.ingest.pandoc.convert_docx_to_body``).
 
 Applied in this order:
+    0. :func:`promote_pseudo_headings` -- rewrite section headings the
+       manuscript TYPED instead of styling (bare ALL-CAPS / numbered lines, or
+       Word ListParagraph headings pandoc read as single-item enumerate lists)
+       into real ``Header`` nodes, so the body gains ``\\section`` structure
+       (gap 7) and the emitter's reference-list stripping can find a
+       ``\\section{References}`` heading. Runs first so the promoted headers
+       are level-normalized alongside any genuinely styled ones.
     1. :func:`normalize_headings` -- shift + clamp Header levels onto the
        1..3 range pandoc's LaTeX writer maps to
        ``\\section``/``\\subsection``/``\\subsubsection``.
@@ -146,11 +153,152 @@ class AnchorCounts:
 
 @dataclass
 class FilterResult:
-    """Aggregate return value of running all three filters in sequence."""
+    """Aggregate return value of running all filters in sequence."""
 
     doc: pf.Doc
     anchors: AnchorCounts
     findings: list[FilterFinding] = field(default_factory=list)
+
+
+# --- typed (unstyled) section-heading promotion ------------------------------
+
+# A section heading TYPED inline rather than given a Word heading style. These
+# recognize the same shapes as
+# ``latextify.ingest.metadata_guess._looks_like_section_heading`` (the docx-
+# _Para sibling that finds where front matter ends), but on the pandoc-AST side
+# and returning the cleaned title + level so a Header can be built -- plus
+# arabic-numbered headings the front-matter terminator has no need for. Kept
+# parallel rather than shared because the two operate on different data models
+# (raw docx paragraph vs pandoc-stringified text) and return different types.
+_ROMAN_HEADING_RE = re.compile(r"^[IVXLC]+\.\s+(\S.*)$")
+_NUMBERED_HEADING_RE = re.compile(r"^(\d+(?:\.\d+)*)\.?\s+(\S.*)$")
+_MAX_HEADING_TEXT_LEN = 60
+
+
+def _section_heading_title(text: str) -> tuple[str, int] | None:
+    """Return ``(clean title, level)`` when ``text`` reads as a section heading.
+
+    Recognizes the three shapes real manuscripts type instead of styling:
+      * ALL-CAPS -- "INTRODUCTION", "METHODS", "REFERENCES" (level 1)
+      * roman-numbered -- "I. Introduction", "II. Methods" (level 1)
+      * arabic-numbered -- "1. Introduction" (level 1), "1.1 Methods" (level 2)
+
+    Returns ``None`` for anything longer than :data:`_MAX_HEADING_TEXT_LEN`,
+    ending in sentence/label punctuation, or whose title is not itself
+    capitalized -- the guards that keep genuine prose and content-list items
+    from being mistaken for headings.
+    """
+    text = text.strip()
+    if not text or len(text) > _MAX_HEADING_TEXT_LEN:
+        return None
+    if text[-1] in ".!?:;,":  # trailing sentence/label punctuation -> not a heading
+        return None
+    roman = _ROMAN_HEADING_RE.match(text)
+    if roman:
+        return roman.group(1).strip(), 1
+    numbered = _NUMBERED_HEADING_RE.match(text)
+    if numbered and numbered.group(2)[:1].isupper():
+        level = min(numbered.group(1).count(".") + 1, MAX_HEADING_LEVEL)
+        return numbered.group(2).strip(), level
+    letters = [c for c in text if c.isalpha()]
+    if letters and all(c.isupper() for c in letters):
+        return text, 1
+    return None
+
+
+def _title_inlines(title: str) -> list[pf.Element]:
+    """Build Header inline content from a plain title string (Str + Space)."""
+    inlines: list[pf.Element] = []
+    for i, word in enumerate(title.split()):
+        if i:
+            inlines.append(pf.Space())
+        inlines.append(pf.Str(word))
+    return inlines
+
+
+def _list_item_heading(item: pf.ListItem) -> tuple[str, int] | None:
+    """``(title, level)`` when a list item is a single heading-like paragraph.
+
+    A Word section heading styled as ListParagraph reaches pandoc as a list
+    item whose only block is the heading paragraph; the list's own numbering
+    (roman/arabic) lives in the marker, so the item TEXT is the bare title and
+    only the ALL-CAPS shape typically matches here -- which is exactly what
+    keeps a genuine content-list item (mixed-case, sentence) from qualifying.
+    """
+    blocks = list(item.content)
+    if len(blocks) != 1 or not isinstance(blocks[0], (pf.Para, pf.Plain)):
+        return None
+    return _section_heading_title(pf.stringify(blocks[0]))
+
+
+def _blocks_to_headers(block: pf.Element) -> list[pf.Header] | None:
+    """Headers a top-level ``block`` should become, or ``None`` to leave it.
+
+    Two source shapes: a bare (often bold) paragraph typed as a heading, and a
+    ListParagraph-styled heading pandoc read as a list. A list is promoted only
+    when EVERY item reads as a heading, so a genuine multi-item content list is
+    never disturbed.
+    """
+    if isinstance(block, (pf.Para, pf.Plain)):
+        parsed = _section_heading_title(pf.stringify(block))
+        if parsed is None:
+            return None
+        title, level = parsed
+        return [pf.Header(*_title_inlines(title), level=level)]
+    if isinstance(block, (pf.OrderedList, pf.BulletList)):
+        headers: list[pf.Header] = []
+        for item in block.content:
+            parsed = _list_item_heading(item)
+            if parsed is None:
+                return None  # any non-heading item -> genuine list, leave intact
+            title, level = parsed
+            headers.append(pf.Header(*_title_inlines(title), level=level))
+        return headers or None
+    return None
+
+
+def promote_pseudo_headings(doc: pf.Doc) -> tuple[pf.Doc, list[FilterFinding]]:
+    """Promote TYPED (unstyled) section headings to real Header nodes.
+
+    Real manuscripts author section headings as bare ALL-CAPS / numbered lines
+    with NO Word heading style. pandoc then reads them either as a plain (often
+    bold) paragraph or -- when they carry Word's ListParagraph style -- as a
+    single-item enumerate list, so the document converts with zero ``\\section``
+    commands and (for the list case) the headings render as ``\\begin{enumerate}``
+    items. Rewrite each heading-like top-level block to a ``Header`` so the body
+    gains real section structure; this also lets the citation stage's
+    reference-list stripping (which keys off a ``\\section{References}``-style
+    heading) find and drop the typed bibliography (gap 7).
+
+    Only TOP-LEVEL blocks are considered -- a section heading never lives inside
+    a table cell or block quote -- and a list is promoted only when EVERY item
+    reads as a heading. Mutates ``doc`` in place; also returns it for chaining.
+    """
+    new_blocks: list[pf.Element] = []
+    promoted = 0
+    for block in doc.content:
+        headers = _blocks_to_headers(block)
+        if headers is None:
+            new_blocks.append(block)
+        else:
+            new_blocks.extend(headers)
+            promoted += len(headers)
+    if promoted:
+        doc.content = new_blocks
+    findings = (
+        [
+            FilterFinding(
+                message=(
+                    f"promoted {promoted} typed section heading(s) to \\section "
+                    "(the source styled them as bold/ALL-CAPS or list text, not a "
+                    "Word heading style)"
+                )
+            )
+        ]
+        if promoted
+        else []
+    )
+    return doc, findings
 
 
 def normalize_headings(doc: pf.Doc) -> tuple[pf.Doc, list[FilterFinding]]:
@@ -355,6 +503,41 @@ def _table_body_rows(table: pf.Table) -> list[pf.TableRow]:
     return rows
 
 
+# In a two-column journal a plain ``table`` float is only ~\columnwidth wide, so
+# a table with this many or more columns routinely runs off the page (a real
+# manuscript's volume-fraction table overflowed the right margin this way). Such
+# a table is instead emitted as a spanning ``table*`` and hard-bounded to
+# \textwidth with \resizebox (graphicx, always loaded), so no manuscript's wide
+# table can overflow regardless of its natural width. Narrow tables (< this many
+# columns) stay a plain ``table`` -- they fit a single column and must not be
+# upscaled by \resizebox.
+_WIDE_TABLE_MIN_COLS = 4
+
+
+def _wrap_table_float(caption_tex: str, tabular_lines: list[str], ncols: int) -> list[str]:
+    """Wrap a booktabs ``tabular`` in its float, spanning + bounding wide ones.
+
+    A table with :data:`_WIDE_TABLE_MIN_COLS` or more columns becomes a
+    two-column-spanning ``table*`` whose tabular is bounded to ``\\textwidth``
+    via ``\\resizebox``; narrower tables stay a single-column ``table`` at their
+    natural size. The caption is kept OUTSIDE the ``\\resizebox`` so it is not
+    scaled with the table body.
+    """
+    wide = ncols >= _WIDE_TABLE_MIN_COLS
+    env = "table*" if wide else "table"
+    lines = [f"\\begin{{{env}}}[htbp]", "\\centering"]
+    if caption_tex:
+        lines.append(f"\\caption{{{caption_tex}}}")
+    if wide:
+        lines.append("\\resizebox{\\textwidth}{!}{%")
+        lines.extend(tabular_lines)
+        lines.append("}")
+    else:
+        lines.extend(tabular_lines)
+    lines.append(f"\\end{{{env}}}")
+    return lines
+
+
 def _table_to_latex(table: pf.Table, api_version) -> str:
     """Assemble a ``table``+``tabular`` booktabs float for one clean Table."""
     header_rows = list(table.head.content)
@@ -363,21 +546,16 @@ def _table_to_latex(table: pf.Table, api_version) -> str:
     letters = _column_alignment_letters(table, body_rows)
     caption_tex = _blocks_to_latex(list(table.caption.content), api_version)
 
-    lines = ["\\begin{table}[htbp]", "\\centering"]
-    if caption_tex:
-        lines.append(f"\\caption{{{caption_tex}}}")
-    lines.append(f"\\begin{{tabular}}{{{''.join(letters)}}}")
-    lines.append("\\toprule")
+    tabular = [f"\\begin{{tabular}}{{{''.join(letters)}}}", "\\toprule"]
     for row in header_rows:
-        lines.append(_row_to_latex(row, api_version))
+        tabular.append(_row_to_latex(row, api_version))
     if header_rows:
-        lines.append("\\midrule")
+        tabular.append("\\midrule")
     for row in body_rows:
-        lines.append(_row_to_latex(row, api_version))
-    lines.append("\\bottomrule")
-    lines.append("\\end{tabular}")
-    lines.append("\\end{table}")
-    return "\n".join(lines)
+        tabular.append(_row_to_latex(row, api_version))
+    tabular.append("\\bottomrule")
+    tabular.append("\\end{tabular}")
+    return "\n".join(_wrap_table_float(caption_tex, tabular, len(letters)))
 
 
 def _is_nested_table(table: pf.Table) -> bool:
@@ -636,20 +814,16 @@ def _degraded_table_to_latex(table: pf.Table, api_version) -> str:
     caption_tex = _degraded_blocks_to_latex(list(table.caption.content), api_version)
 
     cache: dict[int, str] = {}
-    lines = ["\\begin{table}[htbp]", "\\centering"]
-    if caption_tex:
-        lines.append(f"\\caption{{{caption_tex}}}")
-    lines.append(f"\\begin{{tabular}}{{{''.join(letters)}}}")
-    lines.append("\\toprule")
+    tabular = [f"\\begin{{tabular}}{{{''.join(letters)}}}", "\\toprule"]
     for slots in _expand_grid_rows(header_rows, table.cols):
-        lines.append(_degraded_row_to_latex(slots, api_version, cache))
+        tabular.append(_degraded_row_to_latex(slots, api_version, cache))
     if header_rows:
-        lines.append("\\midrule")
+        tabular.append("\\midrule")
     for slots in _expand_grid_rows(body_rows, table.cols):
-        lines.append(_degraded_row_to_latex(slots, api_version, cache))
-    lines.append("\\bottomrule")
-    lines.append("\\end{tabular}")
-    lines.append("\\end{table}")
+        tabular.append(_degraded_row_to_latex(slots, api_version, cache))
+    tabular.append("\\bottomrule")
+    tabular.append("\\end{tabular}")
+    lines = _wrap_table_float(caption_tex, tabular, len(letters))
     lines.append("")
     lines.append(f"\\noindent\\textbf{{{_DEGRADED_TABLE_NOTE}}}")
     return "\n".join(lines)
@@ -726,9 +900,14 @@ def normalize_tables(doc: pf.Doc) -> tuple[pf.Doc, list[FilterFinding]]:
 
 
 def apply_all(doc: pf.Doc) -> FilterResult:
-    """Run all four filters in the fixed order documented above."""
+    """Run all filters in the fixed order documented above."""
+    doc, promo_findings = promote_pseudo_headings(doc)
     doc, heading_findings = normalize_headings(doc)
     doc = strip_word_junk(doc)
     doc, anchors = plant_anchors(doc)
     doc, table_findings = normalize_tables(doc)
-    return FilterResult(doc=doc, anchors=anchors, findings=heading_findings + table_findings)
+    return FilterResult(
+        doc=doc,
+        anchors=anchors,
+        findings=promo_findings + heading_findings + table_findings,
+    )

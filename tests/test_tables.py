@@ -23,6 +23,7 @@ import pytest
 
 from latextify.compile.tectonic import compile_document, ensure_tectonic, find_tectonic
 from latextify.emit.project import emit_project
+from latextify.ingest.filters import _wrap_table_float
 from latextify.ingest.pandoc import convert_docx_to_body
 from latextify.model import BodyConversionResult
 from latextify.templates import loader as templates_loader
@@ -84,6 +85,37 @@ def test_clean_table_rows_present(tables_result):
     assert "A & 4.2 & superconducting \\\\" in tex
     assert "B & 77 & boiling N2 \\\\" in tex
     assert "C & 300 & room temperature \\\\" in tex
+
+
+def test_wide_table_spans_columns_and_is_width_bounded():
+    # A 4+-column table would overflow a single revtex column, so it is emitted
+    # as a spanning table* and hard-bounded to \textwidth with \resizebox.
+    tabular = [
+        "\\begin{tabular}{llll}",
+        "\\toprule",
+        "a & b & c & d \\\\",
+        "\\bottomrule",
+        "\\end{tabular}",
+    ]
+    out = "\n".join(_wrap_table_float("A caption", tabular, ncols=4))
+    assert "\\begin{table*}" in out and "\\end{table*}" in out
+    assert "\\resizebox{\\textwidth}{!}{" in out
+    # The caption is kept OUTSIDE (before) the \resizebox so it is not scaled.
+    assert out.index("\\caption") < out.index("\\resizebox")
+
+
+def test_narrow_table_stays_single_column_and_unscaled():
+    tabular = [
+        "\\begin{tabular}{lrl}",
+        "\\toprule",
+        "a & b & c \\\\",
+        "\\bottomrule",
+        "\\end{tabular}",
+    ]
+    out = "\n".join(_wrap_table_float("Cap", tabular, ncols=3))
+    assert "\\begin{table}" in out
+    assert "table*" not in out
+    assert "\\resizebox" not in out  # a fitting table must never be upscaled
 
 
 def test_pathological_table_produces_a_finding(tables_result):
