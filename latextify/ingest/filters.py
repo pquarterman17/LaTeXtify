@@ -12,9 +12,14 @@ Applied in this order:
     1. :func:`normalize_headings` -- shift + clamp Header levels onto the
        1..3 range pandoc's LaTeX writer maps to
        ``\\section``/``\\subsection``/``\\subsubsection``.
-    2. :func:`strip_word_junk` -- remove empty Span/Div wrappers and empty
-       Str runs (bookmarks, proofErr marks, and similar zero-content
+    2. :func:`strip_word_junk` -- remove empty Span/Div wrappers, empty Str
+       runs, and whole blank paragraphs (bookmarks, proofErr marks, a stray
+       bold line break / non-breaking space, and similar zero-content
        artifacts docx round-trips can leave behind).
+    2b. :func:`associate_table_captions` -- move a stray "Table N:" paragraph
+       typed after a table (not styled as a Word caption) into that table's
+       ``\\caption{}``. Runs before :func:`plant_anchors` so the caption
+       paragraph is still pristine when consumed.
     3. :func:`plant_anchors` -- replace Image nodes with a raw
        ``%%FIGURE:<n>%%`` LaTeX anchor and any ``Cite`` node with a raw
        ``%%CITE:<idx>%%`` anchor, both numbered in document order, 1-based.
@@ -349,13 +354,44 @@ def normalize_headings(doc: pf.Doc) -> tuple[pf.Doc, list[FilterFinding]]:
     return doc, findings
 
 
+# Inline node types that carry real content even though they can stringify to
+# "" -- a blank-looking paragraph holding any of these must NOT be dropped.
+_CONTENT_INLINE_TYPES = (pf.Image, pf.Cite, pf.Math, pf.RawInline, pf.Note, pf.Link)
+
+
+def _is_blank_paragraph(block: pf.Element) -> bool:
+    """True for a Para/Plain with no visible content (only spaces/breaks/nbsp).
+
+    Word manuscripts leave empty styled paragraphs behind -- a blank bold line,
+    a stray non-breaking space -- which pandoc renders as junk like
+    ``\\textbf{\\hfill\\break}`` or a lone ``~`` at the end of the body. Guards
+    against a paragraph that looks blank but carries an image, citation, math,
+    raw LaTeX, footnote, or link (any of which can stringify to "").
+    """
+    if not isinstance(block, (pf.Para, pf.Plain)):
+        return False
+    if pf.stringify(block).strip():
+        return False
+    has_content = False
+
+    def check(elem: pf.Element, doc: pf.Doc | None = None) -> None:
+        nonlocal has_content
+        if isinstance(elem, _CONTENT_INLINE_TYPES):
+            has_content = True
+
+    block.walk(check)
+    return not has_content
+
+
 def strip_word_junk(doc: pf.Doc) -> pf.Doc:
-    """Remove empty Span/Div wrappers and empty Str runs.
+    """Remove empty Span/Div wrappers, empty Str runs, and blank paragraphs.
 
     docx round-trips (bookmarks, proofErr marks, tracked-change scaffolding
     pandoc doesn't fully collapse) can leave zero-content elements in the
     AST. They carry no text and pandoc's LaTeX writer would otherwise emit
-    stray empty groups/labels for them, so they're dropped outright.
+    stray empty groups/labels for them, so they're dropped outright -- as is a
+    whole paragraph that holds nothing but whitespace/line breaks (see
+    :func:`_is_blank_paragraph`).
 
     Mutates ``doc`` in place; also returns it for chaining.
     """
@@ -364,6 +400,8 @@ def strip_word_junk(doc: pf.Doc) -> pf.Doc:
         if isinstance(elem, (pf.Span, pf.Div)) and len(elem.content) == 0:
             return []
         if isinstance(elem, pf.Str) and elem.text == "":
+            return []
+        if _is_blank_paragraph(elem):
             return []
         return None
 
@@ -829,6 +867,57 @@ def _degraded_table_to_latex(table: pf.Table, api_version) -> str:
     return "\n".join(lines)
 
 
+# A "Table N:" / "Table N." caption LABEL that leads a stray caption paragraph.
+# The numeral (roman or arabic) must be a complete token (the lookahead) so
+# "Table Index of ..." is not misread as table "I". revtex renumbers, so only
+# the text AFTER the label (group "rest") is kept.
+_TABLE_CAPTION_LABEL_RE = re.compile(
+    r"^Table\s+(?:[IVXLC]+|\d+)(?=[\s.:])\s*[.:]?\s*(?P<rest>.+)$",
+    re.IGNORECASE | re.DOTALL,
+)
+
+
+def associate_table_captions(doc: pf.Doc) -> tuple[pf.Doc, list[FilterFinding]]:
+    """Attach a stray "Table N:" caption paragraph to its table.
+
+    When a manuscript types a table's caption as an ordinary paragraph right
+    after the table (not Word's Caption style), pandoc leaves the table's own
+    ``.caption`` empty and the "Table N: ..." text as a separate body block --
+    so it renders as loose prose and the table shows no caption. For a top-level
+    table with an empty caption whose immediately-following block is such a
+    paragraph, move that paragraph's text (minus the "Table N:" label) into the
+    table's caption and drop the paragraph. Mirrors the figure sibling-caption
+    search (:mod:`latextify.figures.extract`). Runs before :func:`plant_anchors`
+    so the caption paragraph is still pristine. Mutates ``doc``; also returns it.
+    """
+    blocks = list(doc.content)
+    new_blocks: list[pf.Element] = []
+    findings: list[FilterFinding] = []
+    skip_next = False
+    for i, block in enumerate(blocks):
+        if skip_next:
+            skip_next = False
+            continue
+        if isinstance(block, pf.Table) and not pf.stringify(block.caption).strip():
+            nxt = blocks[i + 1] if i + 1 < len(blocks) else None
+            if isinstance(nxt, (pf.Para, pf.Plain)):
+                match = _TABLE_CAPTION_LABEL_RE.match(pf.stringify(nxt).strip())
+                if match:
+                    block.caption = pf.Caption(pf.Plain(*_title_inlines(match.group("rest"))))
+                    skip_next = True
+                    findings.append(
+                        FilterFinding(
+                            message=(
+                                "associated a 'Table N:' caption paragraph with its "
+                                "table (the source did not use Word's Caption style)"
+                            )
+                        )
+                    )
+        new_blocks.append(block)
+    doc.content = new_blocks
+    return doc, findings
+
+
 def normalize_tables(doc: pf.Doc) -> tuple[pf.Doc, list[FilterFinding]]:
     """Replace every Table node with hand-assembled booktabs LaTeX.
 
@@ -904,10 +993,11 @@ def apply_all(doc: pf.Doc) -> FilterResult:
     doc, promo_findings = promote_pseudo_headings(doc)
     doc, heading_findings = normalize_headings(doc)
     doc = strip_word_junk(doc)
+    doc, caption_findings = associate_table_captions(doc)
     doc, anchors = plant_anchors(doc)
     doc, table_findings = normalize_tables(doc)
     return FilterResult(
         doc=doc,
         anchors=anchors,
-        findings=promo_findings + heading_findings + table_findings,
+        findings=promo_findings + heading_findings + caption_findings + table_findings,
     )

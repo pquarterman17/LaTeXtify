@@ -13,6 +13,7 @@ import panflute as pf
 import pypandoc
 
 from latextify.ingest.filters import (
+    associate_table_captions,
     normalize_headings,
     normalize_tables,
     plant_anchors,
@@ -122,6 +123,75 @@ def test_strip_word_junk_preserves_non_empty_span_and_div():
     assert len(doc.content) == 2
     assert isinstance(doc.content[0].content[0], pf.Span)
     assert isinstance(doc.content[1], pf.Div)
+
+
+def test_strip_word_junk_drops_blank_paragraphs():
+    # A bare non-breaking space and a bold trailing line break (the
+    # "\textbf{\hfill\break}" artifact) are both content-free -> dropped.
+    doc = pf.Doc(
+        pf.Para(pf.Str("real content")),
+        pf.Para(pf.Str("\xa0")),
+        pf.Para(pf.Strong(pf.LineBreak)),
+        pf.Para(pf.Space, pf.SoftBreak),
+    )
+    doc = strip_word_junk(doc)
+    assert [pf.stringify(b).strip() for b in doc.content] == ["real content"]
+
+
+def test_strip_word_junk_keeps_blank_looking_paragraph_with_an_image():
+    # An image-only paragraph stringifies to "" but must NOT be dropped.
+    doc = pf.Doc(pf.Para(pf.Image(url="fig.png")))
+    doc = strip_word_junk(doc)
+    assert len(doc.content) == 1
+    assert isinstance(doc.content[0], pf.Para)
+
+
+# ---------------------------
+# associate_table_captions
+# ---------------------------
+
+
+def _table_with_empty_caption() -> pf.Table:
+    row = pf.TableRow(pf.TableCell(pf.Plain(pf.Str("x"))))
+    return pf.Table(pf.TableBody(row), head=pf.TableHead(row))
+
+
+def test_table_caption_paragraph_is_absorbed_and_label_stripped():
+    doc = pf.Doc(
+        _table_with_empty_caption(),
+        pf.Para(pf.Str("Table"), pf.Space, pf.Str("I:"), pf.Space, pf.Str("Volume"),
+                pf.Space, pf.Str("fractions.")),
+        pf.Para(pf.Str("Body text after.")),
+    )
+    doc, findings = associate_table_captions(doc)
+    # The stray caption paragraph is gone; the table now carries the caption.
+    assert [type(b).__name__ for b in doc.content] == ["Table", "Para"]
+    # "Table I:" label stripped (revtex renumbers); caption text kept.
+    assert pf.stringify(doc.content[0].caption).strip() == "Volume fractions."
+    assert pf.stringify(doc.content[1]).strip() == "Body text after."
+    assert len(findings) == 1
+
+
+def test_table_with_existing_caption_is_left_alone():
+    table = _table_with_empty_caption()
+    table.caption = pf.Caption(pf.Plain(pf.Str("Real caption")))
+    doc = pf.Doc(table, pf.Para(pf.Str("Table 1: not the caption")))
+    doc, findings = associate_table_captions(doc)
+    assert len(doc.content) == 2  # nothing absorbed
+    assert findings == []
+
+
+def test_non_caption_paragraph_after_table_is_not_absorbed():
+    # "Table Index of samples" is prose, not a "Table N:" label.
+    doc = pf.Doc(
+        _table_with_empty_caption(),
+        pf.Para(pf.Str("Table"), pf.Space, pf.Str("Index"), pf.Space, pf.Str("of"),
+                pf.Space, pf.Str("samples")),
+    )
+    doc, findings = associate_table_captions(doc)
+    assert len(doc.content) == 2
+    assert not pf.stringify(doc.content[0].caption).strip()
+    assert findings == []
 
 
 # ---------------------------
