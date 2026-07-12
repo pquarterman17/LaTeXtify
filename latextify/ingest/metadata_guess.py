@@ -60,7 +60,18 @@ _ABSTRACT_HEADING_RE = re.compile(r"^abstract$", re.IGNORECASE)
 _KEYWORDS_RE = re.compile(r"^(?:keywords|key\s*words)\s*[:.]\s*(.*)$", re.IGNORECASE)
 _EMAIL_RE = re.compile(r"[\w.+-]+@(?:[\w-]+\.)+[\w-]+")
 _CORRESPONDING_RE = re.compile(r"correspond", re.IGNORECASE)
-_MARKER_SPLIT_RE = re.compile(r"[,\s]+")
+# A single superscript run can pack an affiliation reference and a
+# corresponding-author symbol together with NO separator, e.g. "1*", "*1",
+# "2†". Splitting only on commas/whitespace (the old behavior) left "1*" as one
+# token that is neither ``isalnum()`` (so never read as affiliation 1) nor
+# cleanly a symbol -- the digit was silently lost, and the author ended up with
+# no affiliation (which then mis-attaches to the next affiliation block under
+# REVTeX). Instead tokenize each run into maximal ALPHANUMERIC groups (each an
+# affiliation marker: "1", "12", "a", or a sub-affiliation label "1a") and
+# individual NON-alphanumeric symbols (each a corresponding-author flag: "*",
+# "†", "‡", "§"). Comma/semicolon/whitespace remain pure separators -- never
+# flags -- so "1,2" still yields ["1", "2"], not ["1", ",", "2"].
+_MARKER_TOKEN_RE = re.compile(r"[0-9A-Za-z]+|[^0-9A-Za-z\s,;]")
 _AUTHOR_SEP_RE = re.compile(r"\s*(?:,|;|\band\b|&)\s*", re.IGNORECASE)
 _LEADING_MARKER_RE = re.compile(r"[0-9a-zA-Z]{1,3}")
 
@@ -154,7 +165,14 @@ def _extract_paragraphs(root, limit: int) -> list[_Para]:
 
 
 def _split_marker_text(marker_text: str) -> list[str]:
-    return [m for m in _MARKER_SPLIT_RE.split(marker_text.strip()) if m]
+    """Tokenize a superscript marker run into affiliation markers + flags.
+
+    See :data:`_MARKER_TOKEN_RE` for the tokenization rule. Downstream,
+    :func:`_guess_authors` classifies each token: ``isalnum()`` tokens are
+    affiliation markers, the rest are corresponding-author flags. So a bare
+    ``"1*"`` correctly yields affiliation ``"1"`` AND a corresponding flag.
+    """
+    return _MARKER_TOKEN_RE.findall(marker_text)
 
 
 def _guess_title(paras: list[_Para]) -> tuple[str, int, list[str]]:

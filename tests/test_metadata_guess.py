@@ -15,6 +15,7 @@ import yaml
 from latextify.ingest.metadata_guess import (
     MetaGuess,
     MetaValidationError,
+    _split_marker_text,
     guess_meta,
     load_meta,
     load_or_create_meta,
@@ -491,6 +492,99 @@ def test_guess_low_confidence_flags_when_cues_are_missing(tmp_path):
     assert "keywords" in result.checks
     assert result.meta.abstract == ""
     assert result.meta.keywords == ()
+
+
+# --------------------------------------------------------------------------
+# Composite superscript marker tokenization (gap 5: "1*" etc. lost the digit)
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "text, expected",
+    [
+        # The motivating bug: digit + symbol with no separator.
+        ("1*", ["1", "*"]),
+        # Symbol first.
+        ("*1", ["*", "1"]),
+        # Other corresponding symbols (dagger, double-dagger, section).
+        ("1†", ["1", "†"]),
+        ("1‡", ["1", "‡"]),
+        ("2§", ["2", "§"]),
+        # Letter affiliation marker + symbol.
+        ("a*", ["a", "*"]),
+        # Bare corresponding symbol only (must NOT invent an affiliation).
+        ("*", ["*"]),
+        # Separators stay separators, never flags: comma/semicolon/space.
+        ("1,2", ["1", "2"]),
+        ("1;2", ["1", "2"]),
+        ("1, 2", ["1", "2"]),
+        # Comma between a digit and a symbol still splits cleanly.
+        ("2,†", ["2", "†"]),
+        # Multi-digit and sub-affiliation labels stay whole (not over-split).
+        ("12", ["12"]),
+        ("1a", ["1a"]),
+        # Empty / whitespace-only runs yield nothing.
+        ("", []),
+        ("  ", []),
+    ],
+)
+def test_split_marker_text_tokenizes_composites(text, expected):
+    assert _split_marker_text(text) == expected
+
+
+def test_composite_superscript_without_comma_keeps_affiliation_and_corresponding(tmp_path):
+    """The YIG-paper bug: an author superscript run typed as a single "1*"
+    (no comma between the affiliation digit and the corresponding symbol).
+
+    The pre-fix tokenizer split only on commas/whitespace, so "1*" stayed one
+    token that failed ``isalnum()`` -- the author was flagged corresponding
+    but lost affiliation 1 entirely (which then mis-attached to the next
+    affiliation block under REVTeX). Both parts must now survive.
+    """
+    docx_module = pytest.importorskip("docx")
+    doc = docx_module.Document()
+
+    doc.add_paragraph(style="Title").add_run("A Study With Composite Markers")
+
+    authors = doc.add_paragraph()
+    authors.add_run("Ada Lovelace")
+    _add_superscript(authors, "1*")  # composite, no comma
+    authors.add_run(", Bob Barker")
+    _add_superscript(authors, "2")
+
+    aff1 = doc.add_paragraph()
+    _add_superscript(aff1, "1")
+    aff1.add_run("Institute One")
+
+    aff2 = doc.add_paragraph()
+    _add_superscript(aff2, "2")
+    aff2.add_run("Institute Two")
+
+    corr = doc.add_paragraph()
+    _add_superscript(corr, "*")
+    corr.add_run("Corresponding author: ada@example.edu")
+
+    doc.add_paragraph("Abstract")
+    doc.add_paragraph("We study something interesting.")
+
+    path = tmp_path / "composite_marker.docx"
+    doc.save(path)
+
+    result = guess_meta(path)
+    ada, bob = result.meta.authors
+    affs = result.meta.affiliations
+
+    # Ada keeps BOTH: affiliation 1 AND corresponding.
+    assert affs[ada.affiliations[0]].name == "Institute One"
+    assert ada.corresponding is True
+    assert ada.email == "ada@example.edu"
+    # Bob is unaffected and correctly linked to Institute Two.
+    assert affs[bob.affiliations[0]].name == "Institute Two"
+    assert bob.corresponding is False
+
+    # A valid, in-range Meta that round-trips through paper.yaml validation.
+    rendered = render_paper_yaml(result.meta, result.checks)
+    assert meta_from_yaml_data(yaml.safe_load(rendered)) == result.meta
 
 
 # --------------------------------------------------------------------------
