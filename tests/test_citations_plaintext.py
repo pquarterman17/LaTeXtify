@@ -170,6 +170,60 @@ def test_segment_bracketed_numbers(tmp_path):
     assert reflist.references[0].text.startswith("Smith")
 
 
+def test_segment_bracketed_numbers_no_space_after_bracket(tmp_path):
+    # Real manuscripts often type "[4]Giles, ..." with NO space after the
+    # closing bracket. Without tolerating this, the whole paragraph fails to
+    # match at all: ref_number stays None and the raw "[4]" leaks into the
+    # text handed to Crossref/raw-entry emission (observed real-world bug).
+    doc = Document()
+    doc.add_heading("References", level=1)
+    doc.add_paragraph("[4]Giles, B. L. Fourth. (2020).")
+    path = tmp_path / "brk_nospace.docx"
+    doc.save(path)
+    reflist = segment_reference_list(path)
+    assert [r.number for r in reflist.references] == [4]
+    assert reflist.references[0].text == "Giles, B. L. Fourth. (2020)."
+    assert "[4]" not in reflist.references[0].text
+
+
+def test_segment_parenthesized_numbers(tmp_path):
+    doc = Document()
+    doc.add_heading("References", level=1)
+    doc.add_paragraph("(1) Smith, A. First. (2020).")
+    doc.add_paragraph("(2) Jones, B. Second. (2019).")
+    path = tmp_path / "paren.docx"
+    doc.save(path)
+    reflist = segment_reference_list(path)
+    assert [r.number for r in reflist.references] == [1, 2]
+    assert reflist.references[0].text.startswith("Smith")
+    assert "(1)" not in reflist.references[0].text
+
+
+def test_segment_parenthesized_numbers_no_space(tmp_path):
+    doc = Document()
+    doc.add_heading("References", level=1)
+    doc.add_paragraph("(3)Doe, C. Third. (2018).")
+    path = tmp_path / "paren_nospace.docx"
+    doc.save(path)
+    reflist = segment_reference_list(path)
+    assert [r.number for r in reflist.references] == [3]
+    assert reflist.references[0].text == "Doe, C. Third. (2018)."
+
+
+def test_segment_decimal_at_paragraph_start_not_misread_as_reference_number(tmp_path):
+    # Regression guard for the bracket/paren whitespace relaxation: a bare
+    # "N." form must still require a trailing space, so "3.14 times as
+    # large" at a paragraph's start is never misread as reference number 3.
+    doc = Document()
+    doc.add_heading("References", level=1)
+    doc.add_paragraph("3.14159 is not a reference number. (2020).")
+    path = tmp_path / "decimal.docx"
+    doc.save(path)
+    reflist = segment_reference_list(path)
+    assert reflist.references[0].number is None
+    assert reflist.references[0].text.startswith("3.14159")
+
+
 def test_segment_no_reference_list(tmp_path):
     doc = Document()
     doc.add_heading("Introduction", level=1)

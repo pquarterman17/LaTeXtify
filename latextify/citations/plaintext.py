@@ -65,8 +65,23 @@ _HEADING_RE = re.compile(
     r"^\s*(?:\d+\.?\s+)?(" + "|".join(re.escape(k) for k in _HEADING_KEYWORDS) + r")\s*:?\s*$",
     re.IGNORECASE,
 )
-# Leading list number on a reference paragraph: "12.", "12)", "[12]".
-_LIST_NUMBER_RE = re.compile(r"^\s*(?:\[(\d+)\]|(\d+)[.)\]])\s+")
+# Leading list number on a reference paragraph: "12.", "12)", "[12]", "(12)".
+# The bracket/paren forms are self-delimiting (their own closing punctuation
+# unambiguously ends the marker), so the trailing separator is OPTIONAL --
+# real manuscripts often type "[4]B. L. Giles, ..." with no space after the
+# bracket. Without tolerating that, the whole "[4]B. L. Giles, ..." string
+# never matches at all: ref_number stays None AND the raw "[4]" leaks into
+# the text handed to Crossref/raw-entry emission (poisoning both the query
+# and the generated BibTeX key, e.g. an observed key "4b2015"). The bare
+# "N." / "N)" / "N]" form keeps a MANDATORY trailing space -- "3.14" at a
+# paragraph's start must never be misread as reference number 3.
+_LIST_NUMBER_RE = re.compile(
+    r"^\s*(?:"
+    r"\[(?P<br>\d+)\]\s*"
+    r"|\((?P<pr>\d+)\)\s*"
+    r"|(?P<dot>\d+)[.)\]]\s+"
+    r")"
+)
 
 
 def _q(name: str) -> str:
@@ -145,7 +160,7 @@ def segment_reference_list(docx_path: Path | str) -> ReferenceList:
             continue
         match = _LIST_NUMBER_RE.match(text)
         if match:
-            number = int(match.group(1) or match.group(2))
+            number = int(match.group("br") or match.group("pr") or match.group("dot"))
             body = text[match.end() :].strip()
             references.append(ReferenceItem(text=body, number=number))
         elif _has_list_numbering(paragraph):
