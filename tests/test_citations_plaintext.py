@@ -14,6 +14,7 @@ from docx import Document
 
 from latextify.citations.plaintext import (
     PlaintextResult,
+    _raw_leading_surname,
     expand_numeric_range,
     link_body_markers,
     segment_reference_list,
@@ -368,6 +369,24 @@ def test_link_numeric_range_marker():
     assert any("no reference numbered 5" in w for w in warnings)
 
 
+def test_link_numeric_range_within_one_bracket_double_dash():
+    # A single typed marker "[1-3]" with an en dash reaches this stage as the
+    # body "{[}1--3{]}" (pandoc renders en dash -> "--"). The range's endpoints
+    # must still expand -- previously "1--3" split to ["1", "", "3"] and the
+    # whole marker was dropped, leaving literal "[1-3]" (the real-manuscript
+    # "[8-10]"/"[11-13]"/"[19-23]" bug).
+    tex, warnings = link_body_markers("Shown {[}1--3{]} here.", _result())
+    assert "Shown \\cite{smith2020,jones2019,brown2018} here." == tex
+    assert warnings == []
+
+
+def test_link_numeric_range_within_one_bracket_em_dash():
+    # Same, with an em dash pandoc renders as "---".
+    tex, warnings = link_body_markers("Shown {[}2---4{]} here.", _result())
+    assert "\\cite{jones2019,brown2018,chen2017}" in tex
+    assert warnings == []
+
+
 def test_link_numeric_range_across_separate_brackets():
     # pandoc brace-protects EACH bracket individually, so a typed "[1]-[3]"
     # range renders as two separate {[}N{]} groups joined by "--", not one
@@ -384,6 +403,39 @@ def test_link_numeric_range_across_separate_brackets_unicode_endash():
     tex, warnings = link_body_markers("See refs {[}1{]}–{[}3{]} for details.", _result())
     assert "\\cite{smith2020,jones2019,brown2018}" in tex
     assert warnings == []
+
+
+def test_link_endnote_temporary_citation_resolves_via_author_year():
+    # "{Davies, 2004 #78}" reaches this stage pandoc-escaped as
+    # "\{Davies, 2004 \#78\}"; resolve it through the author-year index.
+    result = _result(author_year_keys={("davies", "2004"): ["j2004"]})
+    tex, warnings = link_body_markers("measurements\\{Davies, 2004 \\#78\\}.", result)
+    assert tex == "measurements\\cite{j2004}."
+    assert warnings == []
+
+
+def test_link_endnote_temporary_citation_run_collapses_to_one_cite():
+    # A tripled paste of the same unformatted field must become ONE \cite.
+    result = _result(author_year_keys={("davies", "2004"): ["j2004"]})
+    body = (
+        "measurements\\{Davies, 2004 \\#78\\}"
+        "\\{Davies, 2004 \\#78\\}\\{Davies, 2004 \\#78\\}."
+    )
+    tex, warnings = link_body_markers(body, result)
+    assert tex == "measurements\\cite{j2004}."
+
+
+def test_link_endnote_temporary_citation_unresolved_warns_and_stays_literal():
+    tex, warnings = link_body_markers("x\\{Nobody, 1999 \\#5\\}.", _result())
+    assert "\\{Nobody, 1999 \\#5\\}" in tex  # never fabricated into a \cite
+    assert "\\cite" not in tex
+    assert any("EndNote temporary citation" in w for w in warnings)
+
+
+def test_raw_leading_surname_parses_typed_author():
+    assert _raw_leading_surname("J. E. Davies, O. Hellwig, and K. Liu, ... (2004).") == "davies"
+    assert _raw_leading_surname("B. J. Kirby, P. A. Kienzle, ...") == "kirby"
+    assert _raw_leading_surname("") is None
 
 
 def test_link_superscript_range_across_separate_commands():
@@ -545,6 +597,34 @@ def test_strip_removes_reference_section_to_eof():
     assert "Smith, A. First" not in stripped
     assert "\\section{Introduction}" in stripped
     assert "Body text." in stripped
+
+
+def test_strip_removes_bold_reference_heading_not_promoted_to_section():
+    # A Title-case "References" typed as a bold line is not ALL-CAPS, so
+    # heading promotion leaves it as \textbf{References}; the fallback must
+    # still strip the typed list from there to EOF.
+    tex = (
+        "\\section{Introduction}\\label{introduction}\n\n"
+        "Body text mentioning the references shown in Fig. 1.\n\n"
+        "\\textbf{References}\n\n"
+        "1. Smith, A. First. (2020).\n\n2. Jones, B. Second. (2019).\n"
+    )
+    stripped = strip_reference_section(tex, _result())
+    assert "\\textbf{References}" not in stripped
+    assert "Smith, A. First" not in stripped
+    # An in-sentence "references" earlier in the body must survive.
+    assert "the references shown in Fig. 1" in stripped
+    assert "Body text" in stripped
+
+
+def test_strip_removes_bare_reference_heading_paragraph():
+    tex = (
+        "Body text.\n\n"
+        "References\n\n"
+        "1. Smith, A. First. (2020).\n"
+    )
+    stripped = strip_reference_section(tex, _result())
+    assert stripped.rstrip().endswith("Body text.")
 
 
 def test_strip_no_op_when_no_reference_heading():

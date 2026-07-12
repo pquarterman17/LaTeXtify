@@ -201,13 +201,41 @@ class PlaintextResult:
         return ReconciliationReport(records=self.records)
 
 
+# Leading initials of a Western author name at a raw citation's start, e.g.
+# "J. E. " in "J. E. Davies, O. Hellwig, ...", so the surname after them can be
+# picked out.
+_RAW_INITIALS_RE = re.compile(r"^(?:[A-Z]\.[\s]*)+")
+
+
+def _raw_leading_surname(title: str) -> str | None:
+    """Leading author surname parsed from a raw-text reference's title.
+
+    A Crossref-unmatched entry keeps the whole typed citation in its ``.title``
+    ("J. E. Davies, O. Hellwig, ... (2004).") with no structured author, so the
+    author-year index would otherwise never point at it. Pull the first author's
+    surname ("davies") after any leading initials. Returns ``None`` when the head
+    (text before the first comma) does not look like an author name -- e.g. a
+    "See Supplemental Material ..." note -- so junk is not indexed.
+    """
+    head = title.split(",", 1)[0].strip()
+    head = _RAW_INITIALS_RE.sub("", head).strip()
+    if not head:
+        return None
+    first = head.split()[0].strip(".'`-").lower()
+    return first if first.isalpha() and len(first) >= 2 else None
+
+
 def _build_author_year_index(entries: list[RefEntry]) -> dict[tuple[str, str], list[str]]:
     index: dict[tuple[str, str], list[str]] = {}
     for entry in entries:
-        if not entry.authors or not entry.year:
+        if not entry.year:
             continue
-        first = entry.authors[0]
-        surname = (first.family or first.literal).strip().lower()
+        if entry.authors:
+            first = entry.authors[0]
+            surname = (first.family or first.literal).strip().lower()
+        else:
+            # Raw-text (Crossref-unmatched) entry: surname lives in the title.
+            surname = _raw_leading_surname(entry.title or "") or ""
         if not surname:
             continue
         index.setdefault((surname, entry.year), []).append(entry.key)
@@ -274,9 +302,29 @@ AUTHOR_YEAR_MARKER_RE = re.compile(
     r"(?P<year>(?:18|19|20)\d{2})[a-z]?"
     r"\)"
 )
+# An EndNote TEMPORARY (unformatted) citation the author never "updated":
+# "{Davies, 2004 #78}" -- and consecutive/semicolon-joined runs of them. pandoc
+# escapes the braces and hash, so in the LaTeX body it reads
+# "\{Davies, 2004 \#78\}"; the ``#<record>`` is the tell that distinguishes it
+# from ordinary braced prose. Matched as a RUN so "{A, 2004 #1}{B, 2005 #2}"
+# (or a tripled paste of the same cite) collapses to one \cite{...}.
+_ENDNOTE_TEMP_RUN_RE = re.compile(r"(?:\\\{[^{}]*?\\#[0-9]+[^{}]*?\\\})+")
+# One "Surname, Year" author-date pair inside such a marker.
+_ENDNOTE_SEG_RE = re.compile(
+    r"(?P<surname>[A-Z][A-Za-zÀ-ɏ.'`-]+)\s*,\s*(?P<year>(?:18|19|20)\d{2})"
+)
 # A sectioning command wrapping a reference-list heading, in pandoc's LaTeX.
 _REF_SECTION_RE = re.compile(r"\\(?:sub)*section\*?\{([^}]*)\}")
-_RANGE_SEP = re.compile(r"[‒–—-]")
+# A run of one-or-more dash characters separates a numeric range's endpoints.
+# The ``+`` is load-bearing: pandoc's LaTeX writer renders a typed en dash as
+# literal ASCII "--" (and an em dash as "---"), so a single-marker range like
+# "[8-10]" reaches expand_numeric_range as the body "8--10". With a single-dash
+# separator that splits to ["8", "", "10"] (three parts) and the range check
+# ``len(parts) == 2`` fails, silently dropping the whole marker -- the observed
+# "[8-10]"/"[11-13]"/"[19-23]" left as literal text in a real manuscript. (The
+# separate _BRACKET_JOIN_RE handles the DIFFERENT case of two bracket markers
+# joined by a dash, "{[}1{]}--{[}3{]}"; this handles the dash INSIDE one marker.)
+_RANGE_SEP = re.compile(r"[‒–—-]+")
 
 # pandoc brace-protects/escapes EACH "[12]" or "^12^" marker individually, so a
 # typed range like "[1]-[3]" (or its superscript equivalent) never reaches
@@ -387,20 +435,55 @@ def _dedup(seq: list[str]) -> list[str]:
     return out
 
 
+# A reference heading pandoc rendered WITHOUT a \section wrapper -- either a
+# bare "References" paragraph or a bold \textbf{References} line. Section-heading
+# promotion (latextify.ingest.filters.promote_pseudo_headings) turns an ALL-CAPS
+# "REFERENCES" into a real \section that the primary path below catches, but a
+# Title-case/bold "References" is not ALL-CAPS and slips through -- this is the
+# fallback that still strips the typed list in that case.
+_TEXTBF_LINE_RE = re.compile(r"^\s*\\textbf\{(.*)\}\s*$")
+
+
+def _find_bare_reference_heading(tex: str) -> int | None:
+    """Offset of the first body line that reads as a reference-list heading.
+
+    Scans line by line, unwrapping a lone ``\\textbf{...}`` bold wrapper, and
+    tests each candidate with :func:`_is_heading_paragraph` -- which requires
+    the WHOLE line to be a reference keyword (``References``, ``Bibliography``,
+    ...), so an in-sentence "the references show ..." never matches. Returns
+    ``None`` when no such heading line is present.
+    """
+    offset = 0
+    for line in tex.splitlines(keepends=True):
+        stripped = line.strip()
+        bold = _TEXTBF_LINE_RE.match(stripped)
+        candidate = bold.group(1).strip() if bold else stripped
+        if candidate and _is_heading_paragraph(candidate):
+            return offset
+        offset += len(line)
+    return None
+
+
 def strip_reference_section(tex: str, result: PlaintextResult) -> str:
     """Remove the typed reference list from the body (to EOF from its heading).
 
     The generated project renders the bibliography from ``references.bib`` via
-    ``\\bibliography``; leaving the typed list in the body would duplicate it.
-    Cuts from the first sectioning command whose title matches the reference-list
-    heading to the end of the body. If no such heading is present in ``tex``
-    (e.g. pandoc named it differently), the body is returned unchanged.
+    ``\\bibliography``; leaving the typed list in the body would duplicate it
+    (and, because each retained entry gets a ``\\cite`` prepended, render it a
+    second time with scrambled numbering). Cuts from the reference-list heading
+    to the end of the body. Prefers a real ``\\section{References}`` (headings
+    are promoted upstream); falls back to a bold/bare "References" line that was
+    never promoted (Title-case, not ALL-CAPS). Unchanged if no reference heading
+    is present in ``tex`` at all.
     """
     if not result.has_reference_list:
         return tex
     for match in _REF_SECTION_RE.finditer(tex):
         if _is_heading_paragraph(match.group(1).strip()):
             return tex[: match.start()].rstrip() + "\n"
+    offset = _find_bare_reference_heading(tex)
+    if offset is not None:
+        return tex[:offset].rstrip() + "\n"
     return tex
 
 
@@ -494,6 +577,35 @@ def link_body_markers(tex: str, result: PlaintextResult) -> tuple[str, list[str]
             )
         return match.group(0)
 
+    def endnote_temp_sub(match: re.Match[str]) -> str:
+        run = match.group(0)
+        keys: list[str] = []
+        unresolved: list[str] = []
+        for seg in _ENDNOTE_SEG_RE.finditer(run):
+            surname = seg.group("surname").strip(".,'`-").lower()
+            year = seg.group("year")
+            found = result.author_year_keys.get((surname, year))
+            if found:
+                keys.extend(found)
+            else:
+                unresolved.append(f"{seg.group('surname')}, {year}")
+        if not keys:
+            # Never fabricate a citation: leave the marker literal but flag it so
+            # the author can fix an EndNote field that was never updated/matched.
+            if unresolved:
+                warn(
+                    "EndNote temporary citation "
+                    f"'{{{'; '.join(unresolved)}}}' did not match any reconstructed "
+                    "reference; left as typed -- update the field or fix the reference."
+                )
+            return run
+        if unresolved:
+            warn(
+                "EndNote temporary citation partly unresolved: "
+                f"no reference for {'; '.join(unresolved)}"
+            )
+        return "\\cite{" + ",".join(_dedup(keys)) + "}"
+
     tex = _merge_dash_joined_markers(
         tex, _BRACKET_JOIN_RE, lambda content: "{[}" + content + "{]}"
     )
@@ -506,4 +618,5 @@ def link_body_markers(tex: str, result: PlaintextResult) -> tuple[str, list[str]
         lambda match: superscript_sub(match, body_start=body_start), tex
     )
     tex = AUTHOR_YEAR_MARKER_RE.sub(author_year_sub, tex)
+    tex = _ENDNOTE_TEMP_RUN_RE.sub(endnote_temp_sub, tex)
     return tex, messages
