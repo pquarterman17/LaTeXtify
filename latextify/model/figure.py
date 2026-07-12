@@ -22,8 +22,9 @@ clean-up is out of scope here; this module only produces the association.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from enum import StrEnum
 from pathlib import Path
+
+from ._compat import StrEnum
 
 
 class FigureSource(StrEnum):

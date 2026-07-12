@@ -125,18 +125,6 @@ instance — tests must cover members beyond the motivating example.
 
 ## Tier 1 — High Impact
 
-1. **Python 3.10 floor**
-   **Model:** Haiku 4.5 · **Touches:** `latextify/model/{compile,figure,preflight}.py`, `pyproject.toml`, `.github/workflows/ci.yml`
-   **Context:** Only real 3.11-ism is `enum.StrEnum` in the three model
-   files — replace with `class X(str, Enum)` (behavior-compatible for our
-   uses; verify str-formatting call sites: report renderer sorts/prints
-   severity values). `requires-python = ">=3.10"`, add 3.10 classifier,
-   ruff `target-version = "py310"` (then fix anything ruff flags as
-   3.10-incompatible), CI matrix gains "3.10". Audit for stragglers:
-   grep `tomllib|datetime.UTC|typing.Self|StrEnum|except\*`.
-   **Done when:** full suite green on 3.10 locally (`uv run --python 3.10
-   pytest`) and in CI matrix.
-
 2. **Offline kit builder — `latextify make-kit`**
    **Model:** Sonnet 5 · **Touches:** new `latextify/kit/` package, `cli.py` (one command)
    **Context:** MIRROR `../fermiviewer/tools/offline/make_bundle.py` — read
@@ -222,6 +210,36 @@ instance — tests must cover members beyond the motivating example.
    "download from the releases page" needs no online build machine at all.
    **Done when:** a tagged release carries three kit artifacts + checksums.
 
+## Tier 3 — Nice-to-Have
+
+8. **Usage example scripts** (added 2026-07-12, user request)
+   **Model:** Sonnet 5 · **Touches:** new `examples/` tree, README link.
+   **Context:** Three runnable, self-contained examples covering the input
+   shapes a real user hits, each with a fixture-generator (python-docx, as
+   the tests do — no committed binaries) + a run script + an expected-output
+   note. The three scenarios:
+   (a) **all-embedded** — one `.docx` with figures embedded and citations
+       inline; a single `latextify convert paper.docx -j revtex4-2 --pdf`.
+   (b) **Word + separate figures** — a `.docx` plus a sibling `figures/`
+       folder (folder-convention overrides) and/or a `figures.yaml` manifest;
+       shows the figure-override tiers.
+   (c) **fully multi-part** — a main `.docx` + a separate supplementary
+       `.docx` (`--supplement`) + externally-managed references (citations
+       carried as Zotero/Mendeley/EndNote field codes in the docx, reconciled
+       via Crossref; document how a reference-manager library feeds in).
+   VERIFY which of these the tool supports end-to-end today (esp. the
+   reference-manager path in (c)); build examples on the supported paths and
+   record any gap as a new item rather than faking it.
+   **Done when:** each example runs from a clean checkout to a PDF (or a clear
+   "needs Tectonic/network" note) and is linked from the README.
+
 ## Completed
 
-(none yet)
+- ~~**Item 1 — Python 3.10 floor**~~ (2026-07-12) — the only 3.11-ism was
+  `enum.StrEnum` (three model files). Rather than `class X(str, Enum)` (which
+  changes `__str__`/`__format__` to print `Class.MEMBER`), added a version-gated
+  shim `latextify/model/_compat.py`: stdlib `StrEnum` on 3.11+, a
+  behaviour-identical backport on 3.10. `requires-python = ">=3.10"`, 3.10 + 3.14
+  classifiers, ruff `target-version = "py310"`, CI matrix gains 3.10. Full unit
+  suite (726) green under `uv run --python 3.10`; new `tests/test_compat_strenum.py`
+  locks in the semantics the report renderer depends on.
