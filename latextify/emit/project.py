@@ -174,6 +174,18 @@ _DEFAULT_HYPERREF_LINE = (
     "\\usepackage[colorlinks=true,linkcolor=blue,citecolor=blue,urlcolor=blue]{hyperref}\n"
 )
 
+# A journal preamble that already fixes a bottom mode (either direction) is left
+# alone; otherwise \raggedbottom is appended (see _ensure_raggedbottom).
+_BOTTOM_MODE_RE = re.compile(r"\\(?:ragged|flush)bottom\b")
+_RAGGEDBOTTOM_LINE = (
+    "% Let each column end at its natural length. Two-column 'reprint' classes\n"
+    "% (REVTeX reprint, IEEEtran, elsarticle twocolumn) default to \\flushbottom,\n"
+    "% which stretches inter-paragraph glue to equalize column height -- opening a\n"
+    "% large gap on a text-only page whose figures floated elsewhere. Add\n"
+    "% \\flushbottom after this \\input in main.tex for the published look.\n"
+    "\\raggedbottom\n"
+)
+
 # Case 1: an anchor pandoc already wrapped in its own (possibly caption-
 # duplicating) figure environment -- swallow the whole block, caption and all.
 _WRAPPED_FIGURE_RE = re.compile(
@@ -340,7 +352,9 @@ def emit_project(
 
     bib_text = entries_to_bib(entries)
 
-    preamble_text = _ensure_hyperref(journal.render_preamble(mode=citation_style))
+    preamble_text = _ensure_raggedbottom(
+        _ensure_hyperref(journal.render_preamble(mode=citation_style))
+    )
     (generated_dir / "preamble.tex").write_text(preamble_text, encoding="utf-8")
 
     metadata_tex_path = write_metadata_tex(generated_dir, meta, journal)
@@ -526,6 +540,25 @@ def _ensure_hyperref(preamble_text: str) -> str:
     if not preamble_text.endswith("\n"):
         preamble_text += "\n"
     return preamble_text + _DEFAULT_HYPERREF_LINE
+
+
+def _ensure_raggedbottom(preamble_text: str) -> str:
+    """Append ``\\raggedbottom`` unless the journal preamble already sets a bottom mode.
+
+    Two-column "reprint" classes force every column to equal height with
+    ``\\flushbottom``; on a text-only page (its figures floated to another page)
+    the only way to reach full height is to inflate the rubber glue between
+    paragraphs, which reads as a jarring mid-column gap. ``\\raggedbottom`` lets
+    the column end where the text ends. Harmless for single-column classes
+    (already their default), so it is applied journal-agnostically -- one fix for
+    every two-column journal rather than per-template. A preamble that already
+    commits to ``\\raggedbottom``/``\\flushbottom`` is respected.
+    """
+    if _BOTTOM_MODE_RE.search(preamble_text):
+        return preamble_text
+    if not preamble_text.endswith("\n"):
+        preamble_text += "\n"
+    return preamble_text + _RAGGEDBOTTOM_LINE
 
 
 # --------------------------------------------------------------------------- #
@@ -929,7 +962,9 @@ def _emit_supplement(
         si_citation_count = si_resolved_tex.count("\\cite{")
 
     # -- generated/supplement_preamble.tex: journal preamble + S-numbering --
-    si_preamble_text = _ensure_hyperref(journal.render_preamble(mode=citation_style))
+    si_preamble_text = _ensure_raggedbottom(
+        _ensure_hyperref(journal.render_preamble(mode=citation_style))
+    )
     si_preamble_text = si_preamble_text.rstrip("\n") + "\n" + _SUPPLEMENT_NUMBERING
     supplement_preamble_path = generated_dir / "supplement_preamble.tex"
     supplement_preamble_path.write_text(si_preamble_text, encoding="utf-8")

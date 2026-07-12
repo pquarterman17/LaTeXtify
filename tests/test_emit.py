@@ -421,6 +421,69 @@ def test_hyperref_is_appended_when_journal_preamble_lacks_it(tmp_path):
 
 
 # --------------------------------------------------------------------------- #
+# Preamble: \raggedbottom (avoid REVTeX reprint flush-bottom column gaps)
+# --------------------------------------------------------------------------- #
+
+
+def _active_lines(preamble: str) -> list[str]:
+    """Non-comment, non-blank preamble lines (a ``\\flushbottom`` in a comment
+    is documentation, not a directive)."""
+    return [
+        ln.strip()
+        for ln in preamble.splitlines()
+        if ln.strip() and not ln.lstrip().startswith("%")
+    ]
+
+
+def test_raggedbottom_appended_to_revtex_preamble(tmp_path):
+    docx = _copy_fixture(tmp_path, FIGURES_DOCX)
+    result = emit_project(docx, "revtex4-2", tmp_path / "output")
+
+    active = _active_lines(result.preamble_tex_path.read_text(encoding="utf-8"))
+    assert "\\raggedbottom" in active
+    assert "\\flushbottom" not in active
+
+
+def _write_flushbottom_journal(tmp_path: Path) -> Path:
+    """A journal whose template already commits to \\flushbottom (opt-out path)."""
+    journals_dir = tmp_path / "journals"
+    jdir = journals_dir / "flushed"
+    jdir.mkdir(parents=True)
+    (jdir / "manifest.yaml").write_text(
+        "class: article\n"
+        "metadata_scheme: bare\n"
+        "bib:\n"
+        "  default_mode: numeric\n"
+        "  modes:\n"
+        "    numeric:\n"
+        "      bibstyle: plain\n",
+        encoding="utf-8",
+    )
+    (jdir / "preamble.tex.j2").write_text(
+        "\\documentclass{\\VAR{document_class}}\n"
+        "\\flushbottom\n"
+        "\\bibliographystyle{\\VAR{bibstyle}}\n",
+        encoding="utf-8",
+    )
+    (jdir / "metadata.tex.j2").write_text(
+        "\\title{\\VAR{meta.title}}\n\\maketitle\n", encoding="utf-8"
+    )
+    return journals_dir
+
+
+def test_raggedbottom_not_added_when_preamble_sets_a_bottom_mode(tmp_path):
+    docx = _copy_fixture(tmp_path, FIGURES_DOCX)
+    journals_dir = _write_flushbottom_journal(tmp_path)
+
+    result = emit_project(docx, "flushed", tmp_path / "output", journals_dir=journals_dir)
+
+    active = _active_lines(result.preamble_tex_path.read_text(encoding="utf-8"))
+    # The template's explicit \flushbottom is respected, not overridden.
+    assert "\\flushbottom" in active
+    assert "\\raggedbottom" not in active
+
+
+# --------------------------------------------------------------------------- #
 # Metadata
 # --------------------------------------------------------------------------- #
 
