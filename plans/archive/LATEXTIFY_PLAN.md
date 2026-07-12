@@ -8,7 +8,7 @@ files), and PDF compilation via Tectonic. CLI-first; core is a library so a
 GUI can wrap it later. Each item below carries a model assignment and
 self-contained executor context so a cheaper model can run it standalone.
 
-**Status:** Active
+**Status:** Complete
 **Created:** 2026-07-11
 **Updated:** 2026-07-11
 
@@ -165,23 +165,49 @@ by its context block.
 
 ## Tier 1 — High Impact
 
+(all complete — see Completed)
+
 ## Tier 2 — Medium Impact
 
-
+(all complete — see Completed)
 
 ## Tier 3 — Nice-to-Have
 
-
-19. **GUI wrapper** — drag-and-drop, journal picker, PDF preview (FastAPI+Vue or Tauri, reusing thin_film_toolkit patterns). **Model:** Sonnet 5.
-
-20. **Batch mode** — convert a folder of manuscripts, per-file reports, summary table. **Model:** Haiku 4.5.
-
-22. **Additional journals** — ACS (achemso), IOP (iopart), Wiley — pure journal folders copying items 10-12 patterns. **Model:** Haiku 4.5.
-
-
+(all complete — see Completed)
 
 ## Completed
 
+- ~~**#19 GUI wrapper**~~ (2026-07-11) — buildless local web GUI:
+  `latextify gui [--port] [--no-browser] [--workdir]` starts FastAPI on
+  127.0.0.1 only; single self-contained static page (vanilla JS, no CDN/
+  build step) with drag-and-drop, journal/mode picker, warnings + report
+  panels, embedded PDF preview. Endpoints: /api/journals, /api/convert
+  (per-session uuid workdirs, basename-sanitized uploads), /api/pdf/{token}
+  (server-issued uuid tokens only — no client paths, traversal 404s).
+  fastapi/uvicorn/python-multipart as [gui] optional extra with actionable
+  install hint when absent. 13 tests incl. real end-to-end PDF streaming.
+- ~~**#20 Batch mode**~~ (2026-07-11) — `latextify batch <folder> --journal J
+  [--pdf] [--recursive]`: per-file OUT/<stem>/<journal>/ trees + reports,
+  ~$temp skip, continue-on-error with per-file status, console table +
+  batch_summary.md (deterministic order), exit 1 iff any file errored.
+  NOTE: agent failed to commit (worktree/branch confusion — it created
+  feat/batch-mode in the main checkout); orchestrator recovered its
+  uncommitted work, removed a duplicated test block, fixed lint, committed.
+  10 tests.
+- ~~**#22 Additional journals**~~ (2026-07-11) — achemso: IN the Tectonic
+  bundle; class forbids metadata macros after \begin{document}, solved via
+  preamble re-\input of generated/metadata with an \ifdefined guard (also:
+  class injects \bibstyle into .aux — explicit \bibliographystyle omitted);
+  real compile + BibTeX pass. iopart: absent from bundle, vendored
+  iopart.cls + .clo files (LPPL verified via two byte-identical mirrors;
+  IOP's CURRENT site ships a different iopjournal.cls — classic iopart
+  sourced from mirrors), amsmath equation* clash patched, iopart-num.bst is
+  in the bundle; real compile + BibTeX pass. wiley: WileyNJD-v2.cls is
+  proprietary (SPi "all rights reserved") — NOT committed; documented-skip
+  path with actionable missing-class diagnostic; manifest written against
+  the REAL class macros (\address[N]{}, not the plan's assumed \affil).
+  format_iopart_superscript helper added. 30 tests + 7 goldens.
+  Nine journals total now registered.
 - ~~**#21 Supplementary material handling**~~ (2026-07-11) — a second .docx
   runs through the SAME pipeline (preflight, pandoc body, figures, citations)
   into the same output tree as a second write-once ``supplement.tex`` +
