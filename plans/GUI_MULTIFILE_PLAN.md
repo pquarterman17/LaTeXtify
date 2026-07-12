@@ -1,0 +1,92 @@
+# LaTeXtify — Multi-file GUI + offline .bib matching
+
+Turn the single-file GUI into a multi-file intake: drop main text, a
+supplement, figure files, and a reference `.bib` at once; auto-detect each
+file's role with a manual per-file override; expose the conversion options as
+toggles. Backs onto a new capability — offline citation matching against a
+user-supplied `.bib` (also the long-open offline-plan item 9).
+
+**Status:** Active
+**Created:** 2026-07-12
+**Updated:** 2026-07-12 — item 1 (BibTeX parser) shipped
+
+---
+
+## Context
+
+### How the pieces fit together
+
+- `latextify/gui/server.py` — FastAPI app; today one `/api/convert` endpoint
+  takes a single docx. Gets a multi-file sibling.
+- `latextify/gui/static/index.html` — buildless vanilla-JS SPA; gets the
+  multi-file dropzone, per-file role dropdowns, and the options panel.
+- `latextify/emit/project.py::emit_project` — the shared pipeline; gains a
+  `references_bib_path` parameter threaded to the plaintext citation path.
+- `latextify/citations/` — `reconcile.py` matches typed references (today vs
+  Crossref); a new `bibtex_in.py` parses a `.bib` into `RefEntry`s, and a new
+  matcher scores typed references against them (offline, before Crossref).
+- `latextify/compile/pdf.py::staple_pdfs` — already built (`--combine-supplement`).
+- Figure files: written as `figures/fig<N>.<ext>` beside the uploaded main
+  docx so the existing folder-convention override (`figures/override.py`)
+  picks them up. NB: overrides REPLACE embedded/placeholder figures — a docx
+  with no embedded image for figure N has nothing to attach a dropped file to.
+
+### Resolved decisions (2026-07-12, via GUI design Q&A)
+
+- **Reference file** → build offline `.bib` matching (authoritative, no
+  Crossref needed for matched refs). This closes offline-plan item 9.
+- **Option toggles** → all four: combine-supplement, download project `.zip`,
+  Crossref email + citation-style, equation-audit PDF. Compile-to-PDF and
+  report stay on by default.
+- **Role auto-detection**: `.docx` → main (or supplement if filename ~
+  `supp|SI|supporting`); image/pdf/eps/svg → figure (+ number); `.bib/.ris`
+  → references. Every file has a dropdown override (Main/Supplement/Figure #N/
+  References/Ignore).
+
+### Dependency map
+
+- Item 1 (bib parser) → item 2 (matcher + emit/CLI wiring). Independent of GUI.
+- Item 3 (GUI multi-file endpoint) needs item 2's `references_bib_path` +
+  existing supplement/combine plumbing; also the zip + audit + streaming bits.
+- Item 4 (frontend) needs item 3's endpoint contract fixed first.
+
+---
+
+## Tier 1 — High Impact
+
+2. **Offline .bib matching + wiring** — score typed references against parsed
+   `.bib` entries (reuse reconcile's title/year/author blend), accept ≥
+   threshold with the `.bib`'s entry, else fall back to Crossref/raw. Thread a
+   `references_bib_path` through `emit_project` (plaintext path) and add a CLI
+   `--references lib.bib` flag.
+   - [ ] matcher + emit param + CLI flag + tests
+
+3. **GUI multi-file endpoint** — `POST /api/convert-multi`: main + optional
+   supplement + figures[] (+ numbers) + optional `.bib` + options
+   (combine, citation_style, crossref_mailto, equation_audit, want_zip).
+   Stream uploads to disk in chunks (fix `await file.read()`). Add
+   `GET /api/zip/{token}` (project zip) and reuse the PDF-token pattern for
+   combined.pdf / audit.pdf.
+   - [ ] endpoint + zip/audit tokens + streaming + tests
+
+## Tier 2 — Medium Impact
+
+4. **Frontend multi-file UI** — multi-file dropzone, a row per file with an
+   auto-detected role dropdown (+ figure-number field), the options panel
+   (checkboxes + Crossref email + citation-style select), and result actions
+   (preview PDF, download project .zip / combined.pdf / audit.pdf).
+   - [ ] rebuilt `index.html` + a light DOM/endpoint smoke test
+
+## Tier 3 — Nice-to-Have
+
+5. **Fully-separate figures** — insert a dropped figure file for figure N even
+   when the docx has only a caption (no embedded placeholder). Backend gap
+   noted in Context; out of scope unless a real manuscript needs it.
+
+## Completed
+
+- ~~**#1 BibTeX input parser**~~ (2026-07-12) — `latextify/citations/bibtex_in.py`:
+  `parse_bibtex(text) → list[RefEntry]`; brace/paren/quote delimiters,
+  two-pass `@string` macro resolution, case-protection stripping, DOI-URL
+  normalization, `@preamble/@comment/@string` skipped, graceful on malformed
+  entries. 20 unit tests (`tests/test_citations_bibtex_in.py`).
