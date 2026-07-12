@@ -1,0 +1,32 @@
+% Generated metadata -- regenerated every run.
+% NOTE: iopart.cls has no per-author affiliation-reference macro like
+% sn-jnl's \author[refs]{} -- \author{} and \address{} both take a single
+% opaque text blob, so numeric refs are baked in as a literal LaTeX
+% superscript via format_iopart_superscript (registered by the loader).
+% \author{} is called ONCE with every author comma-joined -- calling it
+% multiple times would print separate stacked bold blocks, not one byline
+% (verified from iopart.cls's \@fauthor definition, which typesets
+% immediately rather than deferring to \maketitle).
+\title{\VAR{meta.title}}
+%% if meta.authors
+\author{\BLOCK{ for author in meta.authors }\VAR{author.name}\VAR{format_iopart_superscript(author.affiliations)}\BLOCK{ if not loop.last }, \BLOCK{ endif }\BLOCK{ endfor }}
+%% endif
+%% for affiliation in meta.affiliations
+\address{\VAR{format_iopart_superscript((loop.index0,))} \VAR{affiliation.name}}
+%% endfor
+%% for author in meta.authors
+%% if author.email
+\ead{\VAR{author.email}}
+%% endif
+%% endfor
+%% if meta.abstract
+\begin{abstract}
+\VAR{meta.abstract}
+\end{abstract}
+%% endif
+%% if meta.keywords
+% iopart.cls has no native \keywords macro (verified: absent from the class
+% source) -- a plain labeled line is the standard community workaround.
+\vspace{10pt}\noindent{\it Keywords\/}: \VAR{meta.keywords|join(', ')}
+%% endif
+\maketitle

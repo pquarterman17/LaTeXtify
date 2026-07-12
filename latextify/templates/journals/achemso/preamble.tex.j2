@@ -1,0 +1,26 @@
+% Generated preamble -- regenerated every run. Do not edit; edit main.tex instead.
+%% if class_options
+\documentclass[\VAR{class_options|join(',')}]{\VAR{document_class}}
+%% else
+\documentclass{\VAR{document_class}}
+%% endif
+%% for pkg in packages
+%% if pkg.options
+\usepackage[\VAR{pkg.options|join(',')}]{\VAR{pkg.name}}
+%% else
+\usepackage{\VAR{pkg.name}}
+%% endif
+%% endfor
+% NOTE (achemso-specific, see manifest.yaml's ARCHITECTURE FINDING): unlike
+% every other journal folder, no \bibliographystyle{...} line is emitted here
+% -- achemso.cls sets it internally and an explicit line collides with that
+% ("Illegal, another \bibstyle command", verified empirically).
+%
+% achemso's \title/\author/\affiliation/\email/\keywords are \@onlypreamble
+% commands that MUST run before \begin{document}, but this repo's fixed
+% main.tex only \inputs{generated/metadata} AFTER \begin{document}. Pulling
+% the same file in here, early, means it is read once while still in the
+% preamble (satisfying achemso) and once again for real from main.tex, in the
+% body. metadata.tex.j2's \ifdefined guard makes the two reads emit different
+% content -- see that file's matching comment for the other half of this.
+\input{generated/metadata}

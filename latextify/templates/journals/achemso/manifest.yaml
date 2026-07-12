@@ -1,0 +1,90 @@
+# ACS (achemso) -- American Chemical Society journals (JACS, Org. Lett.,
+# J. Phys. Chem., etc). Plan item 22.
+#
+# BUNDLE FINDING (2026-07-11): achemso.cls IS in the Tectonic bundle --
+# `\documentclass[journal=jacsat,manuscript=article]{achemso}` compiles with
+# nothing vendored (verified by a real Tectonic compile; the bundle also
+# supplies achemso-jacsat.cfg, natmove.sty, mciteplus.sty and the fonts it
+# needs). No vendoring, no license research needed for the class itself.
+#
+# ARCHITECTURE FINDING (2026-07-11, the load-bearing one): achemso.cls
+# registers \title, \author, \affiliation, \email and \keywords as
+# \@onlypreamble commands (see achemso.cls's own \@onlypreamble\title etc),
+# AND enforces this at \begin{document} time with a hard error -- verified
+# empirically: calling them after \begin{document} raises "LaTeX Error: Can
+# be used only in preamble", and even a \let-based save/restore trick still
+# fails with "No \title given" because the class checks \@title is non-empty
+# exactly at \begin{document}. This repo's main.tex is fixed
+# (latextify/emit/project.py's _MAIN_TEX_TEMPLATE) and always
+# \inputs{generated/metadata} AFTER \begin{document} -- which is fundamentally
+# incompatible with achemso's preamble-only metadata macros, and emit/ is out
+# of scope for this item (templates-only territory).
+#
+# WORKAROUND (verified via a real Tectonic compile replicating the exact
+# generated/preamble.tex + generated/metadata.tex + main.tex file layout
+# emit_project() writes): preamble.tex.j2 ends with a literal
+# `\input{generated/metadata}` line of its own, so the metadata file gets
+# read once EARLY -- while main.tex is still processing
+# `\input{generated/preamble}`, i.e. genuinely still in the LaTeX preamble --
+# and then AGAIN later, for real, when main.tex's own fixed
+# `\input{generated/metadata}` line runs after \begin{document}.
+# metadata.tex.j2 tells the two reads apart with a plain \ifdefined guard
+# (\LtxAchemsoMetaLoaded): the first read defines the flag and emits the
+# preamble-only macros (title/author/affiliation/email/keywords); the second
+# read sees the flag already defined and emits only \begin{abstract}...
+# \end{abstract} + \maketitle (which -- unlike the metadata setters -- MUST
+# run in the body: \begin{abstract} itself errors "Missing \begin{document}"
+# if attempted early, also verified empirically). No changes to loader.py's
+# render_preamble() signature or to emit/ were needed -- this is pure
+# template content, self-contained to this journal folder.
+class: achemso
+class_options: [journal=jacsat, manuscript=article]
+
+# \usepackage[options]{name}, emitted in order. graphicx is NOT listed --
+# achemso.cls already \RequirePackage{graphicx} unconditionally (verified in
+# the class source); redeclaring it would be a harmless no-op but is omitted
+# for consistency with "don't redeclare packages the class force-loads" (see
+# sn-jnl's hyperref exclusion for the analogous case). hyperref IS listed
+# here (unlike sn-jnl) because achemso only loads it conditionally on its own
+# `hyperref` class-option key, which this manifest does not set -- so a plain
+# \usepackage[...]{hyperref} after the other packages is the simplest correct
+# path, verified compiling cleanly (no option clash) with \href working.
+packages:
+  - name: amsmath
+  - name: amssymb
+  - name: bm
+  - name: booktabs  # table normalization (plan item 17) emits booktabs rules
+  - name: hyperref
+    options: [colorlinks=true, linkcolor=blue, citecolor=blue, urlcolor=blue]
+
+# Bibliography. ACS citation numbering/formatting is built entirely into the
+# class (mciteplus.sty + natmove.sty, downloaded by the bundle automatically)
+# -- achemso injects `\bibstyle{achemso}` into the .aux FILE ITSELF the
+# moment \bibliography{} is called, so this journal's preamble.tex.j2 (unlike
+# every other journal folder) deliberately does NOT emit an explicit
+# \bibliographystyle{...} line: adding one causes a real BibTeX error,
+# "Illegal, another \bibstyle command" (verified empirically). `bibstyle`
+# is still declared below to satisfy the schema and for documentation, it is
+# just not referenced by the rendered preamble. achemso is numeric-only (ACS
+# house style is numbered superscript citations) -- authoryear is omitted,
+# same "declare only one mode" case as REVTeX/IEEEtran (item 18).
+bib:
+  default_mode: numeric
+  modes:
+    numeric:
+      bibstyle: achemso
+      natbib_options: []   # achemso does not use natbib; \cite is its own machinery
+
+# Informal name the emitter maps to this journal's macro scheme.
+metadata_scheme: achemso
+
+# `manuscript=article` is achemso's single-column submission layout (not the
+# two-column typeset-journal layout), so figure_env.wide is declared only for
+# consistency with the other journal folders.
+figure_env:
+  single: figure
+  wide: figure*
+
+# achemso.cls IS in the Tectonic bundle (see BUNDLE FINDING above) -- nothing
+# to vendor.
+vendor: []

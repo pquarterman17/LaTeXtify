@@ -1,0 +1,23 @@
+% Generated metadata -- regenerated every run.
+% WileyNJD-v2's real macros (verified by reading the class -- see manifest.yaml's
+% PLAN CORRECTION note): \author[refs]{Name} / \author*[refs]{Name} (starred =
+% corresponding) closely matches sn-jnl's own convention, so format_affil_refs
+% (registered by the loader) is reused unchanged. Affiliations print via
+% \address[N]{...}, NOT \affil[N]{} as the plan text assumed.
+\title{\VAR{meta.title}}
+%% for author in meta.authors
+\author\BLOCK{if author.corresponding}*\BLOCK{endif}[\VAR{format_affil_refs(author.affiliations)}]{\VAR{author.name}}
+%% if author.email
+\email{\VAR{author.email}}
+%% endif
+%% endfor
+%% for affiliation in meta.affiliations
+\address[\VAR{loop.index}]{\VAR{affiliation.name}}
+%% endfor
+%% if meta.abstract
+\abstract{\VAR{meta.abstract}}
+%% endif
+%% if meta.keywords
+\keywords{\VAR{meta.keywords|join(', ')}}
+%% endif
+\maketitle

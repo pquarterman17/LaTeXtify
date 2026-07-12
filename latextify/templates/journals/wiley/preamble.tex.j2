@@ -1,0 +1,14 @@
+% Generated preamble -- regenerated every run. Do not edit; edit main.tex instead.
+% WileyNJD-v2 loads natbib itself, selected via CLASS options (AMS / HARVARD
+% / ...); the citation mode's natbib_options fold into \documentclass, same
+% "class manages natbib via class options" situation as elsarticle. UNVERIFIED
+% -- see manifest.yaml's LICENSE FINDING (this journal is never compiled).
+\documentclass[\VAR{(class_options + natbib_options)|join(',')}]{\VAR{document_class}}
+%% for pkg in packages
+%% if pkg.options
+\usepackage[\VAR{pkg.options|join(',')}]{\VAR{pkg.name}}
+%% else
+\usepackage{\VAR{pkg.name}}
+%% endif
+%% endfor
+\bibliographystyle{\VAR{bibstyle}}

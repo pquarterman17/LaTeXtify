@@ -1,0 +1,72 @@
+# IOP Publishing (iopart) -- J. Phys.: Condens. Matter, Nanotechnology,
+# Supercond. Sci. Technol., Semicond. Sci. Technol., and other IOP journals.
+# Plan item 22.
+#
+# BUNDLE FINDING (2026-07-11): iopart.cls is NOT in the Tectonic bundle --
+# `\documentclass[12pt]{iopart}` with nothing vendored fails with "File
+# `iopart.cls' not found." (verified empirically). See VENDOR_LICENSE.txt for
+# the full provenance writeup, including why -- unlike sn-jnl/elsarticle --
+# there is no longer a single "official" live URL for this specific class:
+# IOP's current author-resources page now ships a different, newer class
+# (`iopjournal.cls`) with different macros. Classic iopart.cls is still the
+# widely-used convention this manifest targets (plan item 22's own spec:
+# \ead{}/\address{}), obtained from two independent long-standing mirrors,
+# confirmed byte-identical, LPPL-licensed (IOP Publishing Ltd) -- vendored.
+#
+# The companion BibTeX style iopart-num.bst, by contrast, IS confirmed
+# present in the Tectonic bundle (a real `\bibliographystyle{iopart-num}`
+# compile with no vendoring succeeds, downloading iopart-num.bst
+# automatically) -- so only the class + its two size-option .clo files
+# (iopart10.clo, iopart12.clo -- iopart.cls \input{iopart<size>.clo}
+# internally per the chosen pt-size class option) are vendored.
+class: iopart
+class_options: [12pt]
+
+# \usepackage[options]{name}, emitted in order. iopart.cls (a self-contained
+# 1996-vintage class -- verified via source inspection: zero \RequirePackage
+# lines) loads nothing itself, so every package the manuscript needs is
+# declared here, same as REVTeX/IEEEtran.
+#
+# KNOWN QUIRK: iopart.cls unconditionally \@namedef{equation*}/{endequation*}
+# (its own starred-equation environment, predating amsmath), which collides
+# with amsmath's own `equation*` the moment amsmath loads ("Command
+# \equation* already defined"). preamble.tex.j2 works around this with the
+# standard, widely-documented community fix (two \expandafter\let...\relax
+# lines right after \documentclass, before \usepackage{amsmath}) -- verified
+# by a real Tectonic compile; see VENDOR_LICENSE.txt.
+packages:
+  - name: amsmath
+  - name: amssymb
+  - name: graphicx
+  - name: bm
+  - name: booktabs  # table normalization (plan item 17) emits booktabs rules
+  - name: hyperref
+    options: [colorlinks=true, linkcolor=blue, citecolor=blue, urlcolor=blue]
+
+# Bibliography. iopart.cls defines no \cite/\bibliography machinery of its
+# own beyond a thin \Bibliography{}/\numrefs{} wrapper around the standard
+# LaTeX kernel's \thebibliography -- no natbib involved (verified: zero
+# `natbib` references in the class source), so plain \cite{} + \bibliography{}
+# + \bibliographystyle{iopart-num} works exactly like REVTeX. IOP house style
+# is numeric-only (bracketed superscript numbers) -- authoryear is omitted,
+# same "declare only one mode" case as REVTeX/IEEEtran/achemso (item 18).
+bib:
+  default_mode: numeric
+  modes:
+    numeric:
+      bibstyle: iopart-num
+      natbib_options: []   # iopart uses plain \cite/\thebibliography, not natbib
+
+# Informal name the emitter maps to this journal's macro scheme.
+metadata_scheme: iopart
+
+# \documentclass[12pt]{iopart} is single-column by default (verified: no
+# \ExecuteOptions{twocolumn}; two-column is an opt-in 2012 class option this
+# manifest does not request). figure_env.wide kept for consistency with the
+# other journal folders.
+figure_env:
+  single: figure
+  wide: figure*
+
+# iopart.cls is NOT in the Tectonic bundle -- vendored (see VENDOR_LICENSE.txt).
+vendor: [iopart.cls, iopart10.clo, iopart12.clo]
