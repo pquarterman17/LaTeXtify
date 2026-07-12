@@ -89,6 +89,16 @@ def convert(
         "(requires --supplement and --pdf). The separate main.pdf/supplement.pdf "
         "are still written.",
     ),
+    references: Path = typer.Option(
+        None,
+        "--references",
+        exists=True,
+        readable=True,
+        help="A .bib export of your reference manager. On documents with no "
+        "citation field codes, each typed reference is matched against it first "
+        "(authoritative, offline); only references it doesn't cover fall back to "
+        "Crossref. Shared with the supplement.",
+    ),
 ) -> None:
     """Convert DOCX_PATH into a journal-ready LaTeX project under output/<journal>/."""
     if combine_supplement and supplement is None:
@@ -107,6 +117,7 @@ def convert(
             crossref_mailto=crossref_mailto,
             report=report,
             supplement_docx_path=supplement,
+            references_bib_path=references,
         )
     except ManifestError as exc:
         typer.echo(f"error: {exc}", err=True)

@@ -72,21 +72,33 @@ def _surname_in_text(surname: str | None, text: str) -> bool:
     return re.search(rf"\b{re.escape(surname)}\b", text, re.IGNORECASE) is not None
 
 
-def score_candidate(reference_text: str, candidate: CrossrefCandidate) -> float:
+def score_fields(
+    reference_text: str, *, title: str | None, year: str | None, surname: str | None
+) -> float:
     """Blend title similarity, year match, and first-author surname match (0..1).
 
-    Title similarity uses rapidfuzz ``token_set_ratio`` between the candidate
-    title and the whole typed reference (the title is a substring of the typed
-    text, so a set ratio rewards that overlap regardless of the surrounding
-    author/journal tokens). The year and first-author checks corroborate.
+    The shared scoring core: title similarity uses rapidfuzz ``token_set_ratio``
+    between the candidate title and the whole typed reference (the title is a
+    substring of the typed text, so a set ratio rewards that overlap regardless
+    of the surrounding author/journal tokens); the year and first-author checks
+    corroborate. Used both for a Crossref candidate (:func:`score_candidate`)
+    and for a local ``.bib`` entry (:mod:`latextify.citations.bibmatch`), so the
+    two matching paths agree on what "confident" means.
     """
-    if candidate.title:
-        title_sim = fuzz.token_set_ratio(candidate.title, reference_text) / 100.0
-    else:
-        title_sim = 0.0
-    year_ok = 1.0 if _year_in_text(candidate.year, reference_text) else 0.0
-    author_ok = 1.0 if _surname_in_text(candidate.first_author_surname, reference_text) else 0.0
+    title_sim = fuzz.token_set_ratio(title, reference_text) / 100.0 if title else 0.0
+    year_ok = 1.0 if _year_in_text(year, reference_text) else 0.0
+    author_ok = 1.0 if _surname_in_text(surname, reference_text) else 0.0
     return _W_TITLE * title_sim + _W_YEAR * year_ok + _W_AUTHOR * author_ok
+
+
+def score_candidate(reference_text: str, candidate: CrossrefCandidate) -> float:
+    """Blend a Crossref candidate's title/year/first-author against typed text."""
+    return score_fields(
+        reference_text,
+        title=candidate.title,
+        year=candidate.year,
+        surname=candidate.first_author_surname,
+    )
 
 
 def best_candidate(
@@ -156,18 +168,45 @@ def reconcile_references(
     *,
     threshold: float = DEFAULT_THRESHOLD,
     rows: int = 3,
+    bib_entries: list[RefEntry] | None = None,
 ) -> ReconcileOutcome:
-    """Reconcile every typed reference against Crossref, returning keyed entries.
+    """Reconcile every typed reference, returning keyed entries.
 
-    Requests are issued serially (fine for one manuscript's reference list). Keys
-    are assigned across the full list at the end so a/b/c collision suffixes are
-    consistent with the field-code path.
+    When ``bib_entries`` is given (the author's own ``.bib`` export), each
+    reference is matched against it FIRST -- authoritative, offline, no network
+    round-trip -- and only references the ``.bib`` does not cover fall through to
+    Crossref (:mod:`latextify.citations.bibmatch`). Crossref requests are issued
+    serially (fine for one manuscript's reference list). Keys are assigned across
+    the full list at the end so a/b/c collision suffixes are consistent with the
+    field-code path.
     """
+    # Lazy import breaks the reconcile <-> bibmatch cycle (bibmatch reuses this
+    # module's score_fields); only paid when a .bib is actually supplied.
+    from .bibmatch import best_bib_entry
+
     entries: list[RefEntry] = []
     # Provisional per-reference facts; keys are filled in after bulk assignment.
     pending: list[dict] = []
 
     for item in references:
+        if bib_entries:
+            bib_entry, bib_score = best_bib_entry(item.text, bib_entries)
+            if bib_entry is not None and bib_score >= threshold:
+                entries.append(bib_entry)
+                pending.append(
+                    {
+                        "raw_text": item.text,
+                        "source": "bibfile",
+                        "matched": True,
+                        "score": bib_score,
+                        "doi": bib_entry.doi,
+                        "verify": False,
+                        "ref_number": item.number,
+                        "matched_title": bib_entry.title,
+                    }
+                )
+                continue
+
         candidates = client.query_bibliographic(item.text, rows=rows)
         candidate, score = best_candidate(item.text, candidates)
         if candidate is not None and score >= threshold:

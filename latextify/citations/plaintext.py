@@ -248,13 +248,17 @@ def reconstruct_citations(
     mailto: str | None = None,
     threshold: float = reconcile.DEFAULT_THRESHOLD,
     client: crossref.CrossrefClient | None = None,
+    bib_entries: list[RefEntry] | None = None,
 ) -> PlaintextResult:
     """Reconstruct a bibliography from a manuscript's typed reference list.
 
     If no reference list is found, returns an empty result with
-    ``has_reference_list=False`` and makes NO network request. Otherwise queries
-    Crossref (building a client from ``mailto`` when one is not injected) and
-    reconciles each reference.
+    ``has_reference_list=False`` and makes NO network request. Otherwise
+    reconciles each reference: against ``bib_entries`` (the author's own ``.bib``
+    export) first when supplied, then Crossref for anything the ``.bib`` doesn't
+    cover (building a client from ``mailto`` when one is not injected). A
+    reference list fully covered by ``bib_entries`` therefore never touches the
+    network.
     """
     reflist = segment_reference_list(docx_path)
     if not reflist.found:
@@ -265,7 +269,7 @@ def reconstruct_citations(
         client = crossref.CrossrefClient(mailto=mailto)
     try:
         outcome = reconcile.reconcile_references(
-            reflist.references, client, threshold=threshold
+            reflist.references, client, threshold=threshold, bib_entries=bib_entries
         )
     finally:
         if owns_client:

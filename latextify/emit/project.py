@@ -88,6 +88,7 @@ from dataclasses import replace
 from pathlib import Path
 
 from latextify.citations.bib import entries_to_bib, escape_latex
+from latextify.citations.bibtex_in import parse_bibtex
 from latextify.citations.fields import extract_field_citations
 from latextify.citations.merge import merge_ref_entries
 from latextify.citations.plaintext import (
@@ -204,6 +205,7 @@ def emit_project(
     crossref_mailto: str | None = None,
     report: bool = True,
     supplement_docx_path: Path | str | None = None,
+    references_bib_path: Path | str | None = None,
 ) -> EmitResult:
     """Convert ``docx_path`` into a journal-ready LaTeX project.
 
@@ -229,6 +231,14 @@ def emit_project(
             field codes). Defaults to the ``LATEXTIFY_CROSSREF_MAILTO`` env var
             or a documented placeholder; override it with a real address.
         report: if True (default), generate report.md; if False, skip it.
+        references_bib_path: optional ``.bib`` export of the author's reference
+            manager. Used only on the plain-text citation path (a document with
+            no field codes): each typed reference is matched against these
+            entries first -- authoritative and offline -- and only references
+            the ``.bib`` doesn't cover fall through to Crossref (see
+            :mod:`latextify.citations.bibmatch`). A reference list fully covered
+            by the ``.bib`` therefore needs no network. Shared with the
+            supplement. ``None`` (default) preserves the Crossref-only behavior.
         supplement_docx_path: optional second manuscript (Supplementary
             Information) to emit alongside the main document into the SAME
             output tree, as a write-once ``supplement.tex`` +
@@ -255,6 +265,13 @@ def emit_project(
     figures_dir = output_dir / "figures"
     generated_dir.mkdir(parents=True, exist_ok=True)
     figures_dir.mkdir(parents=True, exist_ok=True)
+
+    # Parse the author's .bib once (if given); shared by the main document and
+    # the supplement's plain-text citation paths. Field-coded documents ignore
+    # it -- they already carry full metadata in their citation field codes.
+    bib_entries: list[RefEntry] | None = None
+    if references_bib_path is not None:
+        bib_entries = parse_bibtex(Path(references_bib_path).read_text(encoding="utf-8"))
 
     # Preflight: inventory and flag unsupported constructs before any conversion.
     preflight_report = run_preflight(docx_path)
@@ -313,7 +330,7 @@ def emit_project(
     else:
         # No field codes anywhere -> plain-text reconstruction safety net (item 14).
         entries, resolved_tex, plaintext_warnings, plaintext_records = _link_plaintext_citations(
-            docx_path, resolved_tex, crossref_mailto
+            docx_path, resolved_tex, crossref_mailto, bib_entries
         )
         warnings.extend(plaintext_warnings)
         citation_count = resolved_tex.count("\\cite{")
@@ -360,6 +377,7 @@ def emit_project(
             citation_style=citation_style,
             crossref_mailto=crossref_mailto,
             main_entries=entries,
+            bib_entries=bib_entries,
         )
         # references.bib is shared by main.tex and supplement.tex; rewrite it
         # with the merged set now that any new SI-only references were
@@ -731,7 +749,7 @@ def _citation_linkage_warning(
 
 
 def _link_plaintext_citations(
-    docx_path: Path, tex: str, mailto: str | None
+    docx_path: Path, tex: str, mailto: str | None, bib_entries: list[RefEntry] | None = None
 ) -> tuple[list[RefEntry], str, list[EmitWarning], tuple]:
     """Reconstruct a typed bibliography and link its in-text markers.
 
@@ -740,9 +758,10 @@ def _link_plaintext_citations(
     accumulated warnings (unresolved markers + low-confidence ``verify`` refs),
     and the reconciliation records for the report.
     A document with no typed reference list yields no entries and an untouched
-    body -- there is nothing to reconstruct or link.
+    body -- there is nothing to reconstruct or link. ``bib_entries`` (the
+    author's parsed ``.bib``) is matched before Crossref when supplied.
     """
-    result = reconstruct_citations(docx_path, mailto=mailto)
+    result = reconstruct_citations(docx_path, mailto=mailto, bib_entries=bib_entries)
     if not result.has_reference_list:
         return [], tex, [], ()
     tex = strip_reference_section(tex, result)
@@ -808,6 +827,7 @@ def _emit_supplement(
     citation_style: str | None,
     crossref_mailto: str | None,
     main_entries: list[RefEntry],
+    bib_entries: list[RefEntry] | None = None,
 ) -> tuple[SupplementResult, list[RefEntry]]:
     """Emit the supplementary-material project (plan item 21).
 
@@ -880,7 +900,7 @@ def _emit_supplement(
         # cross-document key remap below is applied to the text itself via
         # `_remap_cite_keys_in_text` rather than through a Citation list.
         si_entries, si_raw_tex, plaintext_warnings, _plaintext_records = _link_plaintext_citations(
-            supplement_docx_path, si_raw_tex, crossref_mailto
+            supplement_docx_path, si_raw_tex, crossref_mailto, bib_entries
         )
         warnings.extend(
             EmitWarning(message=f"supplement: {w.message}") for w in plaintext_warnings

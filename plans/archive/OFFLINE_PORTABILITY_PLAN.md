@@ -7,9 +7,9 @@ run" philosophy, adapted to a stack that carries compiled wheels and two
 external binaries (pandoc, Tectonic). Each item carries a model assignment
 and self-contained executor context so a cheaper model can run it standalone.
 
-**Status:** Active
+**Status:** Complete
 **Created:** 2026-07-11
-**Updated:** 2026-07-12
+**Updated:** 2026-07-12 — all items shipped (item 9 closed under the multi-file GUI plan)
 
 ---
 
@@ -125,22 +125,22 @@ instance — tests must cover members beyond the motivating example.
 
 ## Tier 3 — Nice-to-Have
 
-9. **Optional external reference-library ingest** (surfaced 2026-07-12 by item 8)
-   **Context:** Example 03 confirmed the ONLY way a reference manager feeds in
-   today is Word field codes embedded by its Cite-While-You-Write plugin
-   (Zotero/Mendeley/EndNote/Word-native). There is no ingest for a standalone
-   library **file** — no `--bib`, no `.ris`/`.enl`/CSL-JSON import, no
-   dependency for it (verified: `cli.py` has no such flag; `references.bib` is
-   an output only). A user with a plain manuscript + an exported library must
-   fall back to the typed-list + Crossref path, which ignores the library.
-   Would add a `--references path.bib` (and/or `.ris`/CSL-JSON) that merges the
-   supplied entries with extracted ones (same `merge_ref_entries` dedup), so a
-   library export can seed the bibliography directly and offline.
-   **Done when:** `latextify convert paper.docx --references lib.bib` uses the
-   file's entries for matching in-text markers, deduped against field-code /
-   Crossref entries.
+_(all shipped)_
 
 ## Completed
+
+- ~~**Item 9 — Optional external reference-library ingest**~~ (2026-07-12) —
+  a `.bib` export now feeds in via `latextify convert paper.docx --references
+  lib.bib`. On the plain-text citation path each typed reference is matched
+  against the parsed `.bib` first (`latextify/citations/bibmatch.py`, reusing
+  `reconcile.score_fields`), accepted at ≥ threshold with `source="bibfile"`,
+  and only unmatched references fall through to Crossref — so a list fully
+  covered by the `.bib` needs no network. Threaded through
+  `reconstruct_citations` → `emit_project(references_bib_path=...)` for both the
+  main document and the supplement; the supplement's matched entries dedup
+  against the main document's via `merge_ref_entries`. `.ris`/`.enl`/CSL-JSON
+  ingest was not built (BibTeX is the universal export); revisit only if a real
+  manuscript needs it. Done under the multi-file GUI plan (its item 2).
 
 - ~~**Item 8 — Usage example scripts**~~ (2026-07-12) — new `examples/` tree
   with three self-contained, tested examples, linked from the README:

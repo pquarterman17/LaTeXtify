@@ -8,7 +8,7 @@ user-supplied `.bib` (also the long-open offline-plan item 9).
 
 **Status:** Active
 **Created:** 2026-07-12
-**Updated:** 2026-07-12 — item 1 (BibTeX parser) shipped
+**Updated:** 2026-07-12 — items 1–2 (BibTeX parser + offline matching) shipped
 
 ---
 
@@ -54,13 +54,6 @@ user-supplied `.bib` (also the long-open offline-plan item 9).
 
 ## Tier 1 — High Impact
 
-2. **Offline .bib matching + wiring** — score typed references against parsed
-   `.bib` entries (reuse reconcile's title/year/author blend), accept ≥
-   threshold with the `.bib`'s entry, else fall back to Crossref/raw. Thread a
-   `references_bib_path` through `emit_project` (plaintext path) and add a CLI
-   `--references lib.bib` flag.
-   - [ ] matcher + emit param + CLI flag + tests
-
 3. **GUI multi-file endpoint** — `POST /api/convert-multi`: main + optional
    supplement + figures[] (+ numbers) + optional `.bib` + options
    (combine, citation_style, crossref_mailto, equation_audit, want_zip).
@@ -90,3 +83,11 @@ user-supplied `.bib` (also the long-open offline-plan item 9).
   two-pass `@string` macro resolution, case-protection stripping, DOI-URL
   normalization, `@preamble/@comment/@string` skipped, graceful on malformed
   entries. 20 unit tests (`tests/test_citations_bibtex_in.py`).
+- ~~**#2 Offline .bib matching + wiring**~~ (2026-07-12) —
+  `latextify/citations/bibmatch.py` scores typed refs against parsed `.bib`
+  entries via the shared `reconcile.score_fields` blend; `reconcile_references`
+  gains a `bib_entries` param (matched before Crossref, `source="bibfile"`,
+  fully offline when the `.bib` covers the list). Threaded through
+  `reconstruct_citations` → `emit_project(references_bib_path=...)` (main +
+  supplement) and a CLI `--references lib.bib` flag. 11 tests
+  (`tests/test_citations_bibmatch.py`). Closes offline-plan item 9.
