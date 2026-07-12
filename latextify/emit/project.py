@@ -63,6 +63,20 @@ body, and rewrites the literal in-text markers (``{[}12{]}``,
 ``\\textsuperscript{...}``, ``(Smith et al., 2020)``) into ``\\cite{...}``.
 Unresolvable markers and low-confidence (``verify``) references degrade to
 ``EmitWarning`` messages, never a crash.
+
+Supplementary material (plan item 21, ``supplement_docx_path``): a second
+manuscript runs through this exact same pipeline (preflight, pandoc body,
+figures, citations) into the SAME output tree as a second write-once
+document, ``supplement.tex`` + ``generated/supplement_*.tex`` -- see
+``_emit_supplement``. Its figures share ``figures/`` with the main document
+under an ``S`` prefix (``figS<N>.<ext>``, via ``prefix="S"`` threaded
+through ``figures.override``/``figures.convert``); its citations are merged
+into the shared ``references.bib`` by
+:func:`latextify.citations.merge.merge_ref_entries`, which reuses
+``citations.fields.dedup_identity`` so a reference cited in both documents
+(matched by DOI, source id, or author/year/title fingerprint) collapses to
+one entry. Omitting ``supplement_docx_path`` leaves the main document's
+output byte-identical to before item 21.
 """
 
 from __future__ import annotations
@@ -75,6 +89,7 @@ from pathlib import Path
 
 from latextify.citations.bib import entries_to_bib, escape_latex
 from latextify.citations.fields import extract_field_citations
+from latextify.citations.merge import merge_ref_entries
 from latextify.citations.plaintext import (
     link_body_markers,
     reconstruct_citations,
@@ -87,13 +102,14 @@ from latextify.figures.override import resolve_overrides
 from latextify.ingest.citation_sentinels import SENTINEL_RE
 from latextify.ingest.pandoc import convert_docx_to_body
 from latextify.ingest.preflight import run_preflight
-from latextify.model.emit import EmitResult, EmitWarning
+from latextify.model.emit import EmitResult, EmitWarning, SupplementResult
 from latextify.model.figure import Figure
+from latextify.model.meta import Meta
 from latextify.model.reconcile import ReconciliationReport
 from latextify.model.refs import Citation, RefEntry
 from latextify.report.render import write_report
 from latextify.templates import loader as templates_loader
-from latextify.templates.loader import FigureEnv
+from latextify.templates.loader import FigureEnv, Journal
 
 _MAIN_TEX_TEMPLATE = (
     "\\input{generated/preamble}\n"
@@ -102,6 +118,34 @@ _MAIN_TEX_TEMPLATE = (
     "\\input{generated/body}\n"
     "\\input{generated/bibliography}\n"
     "\\end{document}\n"
+)
+
+# Supplementary material (plan item 21): a second write-once document, the
+# same shape as main.tex, \input-ing its own regenerated generated/
+# supplement_*.tex set. It shares this project's figures/ and
+# references.bib with the main document.
+_SUPPLEMENT_TEX_TEMPLATE = (
+    "\\input{generated/supplement_preamble}\n"
+    "\\begin{document}\n"
+    "\\input{generated/supplement_metadata}\n"
+    "\\input{generated/supplement_body}\n"
+    "\\input{generated/supplement_bibliography}\n"
+    "\\end{document}\n"
+)
+
+# Appended to the SI's own rendered preamble (plan item 21): S1, S2, ...
+# numbering for figures/tables/equations/sections, the conventional SI
+# numbering scheme. LaTeX's own \arabic{<counter>} does the counting -- each
+# \begin{figure}/\begin{table}/equation/\section in supplement.tex increments
+# its own counter starting at 1, independent of the main document's (a
+# separate top-level LaTeX document = separate counters), so no other
+# bookkeeping is needed to get "S1", "S2", ... into the compiled output.
+_SUPPLEMENT_NUMBERING = (
+    "\n% Supplementary numbering (plan item 21).\n"
+    "\\renewcommand{\\thefigure}{S\\arabic{figure}}\n"
+    "\\renewcommand{\\thetable}{S\\arabic{table}}\n"
+    "\\renewcommand{\\theequation}{S\\arabic{equation}}\n"
+    "\\renewcommand{\\thesection}{S\\arabic{section}}\n"
 )
 
 # Bibliography inclusion lives in a regenerated file (plan item 26), NOT
@@ -143,6 +187,11 @@ _BARE_FIGURE_RE = re.compile(
 )
 _CITE_RE = re.compile(r"%%CITE:(\d+)%%")
 
+# Matches an already-resolved \cite{key1,key2} command, used only to remap
+# keys baked directly into a supplement's plain-text-reconstructed body
+# (plan item 21) -- see `_remap_cite_keys_in_text`.
+_CITE_KEYS_RE = re.compile(r"\\cite\{([^}]*)\}")
+
 
 def emit_project(
     docx_path: Path | str,
@@ -153,6 +202,7 @@ def emit_project(
     journals_dir: Path | None = None,
     crossref_mailto: str | None = None,
     report: bool = True,
+    supplement_docx_path: Path | str | None = None,
 ) -> EmitResult:
     """Convert ``docx_path`` into a journal-ready LaTeX project.
 
@@ -178,10 +228,25 @@ def emit_project(
             field codes). Defaults to the ``LATEXTIFY_CROSSREF_MAILTO`` env var
             or a documented placeholder; override it with a real address.
         report: if True (default), generate report.md; if False, skip it.
+        supplement_docx_path: optional second manuscript (Supplementary
+            Information) to emit alongside the main document into the SAME
+            output tree, as a write-once ``supplement.tex`` +
+            ``generated/supplement_*.tex`` (plan item 21). Runs through the
+            same preflight/pandoc/figures/citations pipeline as the main
+            document; its figures land in the shared ``figures/`` directory
+            as S-numbered ``figS<N>.<ext>``, and its citations are merged
+            into the shared ``references.bib`` (deduped by DOI/source id/
+            fingerprint against the main document's references -- see
+            :func:`latextify.citations.merge.merge_ref_entries`). No
+            metadata guessing runs on this document; its title block is
+            derived from the main document's ``paper.yaml`` alone. ``None``
+            (default) leaves the main document's output byte-identical to
+            not passing this argument at all.
 
     Returns:
         An :class:`~latextify.model.emit.EmitResult` naming every written
-        path plus any anchor-resolution warnings.
+        path plus any anchor-resolution warnings. ``.supplement`` is
+        ``None`` unless ``supplement_docx_path`` was given.
     """
     docx_path = Path(docx_path)
     output_dir = Path(output_root) / journal_name
@@ -258,7 +323,30 @@ def emit_project(
     else:
         warnings.extend(_legacy_bibliography_warning(main_tex_path))
 
-    # Generate consolidated report (item 16).
+    # Supplementary material (plan item 21): a second write-once document
+    # sharing this project's figures/ and references.bib. Emitted before the
+    # EmitResult/report are built so the (possibly bib-merging) outcome
+    # folds into one result object and one final report write.
+    supplement_result: SupplementResult | None = None
+    if supplement_docx_path is not None:
+        supplement_result, entries = _emit_supplement(
+            Path(supplement_docx_path),
+            output_dir=output_dir,
+            generated_dir=generated_dir,
+            figures_dir=figures_dir,
+            journal=journal,
+            main_meta=meta,
+            citation_style=citation_style,
+            crossref_mailto=crossref_mailto,
+            main_entries=entries,
+        )
+        # references.bib is shared by main.tex and supplement.tex; rewrite it
+        # with the merged set now that any new SI-only references were
+        # folded in (main entries keep their already-resolved keys
+        # unchanged, so main's body.tex, written above, stays correct).
+        bib_path.write_text(entries_to_bib(entries), encoding="utf-8")
+
+    # Generate consolidated report (item 16; item 21 adds the Supplement section).
     report_path: Path | None = None
     if report:
         report_path = write_report(
@@ -267,6 +355,7 @@ def emit_project(
             emit_result=None,  # Will be filled below after EmitResult is constructed
             reconciliation=reconciliation,
             compile_result=None,  # Only added if --pdf is used (item 16 CLI wiring)
+            supplement=supplement_result,
         )
 
     result = EmitResult(
@@ -284,6 +373,7 @@ def emit_project(
         figures=figures,
         warnings=tuple(warnings),
         report_path=report_path,
+        supplement=supplement_result,
     )
 
     # Rewrite report with emit_result included (now that we have the full result).
@@ -294,6 +384,7 @@ def emit_project(
             emit_result=result,
             reconciliation=reconciliation,
             compile_result=None,
+            supplement=supplement_result,
         )
 
     return result
@@ -305,17 +396,21 @@ def emit_project(
 
 
 def _copy_figures(
-    figures: tuple[Figure, ...], figures_dir: Path
+    figures: tuple[Figure, ...], figures_dir: Path, *, prefix: str = ""
 ) -> tuple[dict[int, str], tuple[Figure, ...], tuple[EmitWarning, ...]]:
     """Prepare each figure's resolved file for LaTeX inclusion in ``figures_dir``.
 
     Delegates the actual copy-vs-convert decision to
     :func:`latextify.figures.convert.convert_for_latex` (SVG->PDF, EPS->PDF
     via Ghostscript or an actionable warning, PDF/PNG/JPG passthrough).
+    ``prefix`` (plan item 21) is forwarded to ``convert_for_latex`` so a
+    supplementary document's figures land as ``figures/figS<N>.<ext>``
+    instead of ``figures/fig<N>.<ext>``, sharing the same output directory
+    as the main document's figures without colliding.
 
     Returns a 3-tuple:
         * a map of figure number -> the forward-slashed, LaTeX-relative path
-          (``figures/fig<N><ext>``) to embed in the body;
+          (``figures/fig<prefix><N><ext>``) to embed in the body;
         * the same figures, each carrying whatever ``conversion_note``
           :func:`convert_for_latex` recorded (``None`` for plain passthrough);
         * any conversion warnings (e.g. EPS with no Ghostscript available),
@@ -334,13 +429,13 @@ def _copy_figures(
             EmitWarning(
                 message=(
                     f"figure number {number} is used by {counts[number]} figures; only "
-                    f"the last is kept as figures/fig{number}.* -- check the source "
-                    "captions/numbering for a duplicate figure number."
+                    f"the last is kept as figures/fig{prefix}{number}.* -- check the "
+                    "source captions/numbering for a duplicate figure number."
                 )
             )
         )
     for figure in figures:
-        outcome = convert_for_latex(figure.resolved_path, figures_dir, figure.number)
+        outcome = convert_for_latex(figure.resolved_path, figures_dir, figure.number, prefix=prefix)
         files[figure.number] = f"figures/{outcome.dest_path.name}"
         if outcome.note is not None:
             figure = replace(figure, conversion_note=outcome.note)
@@ -622,3 +717,192 @@ def _verify_warnings(records) -> list[EmitWarning]:
             )
         )
     return warnings
+
+
+# --------------------------------------------------------------------------- #
+# Supplementary material (plan item 21)
+# --------------------------------------------------------------------------- #
+
+
+def _remap_cite_keys_in_text(tex: str, key_remap: dict[str, str]) -> str:
+    """Rewrite already-baked ``\\cite{key1,key2}`` commands through ``key_remap``.
+
+    Only the plain-text citation reconstruction fallback (item 14) bakes
+    ``\\cite{...}`` directly into body text before the emitter gets a chance
+    to remap keys -- the field-coded/sentinel path instead remaps
+    ``Citation.keys`` *before* anchor resolution (see ``_emit_supplement``),
+    so it never needs this. A no-op when ``key_remap`` is empty; leaves any
+    key not present in ``key_remap`` untouched.
+    """
+    if not key_remap:
+        return tex
+
+    def replace_keys(match: re.Match[str]) -> str:
+        keys = [key.strip() for key in match.group(1).split(",")]
+        remapped = [key_remap.get(key, key) for key in keys]
+        return "\\cite{" + ",".join(remapped) + "}"
+
+    return _CITE_KEYS_RE.sub(replace_keys, tex)
+
+
+def _emit_supplement(
+    supplement_docx_path: Path,
+    *,
+    output_dir: Path,
+    generated_dir: Path,
+    figures_dir: Path,
+    journal: Journal,
+    main_meta: Meta,
+    citation_style: str | None,
+    crossref_mailto: str | None,
+    main_entries: list[RefEntry],
+) -> tuple[SupplementResult, list[RefEntry]]:
+    """Emit the supplementary-material project (plan item 21).
+
+    Runs ``supplement_docx_path`` through the same preflight/pandoc/figures/
+    citations pipeline the main document just went through, into the SAME
+    output tree as a second write-once document: ``supplement.tex`` +
+    regenerated ``generated/supplement_*.tex``. Figures land in the shared
+    ``figures/`` directory as ``figS<N>.<ext>`` (S-numbered, never colliding
+    with the main document's ``fig<N>.<ext>``); citations are extracted the
+    same way and merged into ``main_entries`` by
+    :func:`latextify.citations.merge.merge_ref_entries` (DOI/raw_id/
+    fingerprint identity -- the exact rule used to dedupe within one
+    document).
+
+    No metadata guessing runs on the SI docx (plan item 21's explicit
+    contract) -- the title block is derived from ``main_meta`` alone
+    (``"Supplementary Material: <main title>"``, same authors/affiliations,
+    no abstract/keywords).
+
+    Returns the :class:`SupplementResult` plus the merged entries list
+    (``main_entries`` untouched at the front, any genuinely-new SI
+    references appended) so the caller can rewrite the shared
+    ``references.bib``.
+    """
+    warnings: list[EmitWarning] = []
+
+    # Preflight runs too ("same pipeline" contract) -- findings fold into
+    # this function's own warnings (surfaced via the report's Supplement
+    # section) rather than the main document's Preflight Findings section.
+    si_preflight = run_preflight(supplement_docx_path)
+    warnings.extend(
+        EmitWarning(
+            message=(
+                f"supplement preflight [{finding.severity.value}] "
+                f"({finding.detector}): {finding.message}"
+            )
+        )
+        for finding in si_preflight.findings
+    )
+
+    with tempfile.TemporaryDirectory(prefix="latextify-si-media-") as tmp:
+        si_media_dir = Path(tmp)
+        si_body_result = convert_docx_to_body(supplement_docx_path, si_media_dir)
+        si_figures = resolve_overrides(
+            extract_figures(supplement_docx_path, si_media_dir),
+            supplement_docx_path,
+            prefix="S",
+        )
+        si_figure_files, si_figures, si_conversion_warnings = _copy_figures(
+            si_figures, figures_dir, prefix="S"
+        )
+
+    si_raw_tex = si_body_result.tex.replace("\r\n", "\n").replace("\r", "\n")
+    warnings.extend(
+        EmitWarning(message=f"supplement: {finding.message}")
+        for finding in si_body_result.findings
+    )
+    warnings.extend(
+        EmitWarning(message=f"supplement: {w.message}") for w in si_conversion_warnings
+    )
+
+    si_citation_result = extract_field_citations(supplement_docx_path)
+    if si_citation_result.citations:
+        si_entries: list[RefEntry] = si_citation_result.entries
+        si_citations: tuple[Citation, ...] = tuple(si_citation_result.citations)
+    else:
+        # No field codes in the SI -> the same plain-text reconstruction
+        # safety net the main document uses (item 14). link_body_markers
+        # already bakes \cite{<key>} literally into the text, so any
+        # cross-document key remap below is applied to the text itself via
+        # `_remap_cite_keys_in_text` rather than through a Citation list.
+        si_entries, si_raw_tex, plaintext_warnings, _plaintext_records = _link_plaintext_citations(
+            supplement_docx_path, si_raw_tex, crossref_mailto
+        )
+        warnings.extend(
+            EmitWarning(message=f"supplement: {w.message}") for w in plaintext_warnings
+        )
+        si_citations = ()
+
+    merged_entries, key_remap = merge_ref_entries(main_entries, si_entries)
+    new_reference_count = len(merged_entries) - len(main_entries)
+
+    si_citations = tuple(
+        replace(citation, keys=tuple(key_remap.get(k, k) for k in citation.keys))
+        for citation in si_citations
+    )
+    si_raw_tex = _remap_cite_keys_in_text(si_raw_tex, key_remap)
+
+    si_resolved_tex, si_anchor_warnings = _resolve_anchors(
+        si_raw_tex, si_figures, si_figure_files, si_citations, journal.figure_env
+    )
+    warnings.extend(
+        EmitWarning(message=f"supplement: {w.message}") for w in si_anchor_warnings
+    )
+
+    if si_citation_result.citations:
+        si_citation_count = len(si_citation_result.citations)
+    else:
+        si_citation_count = si_resolved_tex.count("\\cite{")
+
+    # -- generated/supplement_preamble.tex: journal preamble + S-numbering --
+    si_preamble_text = _ensure_hyperref(journal.render_preamble(mode=citation_style))
+    si_preamble_text = si_preamble_text.rstrip("\n") + "\n" + _SUPPLEMENT_NUMBERING
+    supplement_preamble_path = generated_dir / "supplement_preamble.tex"
+    supplement_preamble_path.write_text(si_preamble_text, encoding="utf-8")
+
+    # -- generated/supplement_metadata.tex: title block only, from main_meta --
+    si_meta = replace(
+        main_meta,
+        title=f"Supplementary Material: {main_meta.title}",
+        abstract="",
+        keywords=(),
+    )
+    supplement_metadata_path = generated_dir / "supplement_metadata.tex"
+    supplement_metadata_path.write_text(journal.render_metadata(si_meta), encoding="utf-8")
+
+    # -- generated/supplement_body.tex --
+    supplement_body_path = generated_dir / "supplement_body.tex"
+    supplement_body_path.write_text(si_resolved_tex, encoding="utf-8")
+
+    # -- generated/supplement_bibliography.tex: reuses the same mechanism as
+    # the main document's generated/bibliography.tex (item 26) -- \bibliography
+    # only when the SI itself carries a \cite{}, so a citation-free SI still
+    # compiles under IEEEtran. BibTeX only pulls entries actually \cite'd in
+    # THIS document, so \bibliography{references} here correctly reprints
+    # just the SI's own (shared + new) reference list, not the full merged set.
+    supplement_bibliography_text = (
+        _BIBLIOGRAPHY_LINE if "\\cite{" in si_resolved_tex else _BIBLIOGRAPHY_EMPTY
+    )
+    supplement_bibliography_path = generated_dir / "supplement_bibliography.tex"
+    supplement_bibliography_path.write_text(supplement_bibliography_text, encoding="utf-8")
+
+    # -- supplement.tex: user-owned, write-once, exactly like main.tex --
+    supplement_tex_path = output_dir / "supplement.tex"
+    supplement_tex_written = not supplement_tex_path.exists()
+    if supplement_tex_written:
+        supplement_tex_path.write_text(_SUPPLEMENT_TEX_TEMPLATE, encoding="utf-8")
+
+    result = SupplementResult(
+        supplement_tex_path=supplement_tex_path,
+        supplement_tex_written=supplement_tex_written,
+        supplement_preamble_tex_path=supplement_preamble_path,
+        supplement_metadata_tex_path=supplement_metadata_path,
+        supplement_body_tex_path=supplement_body_path,
+        figure_count=len(si_figures),
+        citation_count=si_citation_count,
+        new_reference_count=new_reference_count,
+        warnings=tuple(warnings),
+    )
+    return result, merged_entries

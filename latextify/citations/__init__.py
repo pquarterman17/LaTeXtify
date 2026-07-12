@@ -19,4 +19,10 @@ Still planned (plan item 14):
                      Crossref matching with confidence scores
     crossref.py   -- api.crossref.org client (query.bibliographic)
     reconcile.py  -- merge sources, dedupe, confidence report entries
+
+Also implemented (plan item 21):
+    merge.py      -- cross-document reference merging for supplementary
+                     material: dedupes a second document's RefEntry list
+                     against an already-emitted document's, reusing
+                     fields.dedup_identity
 """

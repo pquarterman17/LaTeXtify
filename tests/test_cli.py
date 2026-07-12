@@ -1,4 +1,4 @@
-"""Smoke tests for the `latextify convert` CLI command (plan items 5, 16, 18).
+"""Smoke tests for the `latextify convert` CLI command (plan items 5, 16, 18, 21).
 
 Copies the fixture docx into tmp_path first -- see tests/test_emit.py's
 module docstring for why (load_or_create_meta writes a write-once
@@ -18,6 +18,7 @@ from latextify.cli import app
 FIXTURES = Path(__file__).parent / "fixtures"
 FIGURES_DOCX = FIXTURES / "figures.docx"
 ZOTERO_DOCX = FIXTURES / "zotero_cited.docx"
+SUPPLEMENT_DOCX = FIXTURES / "supplement.docx"
 
 runner = CliRunner()
 
@@ -627,6 +628,103 @@ def test_convert_pdf_exit_zero_on_successful_compile(tmp_path):
     )
 
     assert result.exit_code == 0
+
+
+# --------------------------------------------------------------------------- #
+# Supplementary material: --supplement (plan item 21)
+# --------------------------------------------------------------------------- #
+
+
+def test_convert_with_supplement_writes_supplement_tex(tmp_path):
+    docx = tmp_path / "zotero.docx"
+    shutil.copy(ZOTERO_DOCX, docx)
+    supplement = tmp_path / "supplement.docx"
+    shutil.copy(SUPPLEMENT_DOCX, supplement)
+    output = tmp_path / "output"
+
+    result = runner.invoke(
+        app,
+        [
+            "convert",
+            str(docx),
+            "--journal",
+            "revtex4-2",
+            "--output",
+            str(output),
+            "--supplement",
+            str(supplement),
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    supplement_tex = output / "revtex4-2" / "supplement.tex"
+    assert supplement_tex.is_file()
+
+    bib = (output / "revtex4-2" / "references.bib").read_text(encoding="utf-8")
+    # Shared DOI deduped to one entry; new SI-only reference also present.
+    assert bib.count("10.1103/PhysRevB.101.045123") == 1
+    assert "10.1103/PhysRevApplied.15.054001" in bib
+
+    figures_dir = output / "revtex4-2" / "figures"
+    assert sorted(p.name for p in figures_dir.iterdir()) == ["figS1.png", "figS2.png"]
+
+
+def test_convert_without_supplement_has_no_supplement_tex(tmp_path):
+    docx = tmp_path / "figures.docx"
+    shutil.copy(FIGURES_DOCX, docx)
+    output = tmp_path / "output"
+
+    result = _invoke_convert(docx, "revtex4-2", output)
+
+    assert result.exit_code == 0, result.output
+    assert not (output / "revtex4-2" / "supplement.tex").exists()
+
+
+def test_convert_missing_supplement_docx_exits_nonzero():
+    result = runner.invoke(
+        app,
+        [
+            "convert",
+            "does-not-exist-main.docx",
+            "--journal",
+            "revtex4-2",
+            "--supplement",
+            "does-not-exist-si.docx",
+        ],
+    )
+    assert result.exit_code != 0
+
+
+@pytest.mark.tectonic
+def test_convert_supplement_pdf_compiles_both_documents(tmp_path):
+    docx = tmp_path / "zotero.docx"
+    shutil.copy(ZOTERO_DOCX, docx)
+    supplement = tmp_path / "supplement.docx"
+    shutil.copy(SUPPLEMENT_DOCX, supplement)
+    output = tmp_path / "output"
+
+    result = runner.invoke(
+        app,
+        [
+            "convert",
+            str(docx),
+            "--journal",
+            "revtex4-2",
+            "--output",
+            str(output),
+            "--supplement",
+            str(supplement),
+            "--pdf",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert (output / "revtex4-2" / "main.pdf").is_file()
+    assert (output / "revtex4-2" / "supplement.pdf").is_file()
+
+    report_text = (output / "revtex4-2" / "report.md").read_text(encoding="utf-8")
+    assert "## Supplement" in report_text
+    assert "S-figures: 2." in report_text
 
 
 @pytest.mark.tectonic

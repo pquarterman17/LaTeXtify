@@ -1,9 +1,10 @@
 """Command-line interface.
 
-Current surface (plan items 5, 16, 18, 23):
+Current surface (plan items 5, 16, 18, 21, 23):
 
     latextify convert paper.docx --journal revtex4-2 [--output output] \\
-        [--citation-style numeric|authoryear] [--pdf] [--report/--no-report]
+        [--citation-style numeric|authoryear] [--pdf] [--report/--no-report] \\
+        [--supplement si.docx]  # Supplementary Material (item 21)
     latextify journals              # list registered journal templates (item 18)
     latextify equations paper.docx [--output DIR] [--pdf]  # equation audit (item 23)
 
@@ -66,6 +67,16 @@ def convert(
         "--report/--no-report",
         help="Generate report.md (default: on).",
     ),
+    supplement: Path = typer.Option(
+        None,
+        "--supplement",
+        exists=True,
+        readable=True,
+        help="Second .docx to emit as Supplementary Material: writes "
+        "supplement.tex (S-numbered figures/tables/equations/sections) "
+        "sharing this project's figures/ and references.bib with the main "
+        "document.",
+    ),
 ) -> None:
     """Convert DOCX_PATH into a journal-ready LaTeX project under output/<journal>/."""
     try:
@@ -77,6 +88,7 @@ def convert(
             citation_style=citation_style,
             crossref_mailto=crossref_mailto,
             report=report,
+            supplement_docx_path=supplement,
         )
     except ManifestError as exc:
         typer.echo(f"error: {exc}", err=True)
@@ -93,11 +105,18 @@ def convert(
     typer.echo(f"wrote {result.output_dir}")
     if not result.main_tex_written:
         typer.echo("main.tex already existed -- left untouched (edit it directly)")
+    if result.supplement is not None and not result.supplement.supplement_tex_written:
+        typer.echo("supplement.tex already existed -- left untouched (edit it directly)")
     for warning in result.warnings:
         typer.echo(f"warning: {warning.message}")
+    if result.supplement is not None:
+        for warning in result.supplement.warnings:
+            typer.echo(f"warning: {warning.message}")
 
-    # Compile step (item 16: CLI wiring for --pdf flag).
+    # Compile step (item 16: CLI wiring for --pdf flag; item 21 compiles the
+    # supplement too when one was emitted).
     compile_result = None
+    supplement_compile_result = None
     if pdf:
         try:
             vendor_dir = journal_obj.root / "vendor" if journal_obj.vendor else None
@@ -110,6 +129,17 @@ def convert(
                 typer.echo(f"compiled {compile_result.pdf_path}")
             else:
                 typer.echo("compilation failed (see report.md)", err=True)
+
+            if result.supplement is not None:
+                supplement_compile_result = compile_document(
+                    result.supplement.supplement_tex_path,
+                    tectonic_path=ensure_tectonic(),
+                    vendor_dir=vendor_dir,
+                )
+                if supplement_compile_result.success:
+                    typer.echo(f"compiled {supplement_compile_result.pdf_path}")
+                else:
+                    typer.echo("supplement compilation failed (see report.md)", err=True)
         except Exception as exc:
             typer.echo(f"error: compilation failed: {exc}", err=True)
             raise typer.Exit(code=1) from exc
@@ -122,11 +152,14 @@ def convert(
             emit_result=result,
             reconciliation=None,  # Already included
             compile_result=compile_result,
+            supplement=result.supplement,
         )
 
-    # Exit code policy (item 16): nonzero if compile errors.
+    # Exit code policy (item 16): nonzero if compile errors (item 21: either document).
     exit_code = 0
     if compile_result is not None and not compile_result.success:
+        exit_code = 1
+    if supplement_compile_result is not None and not supplement_compile_result.success:
         exit_code = 1
 
     if exit_code != 0:

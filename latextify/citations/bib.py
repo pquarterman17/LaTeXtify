@@ -139,6 +139,29 @@ def assign_keys(entries: list[RefEntry]) -> list[RefEntry]:
     return out
 
 
+def next_available_key(base: str, used: set[str]) -> str:
+    """Return ``base`` if it is not already in ``used``, else the first
+    ``base`` + a/b/c... suffix (see :func:`_suffix`) not already in ``used``.
+
+    Unlike :func:`assign_keys` (which always suffixes every member of a
+    colliding *group* discovered within a single document, even the first),
+    this only suffixes on an actual collision against an already-fixed set
+    of keys -- the shape needed when merging a second document's references
+    into an already-emitted bibliography (plan item 21,
+    :func:`latextify.citations.merge.merge_ref_entries`): the first
+    document's keys are baked into already-written LaTeX and must never
+    change, so only a genuinely new, colliding key gets resuffixed.
+    """
+    if base not in used:
+        return base
+    n = 0
+    while True:
+        candidate = base + _suffix(n)
+        if candidate not in used:
+            return candidate
+        n += 1
+
+
 # --- LaTeX escaping + BibTeX rendering ---------------------------------------
 
 # A literal "{"/"}" is mapped to a NAMED macro (with its own trailing empty

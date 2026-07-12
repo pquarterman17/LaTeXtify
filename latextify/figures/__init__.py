@@ -17,4 +17,13 @@ Modules:
                    supported by Tectonic") -- EPS is converted via
                    Ghostscript when found on PATH, else an actionable
                    EmitWarning is raised naming the fix.
+
+``override.py``'s ``find_override``/``resolve_overrides`` and
+``convert.py``'s ``convert_for_latex`` all accept an optional ``prefix``
+(default ``""``) so a supplementary-material document's figures (plan item
+21) can be resolved/copied as ``figS<N>.<ext>`` -- the folder-convention
+counterpart, ``figures/figS<N>.<ext>``, works exactly like the main
+document's ``figures/fig<N>.<ext>`` -- without colliding with the main
+document's own ``fig<N>.<ext>`` files in the same shared ``figures/``
+directory.
 """

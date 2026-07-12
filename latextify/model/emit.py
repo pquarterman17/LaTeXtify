@@ -30,6 +30,38 @@ class EmitWarning:
 
 
 @dataclass(frozen=True)
+class SupplementResult:
+    """Outcome of emitting the supplementary-material document (plan item 21).
+
+    Mirrors ``EmitResult``'s write-once/regenerated split for a second,
+    S-numbered document sharing the same output tree (same ``figures/``,
+    same ``references.bib``): ``supplement_tex_path`` (``supplement.tex``)
+    is user-owned and written only once; the ``generated/supplement_*.tex``
+    paths are regenerated every run, exactly like the main document's
+    ``generated/*.tex``.
+
+    ``figure_count``/``citation_count`` describe the SI document's own
+    (S-numbered) figures and in-text citations. ``new_reference_count`` is
+    how many of those citations were genuinely new references -- i.e. NOT
+    deduplicated against the main document's already-extracted bibliography
+    (see :func:`latextify.citations.merge.merge_ref_entries`); a citation
+    shared between the main paper and its SI (matched by DOI, source id, or
+    author/year/title fingerprint) does not count here since it reuses the
+    main document's existing ``references.bib`` entry.
+    """
+
+    supplement_tex_path: Path
+    supplement_tex_written: bool
+    supplement_preamble_tex_path: Path
+    supplement_metadata_tex_path: Path
+    supplement_body_tex_path: Path
+    figure_count: int
+    citation_count: int
+    new_reference_count: int
+    warnings: tuple[EmitWarning, ...] = field(default_factory=tuple)
+
+
+@dataclass(frozen=True)
 class EmitResult:
     """Outcome of one :func:`~latextify.emit.project.emit_project` run.
 
@@ -43,6 +75,9 @@ class EmitResult:
     each one before this result is built) for the consolidated report
     (plan item 16) to read.
     ``report_path`` is the path to the consolidated report.md (added by item 16).
+    ``supplement`` is ``None`` unless ``emit_project`` was called with
+    ``supplement_docx_path`` set (plan item 21); when present it carries the
+    outcome of emitting the second, S-numbered ``supplement.tex`` document.
     """
 
     output_dir: Path
@@ -59,3 +94,4 @@ class EmitResult:
     figures: tuple[Figure, ...] = field(default_factory=tuple)
     warnings: tuple[EmitWarning, ...] = field(default_factory=tuple)
     report_path: Path | None = None
+    supplement: SupplementResult | None = None

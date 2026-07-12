@@ -221,12 +221,18 @@ def classify_marker(instruction: str) -> str | None:
 
 #: Fallback counter for entries with no usable dedup signal at all (DOI,
 #: raw_id, authors, title, AND year all missing/empty) -- see
-#: :func:`_dedup_identity`.
+#: :func:`dedup_identity`.
 _unidentified_counter = itertools.count()
 
 
-def _dedup_identity(entry: RefEntry) -> str:
-    """A stable key identifying the same reference cited more than once."""
+def dedup_identity(entry: RefEntry) -> str:
+    """A stable key identifying the same reference cited more than once.
+
+    Public (plan item 21): :func:`latextify.citations.merge.merge_ref_entries`
+    reuses this exact identity rule to dedupe a supplementary document's
+    references against the main document's, rather than reimplementing the
+    DOI -> raw_id -> author/year/title fingerprint precedence here.
+    """
     if entry.doi:
         return "doi:" + entry.doi.strip().lower()
     if entry.raw_id:
@@ -296,7 +302,7 @@ def extract_field_citations(docx_path) -> ExtractionResult:
     for entries in per_field:
         ids: list[str] = []
         for entry in entries:
-            identity = _dedup_identity(entry)
+            identity = dedup_identity(entry)
             if identity not in position:
                 position[identity] = len(unique)
                 unique.append(entry)

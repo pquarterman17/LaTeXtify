@@ -176,14 +176,49 @@ by its context block.
 
 20. **Batch mode** — convert a folder of manuscripts, per-file reports, summary table. **Model:** Haiku 4.5.
 
-21. **Supplementary material handling** — second .docx → SI document with S-prefixed numbering. **Model:** Sonnet 5.
-
 22. **Additional journals** — ACS (achemso), IOP (iopart), Wiley — pure journal folders copying items 10-12 patterns. **Model:** Haiku 4.5.
 
 
 
 ## Completed
 
+- ~~**#21 Supplementary material handling**~~ (2026-07-11) — a second .docx
+  runs through the SAME pipeline (preflight, pandoc body, figures, citations)
+  into the same output tree as a second write-once ``supplement.tex`` +
+  regenerated ``generated/supplement_{preamble,metadata,body,bibliography}.tex``;
+  S1/S2/... numbering via four ``\renewcommand{\the<counter>}`` lines appended
+  to the SI's own (reused-verbatim) journal preamble -- LaTeX's own counters
+  do the rest since supplement.tex is a separate top-level document. Figures
+  share the main document's ``figures/`` dir as ``figS<N>.<ext>`` (additive
+  ``prefix=""`` param threaded through ``figures.override``/``figures.convert``,
+  default preserves exact old behavior; the ``figures.yaml`` manifest tier is
+  skipped for a prefixed set to avoid a main-doc entry silently resolving an
+  SI figure). Citations: new ``citations/merge.py`` (``merge_ref_entries``)
+  dedupes the SI's extracted entries against the main document's by
+  DOI -> raw_id -> fingerprint, reusing ``citations.fields``'s identity rule
+  (made public as ``dedup_identity``) rather than reimplementing it; a shared
+  reference collapses to the main doc's existing key (never rewritten -- it
+  may already be baked into body.tex), a genuinely new one keeps its own key
+  unless it collides (``bib.next_available_key``, additive). DESIGN CHOICE:
+  the SI's bibliography reuses the SAME ``generated/bibliography.tex``
+  mechanism (item 26) against the SAME shared ``references.bib`` -- BibTeX
+  only pulls entries actually ``\cite{}``'d in a given document, so
+  supplement.tex's own ``\bibliography{references}`` correctly reprints just
+  the SI's own (shared + new) reference list, no second .bib file needed.
+  Title block is ``"Supplementary Material: <main title>"`` derived from the
+  main ``paper.yaml`` Meta -- NO metadata guessing runs on the SI docx (no
+  sidecar written beside it). ``--supplement`` on ``latextify convert``
+  compiles both PDFs with ``--pdf``; ``EmitResult.supplement`` /
+  ``SupplementResult`` are additive (default ``None``); report.md gains an
+  always-rendered "## Supplement" section. Fixture: ``supplement.docx``
+  (2 captioned figures, 1 OMML equation, 2 Zotero field citations -- one
+  sharing a DOI with ``zotero_cited.docx``, one new), built with python-docx
+  + hand-injected field-code XML (``make_supplement.py``). 36 new tests (15
+  merge-helper unit tests, 17 emit-level integration tests incl. a
+  tectonic-marked dual-PDF compile, 4 CLI tests incl. a tectonic-marked
+  ``--supplement --pdf`` run). Without ``--supplement``, output is
+  byte-identical to before (verified by direct comparison test); 543
+  pre-existing tests pass unchanged, 579 total.
 - ~~**#27 Affiliation marker/paragraph cross-order mismatch**~~ (2026-07-11)
   — author→affiliation linking now cross-validates marker VALUES in a
   three-tier strategy: (1) match against affiliation paragraphs' own
