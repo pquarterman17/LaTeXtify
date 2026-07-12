@@ -263,20 +263,114 @@ def test_find_ghostscript_probes_candidate_names_in_order(monkeypatch):
 
 
 # --------------------------------------------------------------------------- #
+# TIFF -> PNG (Pillow)
+# --------------------------------------------------------------------------- #
+
+
+def _write_tiff(path: Path, color: tuple[int, int, int] = (200, 30, 30), size=(8, 8)) -> None:
+    from PIL import Image
+
+    Image.new("RGB", size, color).save(path, format="TIFF")
+
+
+def _is_png(path: Path) -> bool:
+    return path.is_file() and path.read_bytes().startswith(b"\x89PNG\r\n\x1a\n")
+
+
+@pytest.mark.parametrize("ext", [".tif", ".tiff"])
+def test_tiff_converts_to_png_via_pillow(tmp_path, ext):
+    src = tmp_path / f"fig{ext}"
+    _write_tiff(src)
+    dest_dir = tmp_path / "figures"
+    dest_dir.mkdir()
+
+    outcome = convert_for_latex(src, dest_dir, 10)
+
+    assert outcome.dest_path == dest_dir / "fig10.png"
+    assert outcome.warning is None
+    assert outcome.note == "TIFF converted to PNG via Pillow."
+    assert _is_png(outcome.dest_path)
+
+
+def test_tiff_cmyk_mode_converts_without_error(tmp_path):
+    # A mode PNG cannot encode directly (CMYK is common in print-oriented
+    # TIFF exports) must still convert cleanly via the RGB/RGBA normalization
+    # in _pillow_convert, not raise.
+    from PIL import Image
+
+    src = tmp_path / "fig.tiff"
+    Image.new("CMYK", (8, 8), (0, 0, 0, 0)).save(src, format="TIFF")
+    dest_dir = tmp_path / "figures"
+    dest_dir.mkdir()
+
+    outcome = convert_for_latex(src, dest_dir, 11)
+
+    assert outcome.warning is None
+    assert _is_png(outcome.dest_path)
+
+
+def test_tiff_conversion_failure_writes_nothing_and_warns(tmp_path, monkeypatch):
+    # Unlike SVG/EPS, a failed TIFF conversion must NOT fall back to copying
+    # the raw .tiff through -- that would silently reintroduce the exact
+    # "Cannot determine size of graphic" compile failure this path exists to
+    # prevent.
+    def raise_conversion_error(src: Path, dest: Path) -> None:
+        raise OSError("truncated TIFF file")
+
+    monkeypatch.setattr(convert_mod, "_pillow_convert", raise_conversion_error)
+
+    src = tmp_path / "fig.tiff"
+    src.write_bytes(b"not a real tiff")
+    dest_dir = tmp_path / "figures"
+    dest_dir.mkdir()
+
+    outcome = convert_for_latex(src, dest_dir, 12)
+
+    assert outcome.note is None
+    assert "Pillow" in outcome.warning
+    assert "fig.tiff" in outcome.warning
+    assert "Cannot determine size of graphic" in outcome.warning
+    assert not outcome.dest_path.exists()
+    # No raw .tif/.tiff (or anything else) was written into figures_dir at all.
+    assert list(dest_dir.iterdir()) == []
+
+
+def test_tiff_conversion_failure_cleans_up_partial_write(tmp_path, monkeypatch):
+    def raise_after_partial_write(src: Path, dest: Path) -> None:
+        dest.write_bytes(b"partial garbage")
+        raise ValueError("boom")
+
+    monkeypatch.setattr(convert_mod, "_pillow_convert", raise_after_partial_write)
+
+    src = tmp_path / "fig.tiff"
+    src.write_bytes(b"not a real tiff")
+    dest_dir = tmp_path / "figures"
+    dest_dir.mkdir()
+
+    outcome = convert_for_latex(src, dest_dir, 13)
+
+    assert not outcome.dest_path.exists()
+    assert list(dest_dir.iterdir()) == []
+
+
+# --------------------------------------------------------------------------- #
 # Unrecognized extension: still passthrough, not a crash
 # --------------------------------------------------------------------------- #
 
 
 def test_unrecognized_extension_falls_back_to_passthrough(tmp_path):
-    src = tmp_path / "fig.tiff"
-    src.write_bytes(b"fake-tiff")
+    # .tiff is no longer "unrecognized" -- it gets its own TIFF->PNG
+    # conversion path (see the TIFF section below) -- so this uses .bmp, a
+    # real image format latextify still has no dedicated handling for.
+    src = tmp_path / "fig.bmp"
+    src.write_bytes(b"fake-bmp")
     dest_dir = tmp_path / "figures"
     dest_dir.mkdir()
 
     outcome = convert_for_latex(src, dest_dir, 9)
 
-    assert outcome.dest_path == dest_dir / "fig9.tiff"
-    assert outcome.dest_path.read_bytes() == b"fake-tiff"
+    assert outcome.dest_path == dest_dir / "fig9.bmp"
+    assert outcome.dest_path.read_bytes() == b"fake-bmp"
     assert outcome.note is None
     assert outcome.warning is None
 

@@ -1,8 +1,8 @@
-"""SVG->PDF conversion and EPS handling for LaTeX inclusion (plan item 15).
+"""SVG->PDF, EPS->PDF, and TIFF->PNG conversion for LaTeX inclusion (plan item 15).
 
 Tectonic (see ``latextify.compile.tectonic``) is built on a XeTeX-derived
 engine whose ``xdvipdfmx`` PDF backend embeds PDF/PNG/JPEG directly but has
-no PostScript image support at all. Two of the five formats
+no PostScript OR TIFF image support at all. Three of the formats
 ``latextify.figures.override`` can resolve to therefore need conversion
 before they can land in the output tree's ``figures/`` directory as
 something Tectonic can actually ``\\includegraphics``:
@@ -37,6 +37,20 @@ something Tectonic can actually ``\\includegraphics``:
         an actionable :class:`~latextify.model.emit.EmitWarning`-worthy
         message is returned naming the fix.
 
+    TIFF -- converted to PNG via Pillow, a required dependency (see
+        pyproject.toml) -- Word embeds TIFF constantly (scanner/microscope
+        exports commonly land in a manuscript as .tif/.tiff), and a raw
+        ``\\includegraphics{fig.tiff}`` fails Tectonic with "Cannot determine
+        size of graphic" (a real manuscript conversion failure this way is
+        what motivated this conversion path). Unlike the EPS path above,
+        a failed TIFF conversion does NOT fall back to copying the raw
+        ``.tif``/``.tiff`` into the output tree -- that would silently
+        reintroduce the exact same compile failure it exists to prevent.
+        Instead nothing is written at the expected path and an actionable
+        :class:`~latextify.model.emit.EmitWarning`-worthy message names the
+        file and the fix (verify the TIFF isn't corrupt, or supply a
+        pre-converted PNG via figures.yaml or a folder override).
+
     PDF/PNG/JPG/JPEG -- pass through unchanged (Tectonic embeds all of
         these natively; no conversion needed).
 
@@ -57,6 +71,8 @@ from pathlib import Path
 #: Extensions always converted to PDF before inclusion.
 SVG_EXTENSIONS = frozenset({".svg"})
 EPS_EXTENSIONS = frozenset({".eps"})
+#: Extensions always converted to PNG before inclusion.
+TIFF_EXTENSIONS = frozenset({".tif", ".tiff"})
 #: Extensions Tectonic embeds natively -- copied through unchanged.
 PASSTHROUGH_EXTENSIONS = frozenset({".pdf", ".png", ".jpg", ".jpeg"})
 
@@ -100,9 +116,11 @@ def convert_for_latex(
 
     Dispatches purely on ``src``'s extension: SVG is always converted to
     PDF, EPS is converted via Ghostscript when available (else passed
-    through with a warning), and everything else (PDF/PNG/JPG/JPEG, or any
-    other extension the override tiers happened to resolve to) is copied
-    through unchanged as ``fig<prefix><number><ext>``.
+    through with a warning), TIFF is always converted to PNG via Pillow
+    (else nothing is written, see :func:`_convert_tiff`), and everything
+    else (PDF/PNG/JPG/JPEG, or any other extension the override tiers
+    happened to resolve to) is copied through unchanged as
+    ``fig<prefix><number><ext>``.
 
     ``prefix`` (plan item 21) defaults to ``""``; a supplementary document's
     figures pass ``prefix="S"`` so they land as ``figS<number>.<ext>`` in the
@@ -114,6 +132,8 @@ def convert_for_latex(
         return _convert_svg(src, dest_dir, number, prefix=prefix)
     if ext in EPS_EXTENSIONS:
         return _convert_eps(src, dest_dir, number, prefix=prefix)
+    if ext in TIFF_EXTENSIONS:
+        return _convert_tiff(src, dest_dir, number, prefix=prefix)
     dest = dest_dir / f"fig{prefix}{number}{ext}"
     shutil.copy2(src, dest)
     return ConversionOutcome(dest_path=dest)
@@ -250,3 +270,57 @@ def _convert_eps(src: Path, dest_dir: Path, number: int, *, prefix: str = "") ->
             ),
         )
     return ConversionOutcome(dest_path=dest, note="EPS converted to PDF via Ghostscript.")
+
+
+# --------------------------------------------------------------------------- #
+# TIFF -> PNG (Pillow)
+# --------------------------------------------------------------------------- #
+
+
+def _pillow_convert(src: Path, dest: Path) -> None:
+    """Thin wrapper around Pillow's TIFF->PNG conversion -- its own call
+    point for the same monkeypatch-testability reason as ``_cairosvg_convert``
+    / ``_ghostscript_convert``."""
+    from PIL import Image
+
+    with Image.open(src) as image:
+        # TIFF commonly carries modes PNG can't encode directly (CMYK,
+        # 16-bit-per-channel "I;16", palette-with-transparency edge cases);
+        # normalize to RGB/RGBA so the PNG write never fails on mode alone.
+        if image.mode not in ("RGB", "RGBA", "L", "LA", "P"):
+            image = image.convert("RGBA" if "A" in image.getbands() else "RGB")
+        image.save(dest, format="PNG")
+
+
+_TIFF_UNSUPPORTED_NOTE = (
+    "Tectonic cannot include TIFF files (xdvipdfmx has no TIFF support; a raw "
+    "TIFF \\includegraphics fails with \"Cannot determine size of graphic\")."
+)
+
+
+def _convert_tiff(src: Path, dest_dir: Path, number: int, *, prefix: str = "") -> ConversionOutcome:
+    """Convert ``src`` (a .tif/.tiff) to PNG via Pillow.
+
+    Unlike :func:`_convert_svg`/:func:`_convert_eps`, a failed conversion does
+    NOT fall back to copying the raw TIFF through -- that would silently
+    reintroduce the exact compile failure this function exists to prevent.
+    Instead nothing is written at ``dest`` and the returned warning names the
+    file and the fix. Never raises: Pillow surfaces a corrupt/unreadable TIFF
+    through several exception types (``OSError``, ``UnidentifiedImageError``
+    -- a subclass of ``OSError`` -- ``ValueError``), all caught here.
+    """
+    dest = dest_dir / f"fig{prefix}{number}.png"
+    try:
+        _pillow_convert(src, dest)
+    except Exception as exc:  # Pillow's failure modes vary; never crash the emit
+        dest.unlink(missing_ok=True)  # clean up any partial/truncated write
+        return ConversionOutcome(
+            dest_path=dest,
+            warning=(
+                f"{_TIFF_UNSUPPORTED_NOTE} Conversion to PNG via Pillow failed for "
+                f"{src.name} ({exc}); no file was written to figures/{dest.name} -- "
+                "verify the TIFF isn't corrupt, or supply a pre-converted PNG via "
+                "figures.yaml or a folder override."
+            ),
+        )
+    return ConversionOutcome(dest_path=dest, note="TIFF converted to PNG via Pillow.")
