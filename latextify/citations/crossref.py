@@ -47,6 +47,16 @@ _MAILTO_ENV = "LATEXTIFY_CROSSREF_MAILTO"
 DEFAULT_BASE_URL = "https://api.crossref.org"
 _USER_AGENT_PRODUCT = "LaTeXtify/0.1 (https://github.com/latextify/latextify)"
 
+
+class CrossrefUnavailable(Exception):
+    """Crossref could not be reached (network/timeout/5xx) for a DOI lookup.
+
+    Distinct from "the DOI genuinely isn't in Crossref" (a 404, reported as
+    ``None``): the validation pass treats this as *unchecked* (offline) rather
+    than as a dead DOI, so a dropped connection never masquerades as a bad
+    reference.
+    """
+
 # Crossref ``type`` values differ from Zotero/CSL ones; map the common ones and
 # fall back to the shared CSL table (then ``misc``) for anything unlisted.
 _CROSSREF_TO_BIBTEX = {
@@ -162,6 +172,16 @@ def _clean(value: object) -> str | None:
     return text or None
 
 
+_DOI_PREFIX_RE = re.compile(r"^(?:https?://(?:dx\.)?doi\.org/|doi:)", re.IGNORECASE)
+
+
+def _normalize_doi(doi: str | None) -> str:
+    """Strip a ``doi:`` / ``https://doi.org/`` prefix and surrounding space."""
+    if not doi:
+        return ""
+    return _DOI_PREFIX_RE.sub("", doi.strip()).strip()
+
+
 def _parse_authors(raw: object) -> tuple[Name, ...]:
     if not isinstance(raw, list):
         return ()
@@ -255,6 +275,39 @@ class CrossrefClient:
         if not isinstance(items, list):
             return []
         return [candidate_from_item(item) for item in items if isinstance(item, dict)]
+
+    def get_by_doi(self, doi: str) -> CrossrefCandidate | None:
+        """Look a DOI up exactly (``/works/{doi}``) for reference validation.
+
+        Returns the canonical work as a :class:`CrossrefCandidate`, or ``None``
+        when Crossref has no such DOI (an HTTP 404 -- a typo'd or invalid DOI).
+        Raises :class:`CrossrefUnavailable` on a network failure, timeout, or
+        server (5xx/other non-200) error, so the caller can tell "this DOI is
+        bad" apart from "I couldn't reach Crossref right now". A blank DOI
+        returns ``None`` without a request.
+
+        The DOI is sent as the raw path (Crossref expects the bare DOI,
+        including its internal ``/``); a ``doi:`` or ``https://doi.org/`` prefix
+        is stripped first.
+        """
+        cleaned = _normalize_doi(doi)
+        if not cleaned:
+            return None
+        try:
+            response = self._client.get("/works/" + cleaned, params={"mailto": self.mailto})
+        except httpx.HTTPError as exc:
+            raise CrossrefUnavailable(str(exc)) from exc
+        if response.status_code == 404:
+            return None
+        try:
+            response.raise_for_status()
+            payload = response.json()
+        except (httpx.HTTPError, ValueError) as exc:
+            raise CrossrefUnavailable(str(exc)) from exc
+        message = payload.get("message") if isinstance(payload, dict) else None
+        if not isinstance(message, dict):
+            return None
+        return candidate_from_item(message)
 
     def close(self) -> None:
         self._client.close()
