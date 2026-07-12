@@ -70,3 +70,61 @@ jobs:
         run: uv run python -c "from latextify.compile.tectonic import ensure_tectonic; print(ensure_tectonic())"
       - name: Full test suite (real docx -> PDF compiles)
         run: uv run pytest -q -m "not network"
+
+  offline-kit:
+    # Proves the whole offline story end to end: build a kit (network ON),
+    # then install it and compile a PDF with the network POISONED. This is the
+    # regression gate that keeps a stray runtime network call from silently
+    # breaking air-gapped use. Kept small (one Python, one journal) for speed;
+    # the release workflow builds the full multi-target kits.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v7
+        with:
+          python-version: "3.13"
+      - name: Cache Tectonic binary and package bundle
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cache/latextify
+            ~/.cache/Tectonic
+          key: tectonic-${{ runner.os }}-v1
+      - name: Install
+        run: uv sync --locked
+      - name: Pre-fetch Tectonic (authenticated; anonymous API rate-limits on runners)
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: uv run python -c "from latextify.compile.tectonic import ensure_tectonic; print(ensure_tectonic())"
+      - name: Build a current-platform kit (network ON) and a fixture manuscript
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          uv run latextify make-kit --target current --python-versions 3.13 \
+            --journals revtex4-2 -o build
+          uv run python - <<'PY'
+          from docx import Document
+          d = Document()
+          d.add_heading("Offline CI Demo", 0)
+          d.add_paragraph("Ada Offline")
+          d.add_heading("Abstract", 1)
+          d.add_paragraph("A fixture manuscript compiled with no network access.")
+          d.add_heading("Introduction", 1)
+          d.add_paragraph("Body text exercising headings, an abstract, and a PDF compile.")
+          d.save("demo.docx")
+          PY
+          echo "PYBIN=$(uv python find 3.13)" >> "$GITHUB_ENV"
+      - name: Install kit + convert to PDF with the network POISONED
+        env:
+          HTTPS_PROXY: http://127.0.0.1:9
+          HTTP_PROXY: http://127.0.0.1:9
+          ALL_PROXY: http://127.0.0.1:9
+          https_proxy: http://127.0.0.1:9
+          http_proxy: http://127.0.0.1:9
+          all_proxy: http://127.0.0.1:9
+        run: |
+          KIT=build/latextify-offline-linux-x64
+          "$PYBIN" "$KIT/install.py"
+          "$KIT/latextify" convert demo.docx -j revtex4-2 -o demo-out --pdf
+          test -f demo-out/revtex4-2/main.pdf || { echo "no PDF produced offline"; exit 1; }
+          echo "offline PDF compiled: $(du -h demo-out/revtex4-2/main.pdf)"
