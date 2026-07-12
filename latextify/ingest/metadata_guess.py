@@ -9,7 +9,16 @@ directly with lxml, the same approach as ``preflight.py``) and guesses:
                      read as affiliation markers (digits/letters) or, if
                      non-alphanumeric (``*``, ``†``), a corresponding-author flag
     affiliations  -- the paragraph(s) following the author line, one per
-                     distinct affiliation marker referenced by an author
+                     distinct affiliation marker referenced by an author.
+                     Authors are linked to affiliation text by marker VALUE,
+                     not by physical/first-seen position: an affiliation
+                     paragraph's own leading marker (when present) is
+                     matched against author markers regardless of order;
+                     failing that, all-numeric markers are matched
+                     positionally by value; only as a last resort (no
+                     labels, non-numeric markers) does first-seen order
+                     apply, and that fallback is itself flagged unless the
+                     order is already unambiguous.
     abstract      -- paragraph(s) following a paragraph whose text is exactly
                      "Abstract"
     keywords      -- a "Keywords:" line, split on commas/semicolons
@@ -173,6 +182,14 @@ class _AuthorGuessResult:
     next_idx: int
     checks: list[str]
     expected_affiliation_count: int = 0
+    # Per-author alnum (affiliation-only, non-corresponding) markers, aligned
+    # index-for-index with ``authors``. Resolution into Author.affiliations
+    # indices is deferred to _link_author_affiliations, which runs once the
+    # affiliation paragraphs (and any markers THEY carry) are known.
+    raw_markers: list[tuple[str, ...]] = field(default_factory=list)
+    # Distinct alnum markers in the order they were first seen scanning the
+    # author line left to right -- kept for the rule-3 fallback only.
+    marker_first_seen_order: list[str] = field(default_factory=list)
 
 
 def _guess_authors(paras: list[_Para], start_idx: int) -> _AuthorGuessResult:
@@ -224,21 +241,22 @@ def _guess_authors(paras: list[_Para], start_idx: int) -> _AuthorGuessResult:
         ]
         return _AuthorGuessResult(authors, next_idx, checks, expected_affiliation_count=0)
 
-    affiliation_markers_order: list[str] = []
+    marker_first_seen_order: list[str] = []
     for _, marker_list in raw_authors:
         for m in marker_list:
-            if m.isalnum() and m not in affiliation_markers_order:
-                affiliation_markers_order.append(m)
-    marker_to_index = {m: n for n, m in enumerate(affiliation_markers_order)}
+            if m.isalnum() and m not in marker_first_seen_order:
+                marker_first_seen_order.append(m)
 
     authors: list[Author] = []
+    raw_markers: list[tuple[str, ...]] = []
     corresponding_names: list[str] = []
     for name, marker_list in raw_authors:
-        affs = tuple(marker_to_index[m] for m in marker_list if m in marker_to_index)
+        alnum_markers = tuple(m for m in marker_list if m.isalnum())
         is_corresponding = any(not m.isalnum() for m in marker_list)
         if is_corresponding:
             corresponding_names.append(name)
-        authors.append(Author(name=name, affiliations=affs, corresponding=is_corresponding))
+        authors.append(Author(name=name, corresponding=is_corresponding))
+        raw_markers.append(alnum_markers)
 
     checks: list[str] = []
     if len(corresponding_names) > 1:
@@ -247,21 +265,44 @@ def _guess_authors(paras: list[_Para], start_idx: int) -> _AuthorGuessResult:
         )
 
     return _AuthorGuessResult(
-        authors, next_idx, checks, expected_affiliation_count=len(affiliation_markers_order)
+        authors,
+        next_idx,
+        checks,
+        expected_affiliation_count=len(marker_first_seen_order),
+        raw_markers=raw_markers,
+        marker_first_seen_order=marker_first_seen_order,
     )
 
 
-def _strip_leading_marker(p: _Para) -> str:
+def _split_leading_marker(p: _Para) -> tuple[str | None, str]:
+    """Split a paragraph's own leading superscript marker from its text.
+
+    Returns ``(marker, remaining_text)`` when the paragraph opens with a
+    superscript run matching a short alnum marker (e.g. an affiliation
+    paragraph prefixed by "1" or "a"); returns ``(None, full_text)``
+    otherwise. Capturing the marker (instead of discarding it) is what lets
+    affiliation paragraphs be cross-validated against author markers by
+    VALUE, rather than relying on physical/first-seen order alone.
+    """
     segs = p.segments
     if segs and segs[0].superscript and _LEADING_MARKER_RE.fullmatch(segs[0].text.strip()):
-        return "".join(s.text for s in segs[1:]).strip()
-    return p.text.strip()
+        marker = segs[0].text.strip()
+        return marker, "".join(s.text for s in segs[1:]).strip()
+    return None, p.text.strip()
+
+
+@dataclass
+class _AffiliationEntry:
+    """One consumed affiliation paragraph: its own leading marker (if any) and text."""
+
+    marker: str | None
+    text: str
 
 
 def _guess_affiliations(
     paras: list[_Para], start_idx: int, expected_count: int
-) -> tuple[list[str], int, list[str]]:
-    affiliations: list[str] = []
+) -> tuple[list[_AffiliationEntry], int, list[str]]:
+    entries: list[_AffiliationEntry] = []
     idx = start_idx
     while idx < len(paras):
         text = paras[idx].text.strip()
@@ -273,25 +314,100 @@ def _guess_affiliations(
         if _EMAIL_RE.search(text) and _CORRESPONDING_RE.search(text):
             idx += 1
             continue
-        affiliations.append(_strip_leading_marker(paras[idx]))
+        marker, stripped = _split_leading_marker(paras[idx])
+        entries.append(_AffiliationEntry(marker=marker, text=stripped))
         idx += 1
-        if expected_count and len(affiliations) >= expected_count:
+        if expected_count and len(entries) >= expected_count:
             break
 
     checks: list[str] = []
-    if expected_count and len(affiliations) != expected_count:
+    if expected_count and len(entries) != expected_count:
         checks.append(
             f"expected {expected_count} affiliation(s) based on author markers but found "
-            f"{len(affiliations)}; verify the affiliation list and ordering."
+            f"{len(entries)}; verify the affiliation list and ordering."
         )
-    elif not expected_count and not affiliations:
+    elif not expected_count and not entries:
         checks.append("no affiliation lines found; affiliations left empty.")
-    elif not expected_count and affiliations:
+    elif not expected_count and entries:
         checks.append(
             "affiliations were guessed positionally (no author markers to anchor them); verify."
         )
 
-    return affiliations, idx, checks
+    return entries, idx, checks
+
+
+def _link_author_affiliations(
+    raw_markers: list[tuple[str, ...]],
+    marker_first_seen_order: list[str],
+    affiliation_entries: list[_AffiliationEntry],
+) -> tuple[list[tuple[int, ...]], list[str]]:
+    """Resolve each author's raw markers to 0-based indices into ``affiliation_entries``.
+
+    Cross-validates marker VALUES rather than trusting physical/first-seen
+    order alone, in order of preference:
+
+      1. Affiliation paragraphs carry their own leading markers -- match
+         each author marker to the paragraph whose OWN marker equals it,
+         wherever it physically sits. An author marker with no matching
+         label is dropped (CHECK, naming the marker); a labeled paragraph no
+         author references is kept in the affiliation list but flagged
+         (CHECK).
+      2. No affiliation paragraph carries a marker, but every referenced
+         author marker is numeric -- marker N means "the Nth affiliation
+         paragraph" (1-based, by VALUE, not first-seen order). An
+         out-of-range N is dropped (CHECK).
+      3. Otherwise (non-numeric markers, unlabeled paragraphs) -- fall back
+         to first-seen-order positional mapping (the pre-fix behavior), but
+         flag it (CHECK) whenever that order is not already ascending,
+         since first-seen order is then just a guess.
+
+    Returns ``(per_author_affiliation_indices, checks)``, index-aligned with
+    ``raw_markers``.
+    """
+    checks: list[str] = []
+    n_affiliations = len(affiliation_entries)
+    labeled_indices = {
+        entry.marker: i for i, entry in enumerate(affiliation_entries) if entry.marker is not None
+    }
+
+    if labeled_indices:
+        marker_to_index: dict[str, int] = {}
+        for m in marker_first_seen_order:
+            if m in labeled_indices:
+                marker_to_index[m] = labeled_indices[m]
+            else:
+                checks.append(
+                    f"author marker '{m}' has no matching affiliation paragraph label; "
+                    "the reference was dropped -- verify."
+                )
+        referenced = set(marker_to_index.values())
+        for i, entry in enumerate(affiliation_entries):
+            if entry.marker is not None and i not in referenced:
+                checks.append(
+                    f"affiliation paragraph labeled '{entry.marker}' is not referenced by "
+                    "any author marker; verify."
+                )
+    elif marker_first_seen_order and all(m.isdigit() for m in marker_first_seen_order):
+        marker_to_index = {}
+        for m in marker_first_seen_order:
+            n = int(m)
+            if 1 <= n <= n_affiliations:
+                marker_to_index[m] = n - 1
+            else:
+                checks.append(
+                    f"author marker '{m}' has no matching affiliation paragraph (only "
+                    f"{n_affiliations} found); the reference was dropped -- verify."
+                )
+    else:
+        marker_to_index = {m: n for n, m in enumerate(marker_first_seen_order)}
+        if marker_first_seen_order != sorted(marker_first_seen_order):
+            checks.append("affiliation assignment inferred from marker appearance order; verify.")
+
+    per_author = [
+        tuple(marker_to_index[m] for m in markers if m in marker_to_index)
+        for markers in raw_markers
+    ]
+    return per_author, checks
 
 
 def _guess_abstract(paras: list[_Para], start_idx: int) -> tuple[str, int, list[str]]:
@@ -387,14 +503,25 @@ def guess_meta(docx_path: Path | str, *, max_paragraphs: int = 20) -> MetaGuess:
 
     title, title_idx, title_checks = _guess_title(paras)
     author_result = _guess_authors(paras, max(title_idx + 1, 0))
-    affiliations, aff_end_idx, aff_checks = _guess_affiliations(
+    affiliation_entries, aff_end_idx, aff_checks = _guess_affiliations(
         paras, author_result.next_idx, author_result.expected_affiliation_count
     )
+    affiliations = [e.text for e in affiliation_entries]
     abstract, abstract_end_idx, abstract_checks = _guess_abstract(paras, aff_end_idx)
     keywords, keyword_checks = _guess_keywords(paras, abstract_end_idx)
 
     authors = list(author_result.authors)
     author_checks = list(author_result.checks)
+
+    if author_result.expected_affiliation_count:
+        per_author_affs, link_checks = _link_author_affiliations(
+            author_result.raw_markers, author_result.marker_first_seen_order, affiliation_entries
+        )
+        aff_checks.extend(link_checks)
+        authors = [
+            replace(author, affiliations=affs)
+            for author, affs in zip(authors, per_author_affs, strict=True)
+        ]
 
     # Affiliation indices on each Author come from markers seen on the author
     # line, but _guess_affiliations may come up short of matching paragraphs

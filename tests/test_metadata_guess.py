@@ -235,6 +235,245 @@ def test_guessed_meta_never_references_out_of_range_affiliation(tmp_path):
     assert round_tripped == result.meta
 
 
+# --------------------------------------------------------------------------
+# cross-order marker/affiliation linking (item 27)
+# --------------------------------------------------------------------------
+
+
+def _add_superscript(paragraph, text: str) -> None:
+    run = paragraph.add_run(text)
+    run.font.superscript = True
+
+
+def test_reversed_numeric_markers_with_labeled_paragraphs_link_by_value(tmp_path):
+    """Authors carry markers out of first-seen numeric order ("2" appears
+    before "1" reading the author line), but the affiliation paragraphs
+    carry their OWN leading markers ("1", "2"). Rule 1 (label-value
+    matching) must link each author to the paragraph whose marker matches
+    it, not the paragraph that happens to come first physically or the
+    marker that happens to be seen first.
+
+    Judged flag-free: every author marker matches exactly one paragraph
+    label and every label is referenced back by some author -- there is no
+    ambiguity left to surface. The pre-fix code built its mapping from
+    first-seen marker order ({"2": 0, "1": 1}) and would have silently
+    swapped these two affiliations with zero CHECK flags -- exactly the bug
+    this item fixes.
+    """
+    docx_module = pytest.importorskip("docx")
+    doc = docx_module.Document()
+
+    doc.add_paragraph(style="Title").add_run("A Study of Reversed Markers")
+
+    authors = doc.add_paragraph()
+    authors.add_run("Ada Lovelace")
+    _add_superscript(authors, "2")
+    authors.add_run(", Bob Barker")
+    _add_superscript(authors, "1")
+
+    aff1 = doc.add_paragraph()
+    _add_superscript(aff1, "1")
+    aff1.add_run("Institute One")
+
+    aff2 = doc.add_paragraph()
+    _add_superscript(aff2, "2")
+    aff2.add_run("Institute Two")
+
+    doc.add_paragraph("Abstract")
+    doc.add_paragraph("We study something interesting.")
+    doc.add_paragraph("Keywords: a, b")
+
+    path = tmp_path / "reversed_numeric_labeled.docx"
+    doc.save(path)
+
+    result = guess_meta(path)
+    ada, bob = result.meta.authors
+    affs = result.meta.affiliations
+
+    assert affs[ada.affiliations[0]].name == "Institute Two"
+    assert affs[bob.affiliations[0]].name == "Institute One"
+    assert result.checks.get("affiliations", []) == []
+
+    rendered = render_paper_yaml(result.meta, result.checks)
+    round_tripped = meta_from_yaml_data(yaml.safe_load(rendered))
+    assert round_tripped == result.meta
+
+
+def test_reversed_numeric_markers_without_labels_link_positionally_by_value(tmp_path):
+    """Same reversed-marker author line as above, but this time the
+    affiliation paragraphs carry NO leading markers at all. With no labels
+    to match against, rule 2 applies: a numeric marker N means "the Nth
+    affiliation paragraph" by VALUE (1-based), not by first-seen order --
+    marker "2" must resolve to the second paragraph regardless of which
+    author's marker was encountered first while scanning the author line.
+    """
+    docx_module = pytest.importorskip("docx")
+    doc = docx_module.Document()
+
+    doc.add_paragraph(style="Title").add_run("A Study of Reversed Markers")
+
+    authors = doc.add_paragraph()
+    authors.add_run("Ada Lovelace")
+    _add_superscript(authors, "2")
+    authors.add_run(", Bob Barker")
+    _add_superscript(authors, "1")
+
+    doc.add_paragraph("Institute One")
+    doc.add_paragraph("Institute Two")
+
+    doc.add_paragraph("Abstract")
+    doc.add_paragraph("We study something interesting.")
+    doc.add_paragraph("Keywords: a, b")
+
+    path = tmp_path / "reversed_numeric_unlabeled.docx"
+    doc.save(path)
+
+    result = guess_meta(path)
+    ada, bob = result.meta.authors
+    affs = result.meta.affiliations
+
+    assert affs[ada.affiliations[0]].name == "Institute Two"
+    assert affs[bob.affiliations[0]].name == "Institute One"
+
+    rendered = render_paper_yaml(result.meta, result.checks)
+    round_tripped = meta_from_yaml_data(yaml.safe_load(rendered))
+    assert round_tripped == result.meta
+
+
+def test_letter_markers_with_labeled_paragraphs_in_swapped_order_link_by_value(tmp_path):
+    """Authors are marked in natural first-seen letter order ("a" then
+    "b"), but the affiliation paragraphs sit in the OPPOSITE physical
+    order ("b"'s paragraph comes first on the page, "a"'s second). Rule 1
+    must still link by the paragraph's own marker, not physical position.
+    """
+    docx_module = pytest.importorskip("docx")
+    doc = docx_module.Document()
+
+    doc.add_paragraph(style="Title").add_run("A Study of Swapped Affiliations")
+
+    authors = doc.add_paragraph()
+    authors.add_run("Carol Danvers")
+    _add_superscript(authors, "a")
+    authors.add_run(", Dave Grohl")
+    _add_superscript(authors, "b")
+
+    aff_b = doc.add_paragraph()
+    _add_superscript(aff_b, "b")
+    aff_b.add_run("Dept B")
+
+    aff_a = doc.add_paragraph()
+    _add_superscript(aff_a, "a")
+    aff_a.add_run("Dept A")
+
+    doc.add_paragraph("Abstract")
+    doc.add_paragraph("We study something interesting.")
+    doc.add_paragraph("Keywords: a, b")
+
+    path = tmp_path / "letter_markers_swapped.docx"
+    doc.save(path)
+
+    result = guess_meta(path)
+    carol, dave = result.meta.authors
+    affs = result.meta.affiliations
+
+    assert affs[carol.affiliations[0]].name == "Dept A"
+    assert affs[dave.affiliations[0]].name == "Dept B"
+    assert result.checks.get("affiliations", []) == []
+
+    rendered = render_paper_yaml(result.meta, result.checks)
+    round_tripped = meta_from_yaml_data(yaml.safe_load(rendered))
+    assert round_tripped == result.meta
+
+
+def test_marker_referencing_missing_label_drops_reference_and_names_it(tmp_path):
+    """An author is marked "3" but no affiliation paragraph is labeled
+    "3" (only "1" and "2" exist). The reference must be dropped -- never
+    left pointing at a made-up or out-of-range index -- and the CHECK must
+    name the offending marker so the author knows exactly what to fix."""
+    docx_module = pytest.importorskip("docx")
+    doc = docx_module.Document()
+
+    doc.add_paragraph(style="Title").add_run("A Study of a Missing Label")
+
+    authors = doc.add_paragraph()
+    authors.add_run("Eve Adams")
+    _add_superscript(authors, "1")
+    authors.add_run(", Frank Ocean")
+    _add_superscript(authors, "3")
+
+    aff1 = doc.add_paragraph()
+    _add_superscript(aff1, "1")
+    aff1.add_run("Aff One")
+
+    aff2 = doc.add_paragraph()
+    _add_superscript(aff2, "2")
+    aff2.add_run("Aff Two")
+
+    doc.add_paragraph("Abstract")
+    doc.add_paragraph("We study something interesting.")
+    doc.add_paragraph("Keywords: a, b")
+
+    path = tmp_path / "missing_label.docx"
+    doc.save(path)
+
+    result = guess_meta(path)
+    eve, frank = result.meta.authors
+
+    assert result.meta.affiliations[eve.affiliations[0]].name == "Aff One"
+    assert frank.affiliations == ()
+    assert any(
+        "'3'" in msg and "dropped" in msg for msg in result.checks.get("affiliations", [])
+    ), result.checks.get("affiliations", [])
+
+    rendered = render_paper_yaml(result.meta, result.checks)
+    round_tripped = meta_from_yaml_data(yaml.safe_load(rendered))
+    assert round_tripped == result.meta
+
+
+def test_nonnumeric_unlabeled_nonsequential_markers_fall_back_with_check(tmp_path):
+    """Neither cross-validation signal is available: the markers are
+    non-numeric letters and the affiliation paragraphs carry no labels of
+    their own. Rule 3 (first-seen-order fallback, the pre-fix behavior)
+    is the only option left -- but because the first-seen order ("b" then
+    "a") is not already ascending, the mapping is a guess and must be
+    flagged rather than emitted with silent confidence."""
+    docx_module = pytest.importorskip("docx")
+    doc = docx_module.Document()
+
+    doc.add_paragraph(style="Title").add_run("A Study of Ambiguous Letters")
+
+    authors = doc.add_paragraph()
+    authors.add_run("Grace Hopper")
+    _add_superscript(authors, "b")
+    authors.add_run(", Heidi Klum")
+    _add_superscript(authors, "a")
+
+    doc.add_paragraph("Dept X")
+    doc.add_paragraph("Dept Y")
+
+    doc.add_paragraph("Abstract")
+    doc.add_paragraph("We study something interesting.")
+    doc.add_paragraph("Keywords: a, b")
+
+    path = tmp_path / "nonsequential_unlabeled.docx"
+    doc.save(path)
+
+    result = guess_meta(path)
+    grace, heidi = result.meta.authors
+
+    # Reproduces the pre-fix first-seen-order behavior (best effort, no
+    # better signal exists) but now it must be flagged.
+    assert result.meta.affiliations[grace.affiliations[0]].name == "Dept X"
+    assert result.meta.affiliations[heidi.affiliations[0]].name == "Dept Y"
+    assert any(
+        "marker appearance order" in msg for msg in result.checks.get("affiliations", [])
+    )
+
+    rendered = render_paper_yaml(result.meta, result.checks)
+    round_tripped = meta_from_yaml_data(yaml.safe_load(rendered))
+    assert round_tripped == result.meta
+
+
 def test_guess_low_confidence_flags_when_cues_are_missing(tmp_path):
     """A docx with no recognizable cues should guess conservatively and flag every field."""
     docx_module = pytest.importorskip("docx")
