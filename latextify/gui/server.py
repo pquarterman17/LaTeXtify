@@ -15,8 +15,10 @@ Endpoints
 ---------
     GET  /                    the static single-page UI
     GET  /api/journals        [{name, modes}] for every registered journal
-    POST /api/convert         multipart upload -> JSON result
+    POST /api/convert         single-docx multipart upload -> JSON result
+    POST /api/convert-multi   main + supplement + figures + .bib + options
     GET  /api/pdf/{token}     stream a compiled PDF (server-issued token only)
+    GET  /api/zip/{token}     stream a project .zip (server-issued token only)
 
 Security
 --------
@@ -36,6 +38,7 @@ and every upload is written under a fresh per-session subdirectory of
 
 from __future__ import annotations
 
+import shutil
 import tempfile
 import uuid
 from pathlib import Path
@@ -44,6 +47,8 @@ from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
+from latextify.audit.equations import write_equation_audit
+from latextify.compile.pdf import staple_pdfs
 from latextify.compile.tectonic import compile_document, ensure_tectonic
 from latextify.emit.project import emit_project
 from latextify.report.render import write_report
@@ -52,6 +57,14 @@ from latextify.templates.loader import ManifestError
 
 _STATIC_DIR = Path(__file__).resolve().parent / "static"
 _INDEX_HTML = _STATIC_DIR / "index.html"
+
+# Upload streaming: never hold a whole payload in RAM. Starlette already spools
+# a large upload to a temp file, so the memory spike comes only from a single
+# ``.read()`` of the whole thing -- copying in 1 MiB chunks is the fix. The cap
+# is generous: real manuscripts embed multi-MB figures, and a figure file
+# dropped separately can be large too.
+_UPLOAD_CHUNK = 1 << 20  # 1 MiB
+_MAX_UPLOAD_BYTES = 250 * 1024 * 1024  # 250 MB per file
 
 
 class JournalInfo(BaseModel):
@@ -71,6 +84,26 @@ class ConvertResponse(BaseModel):
     pdf_url: str | None = None
 
 
+class ConvertMultiResponse(BaseModel):
+    """Body of ``POST /api/convert-multi`` (the multi-file intake).
+
+    Every ``*_url`` is a server-issued download token or ``None`` when that
+    artifact was not produced (no supplement, combine off, audit off, zip off,
+    or a compile that failed). ``success`` is the main document's compile
+    outcome (``True`` when ``--pdf`` was off and emission succeeded).
+    """
+
+    output_dir: str
+    warnings: list[str]
+    report_md: str
+    success: bool
+    pdf_url: str | None = None
+    supplement_pdf_url: str | None = None
+    combined_pdf_url: str | None = None
+    audit_pdf_url: str | None = None
+    zip_url: str | None = None
+
+
 def _safe_filename(name: str | None) -> str:
     """Strip any directory components from a client-supplied filename.
 
@@ -85,6 +118,39 @@ def _safe_filename(name: str | None) -> str:
         return "upload.docx"
     candidate = Path(name).name
     return candidate or "upload.docx"
+
+
+def _issue_token(tokens: dict[str, Path], path: Path) -> str:
+    """Map a fresh opaque token to ``path`` and return it (never the path itself)."""
+    token = uuid.uuid4().hex
+    tokens[token] = path
+    return token
+
+
+async def _stream_upload(
+    upload: UploadFile, dest: Path, *, max_bytes: int = _MAX_UPLOAD_BYTES
+) -> None:
+    """Copy ``upload`` to ``dest`` in chunks, never buffering the whole payload.
+
+    Enforces a generous per-file size cap: a payload past the cap raises HTTP
+    413 (and removes the partial file) rather than filling the disk. ``dest``'s
+    parent must already exist.
+    """
+    total = 0
+    with dest.open("wb") as out:
+        while chunk := await upload.read(_UPLOAD_CHUNK):
+            total += len(chunk)
+            if total > max_bytes:
+                out.close()
+                dest.unlink(missing_ok=True)
+                raise HTTPException(
+                    status_code=413,
+                    detail=(
+                        f"{upload.filename or 'upload'} exceeds the "
+                        f"{max_bytes // (1024 * 1024)} MB per-file limit"
+                    ),
+                )
+            out.write(chunk)
 
 
 def create_app(*, workdir: Path | None = None) -> FastAPI:
@@ -109,6 +175,10 @@ def create_app(*, workdir: Path | None = None) -> FastAPI:
     # reads from this dict, never from the URL path itself (see module
     # docstring's Security section).
     app.state.pdf_tokens: dict[str, Path] = {}
+    # Opaque token -> project .zip path (same pattern as pdf_tokens; served by
+    # GET /api/zip/{token}). Populated only by a convert-multi run with
+    # want_zip=True.
+    app.state.zip_tokens: dict[str, Path] = {}
 
     @app.get("/", include_in_schema=False)
     def index() -> FileResponse:
@@ -144,7 +214,7 @@ def create_app(*, workdir: Path | None = None) -> FastAPI:
         upload_dir = session_dir / "upload"
         upload_dir.mkdir(parents=True, exist_ok=True)
         docx_path = upload_dir / _safe_filename(file.filename)
-        docx_path.write_bytes(await file.read())
+        await _stream_upload(file, docx_path)
 
         try:
             result = emit_project(
@@ -208,11 +278,204 @@ def create_app(*, workdir: Path | None = None) -> FastAPI:
             pdf_url=pdf_url,
         )
 
+    @app.post("/api/convert-multi", response_model=ConvertMultiResponse)
+    async def convert_multi(
+        main: UploadFile = File(...),
+        journal: str = Form(...),
+        supplement: UploadFile | None = File(None),
+        figures: list[UploadFile] = File([]),
+        figure_numbers: list[int] = Form([]),
+        references: UploadFile | None = File(None),
+        citation_style: str | None = Form(None),
+        crossref_mailto: str | None = Form(None),
+        combine: bool = Form(False),
+        equation_audit: bool = Form(False),
+        want_zip: bool = Form(False),
+        pdf: bool = Form(True),
+    ) -> ConvertMultiResponse:
+        """Convert a main manuscript plus optional supplement/figures/.bib in one call.
+
+        Figures are dropped in as ``figures/fig<N>.<ext>`` beside the main docx
+        (folder-convention override); the ``.bib`` seeds offline citation
+        matching; ``combine`` staples main+supplement into ``combined.pdf``;
+        ``equation_audit`` emits a numbered ``audit.pdf``; ``want_zip`` packages
+        the whole project tree. Every produced artifact is returned as an opaque
+        download token.
+        """
+        # combine needs both a supplement and a compile step (mirror the CLI).
+        if combine and supplement is None:
+            raise HTTPException(status_code=400, detail="combine requires a supplement file")
+        if combine and not pdf:
+            raise HTTPException(status_code=400, detail="combine requires pdf compilation")
+        if len(figures) != len(figure_numbers):
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"figures ({len(figures)}) and figure_numbers "
+                    f"({len(figure_numbers)}) must have the same length"
+                ),
+            )
+
+        try:
+            journal_obj = templates_loader.load(journal)
+        except ManifestError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+        session_dir = root / uuid.uuid4().hex
+        upload_dir = session_dir / "upload"
+        upload_dir.mkdir(parents=True, exist_ok=True)
+
+        main_path = upload_dir / _safe_filename(main.filename)
+        await _stream_upload(main, main_path)
+
+        supplement_path: Path | None = None
+        if supplement is not None:
+            supplement_path = upload_dir / ("supplement_" + _safe_filename(supplement.filename))
+            await _stream_upload(supplement, supplement_path)
+
+        references_path: Path | None = None
+        if references is not None:
+            references_path = upload_dir / _safe_filename(references.filename)
+            await _stream_upload(references, references_path)
+
+        # Figure files land as figures/fig<N>.<ext> beside the main docx so the
+        # existing folder-convention override picks them up. NB overrides REPLACE
+        # an embedded figure -- a docx with no embedded image for figure N has
+        # nothing to attach the dropped file to (multi-file plan, Context).
+        if figures:
+            figures_override_dir = upload_dir / "figures"
+            figures_override_dir.mkdir(exist_ok=True)
+            for fig_upload, number in zip(figures, figure_numbers, strict=True):
+                ext = Path(fig_upload.filename or "").suffix.lstrip(".").lower() or "png"
+                await _stream_upload(fig_upload, figures_override_dir / f"fig{number}.{ext}")
+
+        try:
+            result = emit_project(
+                main_path,
+                journal,
+                session_dir / "output",
+                citation_style=citation_style,
+                crossref_mailto=crossref_mailto,
+                supplement_docx_path=supplement_path,
+                references_bib_path=references_path,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+        warnings = [w.message for w in result.warnings]
+        if result.supplement is not None:
+            warnings.extend(w.message for w in result.supplement.warnings)
+
+        pdf_url: str | None = None
+        supplement_pdf_url: str | None = None
+        combined_pdf_url: str | None = None
+        audit_pdf_url: str | None = None
+        zip_url: str | None = None
+        success = True
+
+        pdf_tokens = app.state.pdf_tokens
+        if pdf:
+            try:
+                tectonic = ensure_tectonic()
+                vendor_dir = journal_obj.root / "vendor" if journal_obj.vendor else None
+                main_compile = compile_document(
+                    result.main_tex_path, tectonic_path=tectonic, vendor_dir=vendor_dir
+                )
+                success = main_compile.success
+                if main_compile.success and main_compile.pdf_path is not None:
+                    pdf_url = f"/api/pdf/{_issue_token(pdf_tokens, main_compile.pdf_path)}"
+
+                supplement_compile = None
+                if result.supplement is not None:
+                    supplement_compile = compile_document(
+                        result.supplement.supplement_tex_path,
+                        tectonic_path=tectonic,
+                        vendor_dir=vendor_dir,
+                    )
+                    if supplement_compile.success and supplement_compile.pdf_path is not None:
+                        supplement_pdf_url = (
+                            f"/api/pdf/{_issue_token(pdf_tokens, supplement_compile.pdf_path)}"
+                        )
+
+                if (
+                    combine
+                    and main_compile.success
+                    and supplement_compile is not None
+                    and supplement_compile.success
+                ):
+                    combined = result.output_dir / "combined.pdf"
+                    staple_pdfs([main_compile.pdf_path, supplement_compile.pdf_path], combined)
+                    combined_pdf_url = f"/api/pdf/{_issue_token(pdf_tokens, combined)}"
+
+                if result.report_path is not None:
+                    write_report(
+                        result.report_path,
+                        preflight=None,
+                        emit_result=result,
+                        reconciliation=None,
+                        compile_result=main_compile,
+                        supplement=result.supplement,
+                    )
+            except HTTPException:
+                raise
+            except Exception as exc:
+                # Mirrors /api/convert: a hung/broken compile is a 500, not a raw
+                # traceback. The LaTeX project itself is still written to disk.
+                raise HTTPException(
+                    status_code=500, detail=f"compilation failed: {exc}"
+                ) from exc
+
+        if equation_audit:
+            try:
+                audit = write_equation_audit(
+                    main_path,
+                    session_dir / "audit",
+                    compile_pdf=pdf,
+                    tectonic_path=ensure_tectonic() if pdf else None,
+                )
+                if audit.audit_pdf_path is not None and audit.audit_pdf_path.is_file():
+                    audit_pdf_url = f"/api/pdf/{_issue_token(pdf_tokens, audit.audit_pdf_path)}"
+            except Exception as exc:
+                raise HTTPException(
+                    status_code=500, detail=f"equation audit failed: {exc}"
+                ) from exc
+
+        if want_zip:
+            archive = shutil.make_archive(
+                str(session_dir / "project"), "zip", root_dir=result.output_dir
+            )
+            zip_url = f"/api/zip/{_issue_token(app.state.zip_tokens, Path(archive))}"
+
+        report_md = ""
+        if result.report_path is not None and result.report_path.is_file():
+            report_md = result.report_path.read_text(encoding="utf-8")
+
+        return ConvertMultiResponse(
+            output_dir=str(result.output_dir),
+            warnings=warnings,
+            report_md=report_md,
+            success=success,
+            pdf_url=pdf_url,
+            supplement_pdf_url=supplement_pdf_url,
+            combined_pdf_url=combined_pdf_url,
+            audit_pdf_url=audit_pdf_url,
+            zip_url=zip_url,
+        )
+
     @app.get("/api/pdf/{token}", include_in_schema=False)
     def get_pdf(token: str) -> FileResponse:
         pdf_path = app.state.pdf_tokens.get(token)
         if pdf_path is None or not pdf_path.is_file():
             raise HTTPException(status_code=404, detail="unknown or expired PDF token")
         return FileResponse(pdf_path, media_type="application/pdf", filename=pdf_path.name)
+
+    @app.get("/api/zip/{token}", include_in_schema=False)
+    def get_zip(token: str) -> FileResponse:
+        zip_path = app.state.zip_tokens.get(token)
+        if zip_path is None or not zip_path.is_file():
+            raise HTTPException(status_code=404, detail="unknown or expired zip token")
+        return FileResponse(
+            zip_path, media_type="application/zip", filename="latextify-project.zip"
+        )
 
     return app

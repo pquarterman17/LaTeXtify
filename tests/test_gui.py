@@ -22,6 +22,12 @@ from latextify.gui.server import create_app
 
 FIXTURES = Path(__file__).parent / "fixtures"
 FIGURES_DOCX = FIXTURES / "figures.docx"
+CLEAN_DOCX = FIXTURES / "clean.docx"
+
+_SAMPLE_BIB = (
+    b"@article{k, title={A Title}, author={Doe, Jane}, journal={Phys. Rev. B}, "
+    b"year={2020}, doi={10.1/x}}\n"
+)
 
 runner = CliRunner()
 
@@ -156,6 +162,130 @@ def test_convert_endpoint_corrupt_docx_returns_4xx_not_500(tmp_path):
 
 
 # --------------------------------------------------------------------------- #
+# POST /api/convert-multi -- main + supplement + figures + .bib + options
+# --------------------------------------------------------------------------- #
+
+
+def test_convert_multi_main_only_succeeds_without_pdf(tmp_path):
+    client = _client(tmp_path)
+    with FIGURES_DOCX.open("rb") as fh:
+        response = client.post(
+            "/api/convert-multi",
+            files={"main": ("figures.docx", fh, "application/octet-stream")},
+            data={"journal": "revtex4-2", "pdf": "false"},
+        )
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["success"] is True
+    assert "# Conversion Report" in body["report_md"]
+    # No optional artifacts were requested.
+    assert body["pdf_url"] is None
+    assert body["combined_pdf_url"] is None
+    assert body["audit_pdf_url"] is None
+    assert body["zip_url"] is None
+    assert (Path(body["output_dir"]) / "main.tex").is_file()
+
+
+def test_convert_multi_accepts_a_references_bib(tmp_path):
+    client = _client(tmp_path)
+    with FIGURES_DOCX.open("rb") as fh:
+        response = client.post(
+            "/api/convert-multi",
+            files={
+                "main": ("figures.docx", fh, "application/octet-stream"),
+                "references": ("lib.bib", _SAMPLE_BIB, "text/plain"),
+            },
+            data={"journal": "revtex4-2", "pdf": "false"},
+        )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["success"] is True
+
+
+def test_convert_multi_combine_requires_supplement(tmp_path):
+    client = _client(tmp_path)
+    with FIGURES_DOCX.open("rb") as fh:
+        response = client.post(
+            "/api/convert-multi",
+            files={"main": ("figures.docx", fh, "application/octet-stream")},
+            data={"journal": "revtex4-2", "combine": "true", "pdf": "true"},
+        )
+
+    assert response.status_code == 400
+    assert "supplement" in response.json()["detail"]
+
+
+def test_convert_multi_combine_requires_pdf(tmp_path):
+    client = _client(tmp_path)
+    with FIGURES_DOCX.open("rb") as main_fh, CLEAN_DOCX.open("rb") as si_fh:
+        response = client.post(
+            "/api/convert-multi",
+            files={
+                "main": ("figures.docx", main_fh, "application/octet-stream"),
+                "supplement": ("clean.docx", si_fh, "application/octet-stream"),
+            },
+            data={"journal": "revtex4-2", "combine": "true", "pdf": "false"},
+        )
+
+    assert response.status_code == 400
+    assert "pdf" in response.json()["detail"]
+
+
+def test_convert_multi_figure_count_mismatch_is_400(tmp_path):
+    client = _client(tmp_path)
+    with FIGURES_DOCX.open("rb") as main_fh:
+        response = client.post(
+            "/api/convert-multi",
+            files=[
+                ("main", ("figures.docx", main_fh.read(), "application/octet-stream")),
+                ("figures", ("fig1.png", b"\x89PNG\r\n", "image/png")),
+            ],
+            # one figure file but no figure_numbers -> mismatch
+            data={"journal": "revtex4-2", "pdf": "false"},
+        )
+
+    assert response.status_code == 400
+    assert "figure_numbers" in response.json()["detail"]
+
+
+def test_convert_multi_want_zip_streams_a_project_zip(tmp_path):
+    client = _client(tmp_path)
+    with FIGURES_DOCX.open("rb") as fh:
+        response = client.post(
+            "/api/convert-multi",
+            files={"main": ("figures.docx", fh, "application/octet-stream")},
+            data={"journal": "revtex4-2", "pdf": "false", "want_zip": "true"},
+        )
+
+    assert response.status_code == 200, response.text
+    zip_url = response.json()["zip_url"]
+    assert zip_url is not None and zip_url.startswith("/api/zip/")
+
+    zip_response = client.get(zip_url)
+    assert zip_response.status_code == 200
+    assert zip_response.headers["content-type"] == "application/zip"
+    assert zip_response.content[:2] == b"PK"  # zip local-file-header magic
+
+
+def test_zip_endpoint_unknown_token_is_404(tmp_path):
+    client = _client(tmp_path)
+    assert client.get("/api/zip/does-not-exist").status_code == 404
+
+
+def test_convert_multi_invalid_journal_is_400(tmp_path):
+    client = _client(tmp_path)
+    with FIGURES_DOCX.open("rb") as fh:
+        response = client.post(
+            "/api/convert-multi",
+            files={"main": ("figures.docx", fh, "application/octet-stream")},
+            data={"journal": "no-such-journal", "pdf": "false"},
+        )
+    assert 400 <= response.status_code < 500
+    assert "no-such-journal" in response.json()["detail"]
+
+
+# --------------------------------------------------------------------------- #
 # GET /api/pdf/{token} -- server-issued tokens only, never a filesystem path
 # --------------------------------------------------------------------------- #
 
@@ -223,6 +353,44 @@ def test_convert_endpoint_with_pdf_flag_streams_a_real_pdf(tmp_path):
     # report.md is rewritten with compile diagnostics once --pdf runs.
     report_text = (Path(body["output_dir"]) / "report.md").read_text(encoding="utf-8")
     assert "## Compilation" in report_text
+
+
+@pytest.mark.tectonic
+@pytest.mark.skipif(
+    not _tectonic_available(),
+    reason="no tectonic binary on PATH/cache and none could be downloaded",
+)
+def test_convert_multi_pdf_combine_audit_zip_end_to_end(tmp_path):
+    client = _client(tmp_path)
+    with FIGURES_DOCX.open("rb") as main_fh, CLEAN_DOCX.open("rb") as si_fh:
+        response = client.post(
+            "/api/convert-multi",
+            files={
+                "main": ("figures.docx", main_fh, "application/octet-stream"),
+                "supplement": ("clean.docx", si_fh, "application/octet-stream"),
+            },
+            data={
+                "journal": "revtex4-2",
+                "pdf": "true",
+                "combine": "true",
+                "equation_audit": "true",
+                "want_zip": "true",
+            },
+        )
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["success"] is True
+    # Every requested artifact minted a token.
+    for key in ("pdf_url", "supplement_pdf_url", "combined_pdf_url", "audit_pdf_url", "zip_url"):
+        assert body[key] is not None, key
+
+    combined = client.get(body["combined_pdf_url"])
+    assert combined.status_code == 200
+    assert combined.headers["content-type"] == "application/pdf"
+    assert combined.content[:5] == b"%PDF-"
+
+    assert client.get(body["zip_url"]).content[:2] == b"PK"
 
 
 # --------------------------------------------------------------------------- #

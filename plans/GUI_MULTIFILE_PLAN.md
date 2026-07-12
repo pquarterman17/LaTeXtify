@@ -8,7 +8,7 @@ user-supplied `.bib` (also the long-open offline-plan item 9).
 
 **Status:** Active
 **Created:** 2026-07-12
-**Updated:** 2026-07-12 — items 1–2 (BibTeX parser + offline matching) shipped
+**Updated:** 2026-07-12 — items 1–3 shipped; item 4 (frontend) open
 
 ---
 
@@ -52,16 +52,6 @@ user-supplied `.bib` (also the long-open offline-plan item 9).
 
 ---
 
-## Tier 1 — High Impact
-
-3. **GUI multi-file endpoint** — `POST /api/convert-multi`: main + optional
-   supplement + figures[] (+ numbers) + optional `.bib` + options
-   (combine, citation_style, crossref_mailto, equation_audit, want_zip).
-   Stream uploads to disk in chunks (fix `await file.read()`). Add
-   `GET /api/zip/{token}` (project zip) and reuse the PDF-token pattern for
-   combined.pdf / audit.pdf.
-   - [ ] endpoint + zip/audit tokens + streaming + tests
-
 ## Tier 2 — Medium Impact
 
 4. **Frontend multi-file UI** — multi-file dropzone, a row per file with an
@@ -91,3 +81,13 @@ user-supplied `.bib` (also the long-open offline-plan item 9).
   `reconstruct_citations` → `emit_project(references_bib_path=...)` (main +
   supplement) and a CLI `--references lib.bib` flag. 11 tests
   (`tests/test_citations_bibmatch.py`). Closes offline-plan item 9.
+- ~~**#3 GUI multi-file endpoint**~~ (2026-07-12) — `POST /api/convert-multi`
+  in `latextify/gui/server.py`: main + optional supplement + figures[] (+
+  `figure_numbers`) + optional `.bib` + options (combine, citation_style,
+  crossref_mailto, equation_audit, want_zip, pdf). Uploads streamed to disk in
+  1 MiB chunks with a 250 MB/file cap (`_stream_upload`; also retrofitted onto
+  `/api/convert`, fixing its `await file.read()`). Figures land as
+  `figures/fig<N>.<ext>` for the folder-convention override. Mints opaque
+  tokens for main/supplement/combined/audit PDFs (`/api/pdf/{token}`) and the
+  project `.zip` (new `/api/zip/{token}`). 9 tests incl. a tectonic end-to-end
+  (pdf+combine+audit+zip) in `tests/test_gui.py`.
