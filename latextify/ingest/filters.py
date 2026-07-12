@@ -544,22 +544,34 @@ def _table_body_rows(table: pf.Table) -> list[pf.TableRow]:
 # In a two-column journal a plain ``table`` float is only ~\columnwidth wide, so
 # a table with this many or more columns routinely runs off the page (a real
 # manuscript's volume-fraction table overflowed the right margin this way). Such
-# a table is instead emitted as a spanning ``table*`` and hard-bounded to
-# \textwidth with \resizebox (graphicx, always loaded), so no manuscript's wide
-# table can overflow regardless of its natural width. Narrow tables (< this many
-# columns) stay a plain ``table`` -- they fit a single column and must not be
-# upscaled by \resizebox.
+# a table is instead emitted as a spanning ``table*`` and bounded with the
+# shrink-only \resizebox idiom below. Narrow tables (< this many columns) stay a
+# plain ``table``.
 _WIDE_TABLE_MIN_COLS = 4
+
+# Shrink-only bound for a wide table, using only graphicx (always loaded). Inside
+# \resizebox's width argument graphicx exposes \width as the tabular's natural
+# width, so the target width is \linewidth ONLY when the table would overflow,
+# else its own natural width (an identity scale). A plain ``\resizebox{\textwidth}``
+# would instead scale EVERY wide table to exactly \textwidth -- upscaling any
+# table narrower than the page and making it look bigger than a single-column
+# neighbour (the "Table II is too big / inconsistent with Table I" report). This
+# keeps a wide table at its natural size unless it genuinely does not fit, so all
+# tables render at a consistent scale. \linewidth (not \textwidth) is correct in
+# the spanning ``table*`` (there \linewidth == \textwidth) and stays sane in any
+# single-column context.
+_SHRINK_TO_FIT_WIDTH = "\\ifdim\\width>\\linewidth\\linewidth\\else\\width\\fi"
 
 
 def _wrap_table_float(caption_tex: str, tabular_lines: list[str], ncols: int) -> list[str]:
     """Wrap a booktabs ``tabular`` in its float, spanning + bounding wide ones.
 
     A table with :data:`_WIDE_TABLE_MIN_COLS` or more columns becomes a
-    two-column-spanning ``table*`` whose tabular is bounded to ``\\textwidth``
-    via ``\\resizebox``; narrower tables stay a single-column ``table`` at their
-    natural size. The caption is kept OUTSIDE the ``\\resizebox`` so it is not
-    scaled with the table body.
+    two-column-spanning ``table*`` whose tabular is bounded with the shrink-only
+    :data:`_SHRINK_TO_FIT_WIDTH` idiom -- scaled down to ``\\linewidth`` only if
+    it would overflow, never scaled up; narrower tables stay a single-column
+    ``table`` at their natural size. The caption is kept OUTSIDE the
+    ``\\resizebox`` so it is not scaled with the table body.
     """
     wide = ncols >= _WIDE_TABLE_MIN_COLS
     env = "table*" if wide else "table"
@@ -567,7 +579,7 @@ def _wrap_table_float(caption_tex: str, tabular_lines: list[str], ncols: int) ->
     if caption_tex:
         lines.append(f"\\caption{{{caption_tex}}}")
     if wide:
-        lines.append("\\resizebox{\\textwidth}{!}{%")
+        lines.append(f"\\resizebox{{{_SHRINK_TO_FIT_WIDTH}}}{{!}}{{%")
         lines.extend(tabular_lines)
         lines.append("}")
     else:

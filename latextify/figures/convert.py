@@ -75,6 +75,12 @@ EPS_EXTENSIONS = frozenset({".eps"})
 TIFF_EXTENSIONS = frozenset({".tif", ".tiff"})
 #: Extensions Tectonic embeds natively -- copied through unchanged.
 PASSTHROUGH_EXTENSIONS = frozenset({".pdf", ".png", ".jpg", ".jpeg"})
+#: The raster subset of the passthrough formats -- these are opened with
+#: Pillow on the way through so any alpha channel can be flattened onto white
+#: (see ``_flatten_passthrough_raster``). PDF is excluded (it is not a raster
+#: and must never be handed to Pillow); JPEG has no alpha channel but is
+#: included harmlessly (the flatten check is a no-op for it).
+_RASTER_PASSTHROUGH_EXTENSIONS = frozenset({".png", ".jpg", ".jpeg"})
 
 #: Ghostscript executable names to probe for, in order (Windows ships
 #: `gswin64c`/`gswin32c`; POSIX systems ship `gs`).
@@ -135,8 +141,76 @@ def convert_for_latex(
     if ext in TIFF_EXTENSIONS:
         return _convert_tiff(src, dest_dir, number, prefix=prefix)
     dest = dest_dir / f"fig{prefix}{number}{ext}"
+    if ext in _RASTER_PASSTHROUGH_EXTENSIONS:
+        flattened = _flatten_passthrough_raster(src, dest)
+        if flattened is not None:
+            return flattened
     shutil.copy2(src, dest)
     return ConversionOutcome(dest_path=dest)
+
+
+# --------------------------------------------------------------------------- #
+# Alpha flattening (shared by passthrough rasters and the TIFF->PNG path)
+# --------------------------------------------------------------------------- #
+
+
+def _has_alpha(image) -> bool:  # noqa: ANN001 -- PIL.Image.Image, imported lazily
+    """True if ``image`` carries transparency that must be flattened.
+
+    Covers the direct alpha modes (``RGBA``/``LA``/``PA``) and the palette
+    case where the alpha lives in a ``transparency`` info entry rather than a
+    band (a ``P``-mode PNG). ``RGB``/``L``/``P``-without-transparency return
+    ``False`` so a fully-opaque image is never needlessly re-encoded.
+    """
+    return image.mode in ("RGBA", "LA", "PA") or (
+        image.mode == "P" and "transparency" in image.info
+    )
+
+
+def _flatten_alpha_onto_white(image):  # noqa: ANN001, ANN201 -- PIL types, lazy import
+    """Composite any alpha channel onto opaque white; return an alpha-free image.
+
+    A transparent raster has no defined backdrop inside a PDF -- xdvipdfmx
+    renders its transparent pixels against nothing, which surfaces as faint
+    halo/edge lines bordering the figure (observed on a real manuscript's one
+    RGBA PNG: "weird lines around the top and bottom"). Journals expect opaque
+    figures regardless. Partial alpha (anti-aliased edges) is composited
+    correctly rather than hard-cut, and the transparent pixels' underlying RGB
+    -- often garbage -- is discarded in favour of white. An image with no alpha
+    is returned unchanged.
+    """
+    from PIL import Image
+
+    if not _has_alpha(image):
+        return image
+    rgba = image.convert("RGBA")
+    background = Image.new("RGBA", rgba.size, (255, 255, 255, 255))
+    return Image.alpha_composite(background, rgba).convert("RGB")
+
+
+def _flatten_passthrough_raster(src: Path, dest: Path) -> ConversionOutcome | None:
+    """Flatten a transparent passthrough raster onto white, writing ``dest``.
+
+    Returns a :class:`ConversionOutcome` when the image carried alpha and was
+    flattened (and therefore re-encoded to ``dest``), or ``None`` to tell the
+    caller "nothing to do -- plain-copy the bytes" (the common case: no alpha,
+    or Pillow could not read the file). Never raises: an unreadable/exotic
+    raster falls back to a byte-for-byte copy rather than failing the emit.
+    """
+    from PIL import Image
+
+    try:
+        with Image.open(src) as image:
+            if not _has_alpha(image):
+                return None
+            _flatten_alpha_onto_white(image).save(dest)
+    except Exception:
+        dest.unlink(missing_ok=True)  # discard any partial write; caller copies
+        return None
+    return ConversionOutcome(
+        dest_path=dest,
+        note="Flattened image transparency onto a white background.",
+    )
 
 
 # --------------------------------------------------------------------------- #
@@ -289,6 +363,10 @@ def _pillow_convert(src: Path, dest: Path) -> None:
         # normalize to RGB/RGBA so the PNG write never fails on mode alone.
         if image.mode not in ("RGB", "RGBA", "L", "LA", "P"):
             image = image.convert("RGBA" if "A" in image.getbands() else "RGB")
+        # Flatten any transparency onto white for the same reason as the
+        # passthrough path -- a transparent PNG composites against nothing in
+        # the PDF, leaving edge/halo artifacts. No-op for an opaque TIFF.
+        image = _flatten_alpha_onto_white(image)
         image.save(dest, format="PNG")
 
 

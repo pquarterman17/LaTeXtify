@@ -65,6 +65,27 @@ loop above) to catch it._
 
 ## Completed
 
+- ~~**Gap 16 — wide tables upscaled / inconsistent with narrow ones**~~ (2026-07-12) —
+  the spanning `table*` was hard-scaled with `\resizebox{\textwidth}{!}`, which
+  *upscales* any table narrower than the page (bigger fonts/rules), so Table II
+  looked larger than Table I. Replaced with the shrink-only graphicx idiom
+  `\resizebox{\ifdim\width>\linewidth\linewidth\else\width\fi}{!}` — a wide table
+  is scaled down only if it would overflow, never up, so all tables render at a
+  consistent scale. `latextify/ingest/filters.py` (`_wrap_table_float`).
+- ~~**Gap 17 — huge inter-paragraph gap in a page column**~~ (2026-07-12) — same
+  root as gap 16: `\resizebox` scales proportionally, so forcing a table to
+  `\textwidth` also inflated its *height*; the oversized `table*` float starved
+  the adjacent column, and REVTeX's `\flushbottom` (reprint default) distributed
+  the slack as large inter-paragraph glue (the "huge space on page 8"). Fixed by
+  the shrink-only bound in gap 16 — natural-size floats no longer over-consume
+  vertical space. No separate code change.
+- ~~**Gap 18 — transparent raster figures show halo/edge lines**~~ (2026-07-12) —
+  a raster with an alpha channel (the manuscript's one RGBA PNG, Fig 2) has no
+  defined backdrop in the PDF: xdvipdfmx renders its transparent pixels against
+  nothing, leaving faint lines bordering the figure. `latextify/figures/convert.py`
+  now flattens any alpha onto white (`Image.alpha_composite`) for both passthrough
+  rasters and the TIFF→PNG path; opaque images are copied byte-for-byte, unreadable
+  ones fall back to a plain copy. Generalizes to any transparent image, any format.
 - ~~**Gap 7 — list-styled / bare section headings → `\section`**~~ (2026-07-12) —
   new `promote_pseudo_headings` panflute filter rewrites ALL-CAPS / roman- /
   arabic-numbered headings (bare bold paragraphs AND single-item ListParagraph
@@ -114,11 +135,12 @@ loop above) to catch it._
 
 The full YIG manuscript now converts and compiles clean (revtex4-2): 5 real
 `\section`s, one numbered reference list, all figures bounded (3 spanning
-`figure*`), both tables spanning with proper captions, all in-text markers
-resolved, no MathML in the bibliography, no trailing artifact. The rendered PDF
-was screenshot-verified page by page (see the QA methodology in Context). The
-user's local `~/Downloads/LaTeXtify-YIG-output/` output was regenerated with
-the fixed code on 2026-07-12.
+`figure*`), both tables spanning at a consistent (unscaled) size with proper
+captions, all in-text markers resolved, no MathML in the bibliography, no
+trailing artifact, no oversized-float column gap, and no transparency halo on
+the RGBA figure. The rendered PDF was screenshot-verified page by page (see the
+QA methodology in Context). The user's local `~/Downloads/LaTeXtify-YIG-output/`
+output was regenerated with the fixed code on 2026-07-12 (gaps 16–18 included).
 
 - ~~**Gap 1 — `[N]`/`(N)`-prefixed reference lists**~~ (2026-07-11) — segmentation
   now recognizes bracket/paren numbering prefixes (incl. the no-space `[4]Author`

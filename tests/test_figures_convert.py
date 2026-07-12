@@ -74,6 +74,112 @@ def test_passthrough_formats_are_copied_unchanged(tmp_path, ext, content):
 
 
 # --------------------------------------------------------------------------- #
+# Alpha flattening on passthrough rasters (a transparent PNG composites against
+# nothing in the PDF -> faint halo/edge lines; observed on a real manuscript's
+# only RGBA figure). Root fix: flatten any alpha onto white on the way through.
+# --------------------------------------------------------------------------- #
+
+
+def test_has_alpha_predicate():
+    from PIL import Image
+
+    from latextify.figures.convert import _has_alpha
+
+    assert _has_alpha(Image.new("RGBA", (2, 2))) is True
+    assert _has_alpha(Image.new("LA", (2, 2))) is True
+    assert _has_alpha(Image.new("RGB", (2, 2))) is False
+    assert _has_alpha(Image.new("L", (2, 2))) is False
+    # Palette transparency lives in an info entry, not a band.
+    palette = Image.new("P", (2, 2))
+    assert _has_alpha(palette) is False
+    palette.info["transparency"] = 0
+    assert _has_alpha(palette) is True
+
+
+def test_transparent_png_is_flattened_onto_white(tmp_path):
+    from PIL import Image
+
+    src = tmp_path / "fig.png"
+    # Fully transparent pixels whose *stored* RGB is red: flattening must
+    # discard that red for white, proving it composites (not just drops alpha).
+    Image.new("RGBA", (4, 4), (255, 0, 0, 0)).save(src)
+    dest_dir = tmp_path / "figures"
+    dest_dir.mkdir()
+
+    outcome = convert_for_latex(src, dest_dir, 2)
+
+    assert outcome.dest_path == dest_dir / "fig2.png"
+    assert outcome.note == "Flattened image transparency onto a white background."
+    assert outcome.warning is None
+    with Image.open(outcome.dest_path) as out:
+        assert out.mode == "RGB"  # alpha channel gone
+        assert out.getpixel((0, 0)) == (255, 255, 255)  # transparent -> white
+
+
+def test_semitransparent_png_composites_over_white(tmp_path):
+    from PIL import Image
+
+    src = tmp_path / "fig.png"
+    # 50%-opacity black over white lands near mid-grey (255*(1-0.502) ~= 127),
+    # not pure black or pure white -- true compositing, not a channel drop.
+    Image.new("RGBA", (2, 2), (0, 0, 0, 128)).save(src)
+    dest_dir = tmp_path / "figures"
+    dest_dir.mkdir()
+
+    outcome = convert_for_latex(src, dest_dir, 1)
+
+    with Image.open(outcome.dest_path) as out:
+        r, g, b = out.getpixel((0, 0))
+        assert r == g == b and 120 <= r <= 135
+
+
+def test_opaque_png_passes_through_byte_for_byte(tmp_path):
+    from PIL import Image
+
+    src = tmp_path / "fig.png"
+    Image.new("RGB", (4, 4), (10, 20, 30)).save(src)
+    dest_dir = tmp_path / "figures"
+    dest_dir.mkdir()
+    original = src.read_bytes()
+
+    outcome = convert_for_latex(src, dest_dir, 3)
+
+    # No alpha -> no re-encode; the bytes are copied verbatim (note stays None).
+    assert outcome.note is None
+    assert outcome.dest_path.read_bytes() == original
+
+
+def test_unreadable_png_falls_back_to_plain_copy(tmp_path):
+    # Pillow cannot open these bytes; the flatten step must swallow that and
+    # leave a byte-for-byte copy rather than failing the emit.
+    src = tmp_path / "fig.png"
+    src.write_bytes(b"not really a png")
+    dest_dir = tmp_path / "figures"
+    dest_dir.mkdir()
+
+    outcome = convert_for_latex(src, dest_dir, 4)
+
+    assert outcome.note is None and outcome.warning is None
+    assert outcome.dest_path.read_bytes() == b"not really a png"
+
+
+def test_transparent_tiff_converts_to_opaque_png(tmp_path):
+    from PIL import Image
+
+    src = tmp_path / "fig.tiff"
+    Image.new("RGBA", (4, 4), (255, 0, 0, 0)).save(src, format="TIFF")
+    dest_dir = tmp_path / "figures"
+    dest_dir.mkdir()
+
+    outcome = convert_for_latex(src, dest_dir, 5)
+
+    assert outcome.dest_path == dest_dir / "fig5.png"
+    with Image.open(outcome.dest_path) as out:
+        assert "A" not in out.getbands()  # opaque after flatten
+        assert out.getpixel((0, 0)) == (255, 255, 255)
+
+
+# --------------------------------------------------------------------------- #
 # SVG -> PDF
 # --------------------------------------------------------------------------- #
 

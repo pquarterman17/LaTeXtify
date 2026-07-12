@@ -89,7 +89,9 @@ def test_clean_table_rows_present(tables_result):
 
 def test_wide_table_spans_columns_and_is_width_bounded():
     # A 4+-column table would overflow a single revtex column, so it is emitted
-    # as a spanning table* and hard-bounded to \textwidth with \resizebox.
+    # as a spanning table* bounded by the SHRINK-ONLY \resizebox idiom: it caps
+    # the width at \linewidth only when the table overflows, never upscaling a
+    # table that already fits (so Table II renders at the same scale as Table I).
     tabular = [
         "\\begin{tabular}{llll}",
         "\\toprule",
@@ -99,7 +101,10 @@ def test_wide_table_spans_columns_and_is_width_bounded():
     ]
     out = "\n".join(_wrap_table_float("A caption", tabular, ncols=4))
     assert "\\begin{table*}" in out and "\\end{table*}" in out
-    assert "\\resizebox{\\textwidth}{!}{" in out
+    # Shrink-only: the target width is \linewidth ONLY if \width exceeds it.
+    assert "\\resizebox{\\ifdim\\width>\\linewidth\\linewidth\\else\\width\\fi}{!}{" in out
+    # It must NOT hard-scale to \textwidth (that would upscale a fitting table).
+    assert "\\resizebox{\\textwidth}" not in out
     # The caption is kept OUTSIDE (before) the \resizebox so it is not scaled.
     assert out.index("\\caption") < out.index("\\resizebox")
 
