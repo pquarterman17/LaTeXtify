@@ -91,17 +91,52 @@ def _pick_asset(assets: list[dict], triple: str) -> dict:
     )
 
 
-def download_tectonic(*, client: httpx.Client | None = None, force: bool = False) -> Path:
-    """Download the latest Tectonic release for this platform into the cache dir.
+def _extract_tectonic_binary(
+    archive_bytes: bytes, archive_name: str, dest_dir: Path, binary_name: str
+) -> Path:
+    """Extract ``binary_name`` from a downloaded Tectonic archive into ``dest_dir``.
 
-    Idempotent: if the cached binary already exists and `force` is False,
-    returns it without hitting the network. Returns the path to the cached
-    executable.
+    Tectonic release archives carry the binary at their root, so a plain
+    ``extractall`` lands ``tectonic``/``tectonic.exe`` directly in ``dest_dir``.
+    A POSIX target binary is made executable (harmless/irrelevant for a Windows
+    ``.exe``, which is identified by the name, not the build host).
     """
-    dest = cache_dir() / _binary_name()
-    if dest.is_file() and not force:
-        return dest
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    if archive_name.endswith(".zip"):
+        with zipfile.ZipFile(io.BytesIO(archive_bytes)) as zf:
+            zf.extractall(dest_dir)
+    else:
+        with tarfile.open(fileobj=io.BytesIO(archive_bytes), mode="r:gz") as tf:
+            tf.extractall(dest_dir)
 
+    dest = dest_dir / binary_name
+    if not dest.is_file():
+        raise TectonicNotAvailableError(
+            f"Downloaded Tectonic archive '{archive_name}' did not contain {binary_name}"
+        )
+    if not binary_name.endswith(".exe"):
+        mode = dest.stat().st_mode
+        dest.chmod(mode | stat.S_IEXEC | stat.S_IXGRP | stat.S_IXOTH)
+    return dest
+
+
+def download_tectonic_release(
+    triple: str,
+    binary_name: str,
+    dest_dir: Path,
+    *,
+    client: httpx.Client | None = None,
+) -> Path:
+    """Download the latest Tectonic release binary for an EXPLICIT target.
+
+    ``triple`` selects the release asset (e.g. ``x86_64-unknown-linux-gnu``)
+    and ``binary_name`` is the extracted executable's name for that target
+    (``tectonic`` or ``tectonic.exe``); the binary lands in ``dest_dir``. This
+    is the cross-platform primitive the offline-kit builder uses to fetch a
+    binary for a target that is NOT the build host; :func:`download_tectonic`
+    is the current-platform, cache-directed wrapper around it. Always hits the
+    network (no idempotence check -- the caller owns the destination policy).
+    """
     owns_client = client is None
     http_client = client or httpx.Client(follow_redirects=True, timeout=120.0)
     try:
@@ -120,39 +155,32 @@ def download_tectonic(*, client: httpx.Client | None = None, force: bool = False
             ) from exc
         release = resp.json()
 
-        triple = _target_triple()
         asset = _pick_asset(release.get("assets", []), triple)
-
         archive_resp = http_client.get(
             asset["browser_download_url"], headers={"User-Agent": _USER_AGENT}
         )
         archive_resp.raise_for_status()
-        archive_bytes = archive_resp.content
-
-        target_dir = cache_dir()
-        target_dir.mkdir(parents=True, exist_ok=True)
-
-        name = asset["name"]
-        if name.endswith(".zip"):
-            with zipfile.ZipFile(io.BytesIO(archive_bytes)) as zf:
-                zf.extractall(target_dir)
-        else:
-            with tarfile.open(fileobj=io.BytesIO(archive_bytes), mode="r:gz") as tf:
-                tf.extractall(target_dir)
-
-        if not dest.is_file():
-            raise TectonicNotAvailableError(
-                f"Downloaded Tectonic archive '{name}' did not contain {_binary_name()}"
-            )
-
-        if platform.system() != "Windows":
-            mode = dest.stat().st_mode
-            dest.chmod(mode | stat.S_IEXEC | stat.S_IXGRP | stat.S_IXOTH)
-
-        return dest
+        return _extract_tectonic_binary(
+            archive_resp.content, asset["name"], dest_dir, binary_name
+        )
     finally:
         if owns_client:
             http_client.close()
+
+
+def download_tectonic(*, client: httpx.Client | None = None, force: bool = False) -> Path:
+    """Download the latest Tectonic release for this platform into the cache dir.
+
+    Idempotent: if the cached binary already exists and `force` is False,
+    returns it without hitting the network. Returns the path to the cached
+    executable.
+    """
+    dest = cache_dir() / _binary_name()
+    if dest.is_file() and not force:
+        return dest
+    return download_tectonic_release(
+        _target_triple(), _binary_name(), cache_dir(), client=client
+    )
 
 
 def ensure_tectonic() -> Path:

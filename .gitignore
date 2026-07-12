@@ -25,3 +25,6 @@ Thumbs.db
 
 # Claude Code agent worktrees (live checkouts, never tracked)
 .claude/
+
+# Offline kit build output (latextify make-kit)
+/build/

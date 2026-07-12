@@ -125,51 +125,6 @@ instance — tests must cover members beyond the motivating example.
 
 ## Tier 1 — High Impact
 
-2. **Offline kit builder — `latextify make-kit`**
-   **Model:** Sonnet 5 · **Touches:** new `latextify/kit/` package, `cli.py` (one command)
-   **Context:** MIRROR `../fermiviewer/tools/offline/make_bundle.py` — read
-   it end to end first; it solved the traps already. `make-kit --target
-   {win-x64,linux-x64,macos-arm64,current} --python-versions 3.10..3.14
-   --output DIR [--warm-tex/--no-warm-tex]`. Kit contents (fermiviewer
-   anatomy + our TeX layer): (a) `wheelhouse/` — latextify wheel
-   (`uv build`) + all runtime deps for EVERY covered Python version
-   (follow make_bundle.py's per-version `pip download` loop; its module
-   docstring explains why `--python-version` alone is insufficient), plus
-   pip itself (Debian ensurepip gap); fail LOUDLY naming any dep lacking
-   a wheel for the target. (b) `requirements.txt` — exact pins, for IT/
-   security review. (c) `install.py` — copied from a template in the
-   package (see item 3). (d) `tectonic/` — TARGET-triple binary
-   (generalize `download_tectonic()` additively to accept an explicit
-   triple). (e) `tex-bundle-cache/` — FIRST verify the cross-OS
-   portability assumption (inspect for platform-specific files; document
-   finding), then warm by compiling one minimal doc per REGISTERED
-   journal (iterate the registry, not a hardcoded list). (f)
-   `bundle-info.json` — os/arch/python versions covered, latextify
-   version, sha256s; kit folder named `latextify-offline-<os>-<arch>`.
-   **Done when:** a current-platform kit installs + converts a fixture to
-   PDF in a clean venv with `--no-index`; a cross-target kit builds
-   without error and its manifest lists everything.
-
-3. **Offline installer — `install.py` (ships INSIDE the kit)**
-   **Model:** Sonnet 5 · **Touches:** new `latextify/kit/install_template.py` (emitted into kits by item 2)
-   **Context:** MIRROR `../fermiviewer/tools/offline/install.py` — stdlib
-   only, no admin, everything into the kit folder. Flow: check the
-   running interpreter against bundle-info.json's covered versions (clear
-   "run me with py -3.13" style errors); validate sha256s; `python -m
-   venv`; bootstrap pip from the wheelhouse when ensurepip is missing;
-   `pip install --no-index --find-links wheelhouse latextify`; place the
-   tectonic binary + TeX bundle cache into the exact paths
-   `find_tectonic()`/Tectonic expect (import latextify AFTER install to
-   reuse its path logic); write `LaTeXtify.bat` / `./latextify` launcher
-   wrappers; finish with a smoke conversion of a bundled fixture WITH
-   `--pdf` under poisoned proxies (`HTTPS_PROXY=http://127.0.0.1:9`) so
-   success PROVES offline operation. Uninstall = delete folder (document
-   the one exception: the Tectonic cache location, and offer
-   `--cache-here` to keep even that inside the folder if feasible).
-   **Done when:** on this Windows machine: kit folder alone (no repo) →
-   `py install.py` → launcher converts a fixture to PDF with networking
-   poisoned.
-
 4. **Offline CI verification**
    **Model:** Sonnet 5 · **Touches:** `.github/workflows/ci.yml` (new job)
    **Context:** One job proving the whole story end to end on ubuntu:
@@ -182,25 +137,6 @@ instance — tests must cover members beyond the motivating example.
    network call to the convert path.
 
 ## Tier 2 — Medium Impact
-
-5. **README-OFFLINE.md (in-kit) + repo README section**
-   **Model:** Haiku 4.5 · **Context:** MIRROR the structure and tone of
-   `../fermiviewer/tools/offline/README-OFFLINE.md` (what's-inside table,
-   requirements incl. the "python.org installer works offline, per-user,
-   no admin" note, install, update = newer kit / uninstall = delete
-   folder, troubleshooting, how-this-was-made). Add the LaTeXtify
-   specifics: kit size expectations, LOUD callout that plain-text
-   citation reconstruction offline emits verify-flagged raw entries (no
-   Crossref; DOIs found in the typed text still hyperlink), and the
-   emit-only escape hatch.
-   **Done when:** a colleague could follow it cold on an air-gapped PC.
-
-6. **Kit trimming options**
-   **Model:** Haiku 4.5 · **Context:** `--no-warm-tex` (emit-only kits,
-   ~70 MB), `--journals a,b` to warm only selected journals' bundles,
-   skip GUI extra wheels by default with `--with-gui` opt-in.
-   **Done when:** each flag changes kit contents + manifest accordingly,
-   with tests on the manifest.
 
 7. **Release kits from CI**
    **Model:** Sonnet 5 · **Context:** on version tag, CI builds kits for
@@ -235,6 +171,40 @@ instance — tests must cover members beyond the motivating example.
 
 ## Completed
 
+- ~~**Item 2 — offline kit builder `latextify make-kit`**~~ (2026-07-12) — new
+  `latextify/kit/` package + CLI command builds
+  `latextify-offline-<os>-<arch>/` with wheelhouse (latextify wheel + all deps
+  per covered Python + pip), `requirements.txt`, `install.py`, target-triple
+  `tectonic/` binary, warmed `tex-bundle-cache/`, and `bundle-info.json`. Cross
+  targets fetch wheels via pip `--platform`/`--only-binary=:all:` (fail loud on a
+  dep with no target wheel); the Tectonic download was generalized additively
+  (`download_tectonic_release(triple, binary, dir)`). **Verified**: a
+  current-platform (win-x64) kit built, installed in a clean venv `--no-index`,
+  and converted a fixture to PDF with the network poisoned. **Cross-OS cache
+  finding**: the warmed cache ships TeX *sources* only — the host/arch-specific
+  engine `formats/` dump is stripped, and the target regenerates the format
+  locally + offline from the sources (proven: format regenerated under poisoned
+  proxies). Warming uses a comprehensive font/size/weight/math warm-up doc
+  (a trivial body under-warms — real 9pt abstracts / 12pt-bold headings pull
+  font files a one-liner never loads) and runs in a short-path temp cache to
+  dodge Windows MAX_PATH during `.fmt` generation.
+- ~~**Item 3 — in-kit `install.py` template**~~ (2026-07-12) —
+  `latextify/kit/install_template.py`, stdlib-only (test-enforced: no
+  latextify/third-party imports), copied verbatim into every kit. Creates a
+  `.venv`, bootstraps pip from the wheelhouse on ensurepip-less distros, installs
+  `--no-index`, verifies the import, and writes `LaTeXtify.bat` / `./latextify`
+  launchers that put the in-kit Tectonic on PATH and point `TECTONIC_CACHE_DIR`
+  at the warmed cache — so uninstall = delete the folder (nothing placed in a
+  system location; simpler than the plan's cache-copy approach).
+- ~~**Item 5 — README-OFFLINE.md**~~ (2026-07-12) — `latextify/kit/README-OFFLINE.md`,
+  shipped in each kit: what's-inside table, requirements, install/convert,
+  update/uninstall, troubleshooting, how-made, plus the loud offline-citation
+  callout (verify-flagged raw entries; DOIs still hyperlink) and the emit-only
+  escape hatch.
+- ~~**Item 6 — kit trimming flags**~~ (2026-07-12) — `--no-warm-tex` (emit-only,
+  omits `tex-bundle-cache/`), `--journals a,b` (warm a subset), `--with-gui`
+  (bundle the GUI extra). Each is reflected in `bundle-info.json`; manifest
+  effects are unit-tested (`tests/test_kit_build.py`).
 - ~~**Item 1 — Python 3.10 floor**~~ (2026-07-12) — the only 3.11-ism was
   `enum.StrEnum` (three model files). Rather than `class X(str, Enum)` (which
   changes `__str__`/`__format__` to print `Class.MEMBER`), added a version-gated
