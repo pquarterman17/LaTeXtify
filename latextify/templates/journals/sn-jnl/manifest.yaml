@@ -33,6 +33,7 @@
 # into the class-options list instead of only using it for
 # \bibliographystyle -- the one place sn-jnl's template deviates from the
 # shared revtex4-2 pattern it was cloned from.
+display_name: Springer Nature (sn-jnl)
 class: sn-jnl
 class_options: [pdflatex]
 

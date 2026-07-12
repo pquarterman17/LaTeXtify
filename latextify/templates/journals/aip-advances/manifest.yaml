@@ -1,0 +1,10 @@
+# AIP Advances -- REVTeX variant (see aip-apl for the pattern).
+display_name: AIP Publishing - AIP Advances (REVTeX)
+extends: revtex4-2
+class_options: [aip, adv, reprint]
+bib:
+  default_mode: numeric
+  modes:
+    numeric:
+      bibstyle: aipnum4-2
+      natbib_options: []

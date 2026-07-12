@@ -40,6 +40,7 @@
 # tests/test_templates_item22.py) -- there is nothing this repo can compile
 # WileyNJD-v2 against. Rendering (golden-file preamble/metadata tests) does
 # not need the class file at all and runs normally.
+display_name: Wiley - New Journal Design (WileyNJD-v2)
 class: WileyNJD-v2
 class_options: [NoteStyle]   # NoteStyle: standard 1-column manuscript layout
 

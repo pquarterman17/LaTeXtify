@@ -37,6 +37,7 @@
 # if attempted early, also verified empirically). No changes to loader.py's
 # render_preamble() signature or to emit/ were needed -- this is pure
 # template content, self-contained to this journal folder.
+display_name: American Chemical Society (achemso)
 class: achemso
 class_options: [journal=jacsat, manuscript=article]
 

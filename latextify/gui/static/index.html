@@ -389,7 +389,8 @@
       journalSelect.innerHTML = "";
       journals.forEach((journal) => {
         const opt = document.createElement("option");
-        opt.value = journal.name; opt.textContent = journal.name;
+        opt.value = journal.name;
+        opt.textContent = journal.display_name || journal.name;
         journalSelect.appendChild(opt);
       });
       populateCitationModes();

@@ -71,6 +71,7 @@ class JournalInfo(BaseModel):
     """One entry of ``GET /api/journals``."""
 
     name: str
+    display_name: str
     modes: list[str]
 
 
@@ -195,7 +196,15 @@ def create_app(*, workdir: Path | None = None) -> FastAPI:
                 # skip it silently the way a directory-scan-based discover()
                 # already tolerates non-journal subdirectories.
                 continue
-            infos.append(JournalInfo(name=name, modes=sorted(journal.bib_modes)))
+            infos.append(
+                JournalInfo(
+                    name=name,
+                    display_name=journal.display_name,
+                    modes=sorted(journal.bib_modes),
+                )
+            )
+        # Alphabetical by the label the user actually reads.
+        infos.sort(key=lambda info: info.display_name.lower())
         return infos
 
     @app.post("/api/convert", response_model=ConvertResponse)

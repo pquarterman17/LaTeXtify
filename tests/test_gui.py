@@ -78,12 +78,18 @@ def test_journals_endpoint_lists_all_registered_journals_with_modes(tmp_path):
     assert response.status_code == 200
     body = response.json()
     names = {entry["name"] for entry in body}
-    assert {"revtex4-2", "elsarticle", "ieeetran", "sn-jnl"} <= names
+    assert {"revtex4-2", "elsarticle", "ieeetran", "sn-jnl", "aps-prl", "aip-apl"} <= names
 
     by_name = {entry["name"]: entry["modes"] for entry in body}
     assert by_name["revtex4-2"] == ["numeric"]
     assert set(by_name["elsarticle"]) == {"numeric", "authoryear"}
     assert by_name["ieeetran"] == ["numeric"]
+
+    # Every entry carries a human-readable display name; variants get proper ones.
+    display = {entry["name"]: entry["display_name"] for entry in body}
+    assert display["revtex4-2"].startswith("American Physical Society")
+    assert "Physical Review Letters" in display["aps-prl"]
+    assert all(entry["display_name"] for entry in body)
 
 
 # --------------------------------------------------------------------------- #

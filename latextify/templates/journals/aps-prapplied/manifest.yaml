@@ -1,0 +1,4 @@
+# APS Physical Review Applied -- REVTeX variant (see aps-prl for the pattern).
+display_name: American Physical Society - Physical Review Applied (REVTeX)
+extends: revtex4-2
+class_options: [aps, prapplied, reprint]

@@ -5,6 +5,7 @@
 # field below and names the offending field + journal on any error.
 
 # \documentclass[<class_options>]{<class>}
+display_name: American Physical Society - Physical Review B (REVTeX)
 class: revtex4-2
 class_options: [aps, prb, reprint]   # aps society, Phys. Rev. B, two-column reprint
 

@@ -1,0 +1,10 @@
+# AIP Journal of Applied Physics -- REVTeX variant (see aip-apl for the pattern).
+display_name: AIP Publishing - Journal of Applied Physics (REVTeX)
+extends: revtex4-2
+class_options: [aip, jap, reprint]
+bib:
+  default_mode: numeric
+  modes:
+    numeric:
+      bibstyle: aipnum4-2
+      natbib_options: []

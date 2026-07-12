@@ -102,6 +102,55 @@ def test_discover_maps_name_to_manifest():
 
 
 # --------------------------------------------------------------------------- #
+# display_name + extends (variant journals)
+# --------------------------------------------------------------------------- #
+
+
+def test_display_name_from_manifest():
+    assert loader.load("revtex4-2").display_name.startswith("American Physical Society")
+
+
+def test_display_name_defaults_to_journal_name(tmp_path):
+    jdir = tmp_path / "journals" / "nameless"
+    jdir.mkdir(parents=True)
+    (jdir / "manifest.yaml").write_text(
+        "class: article\nmetadata_scheme: bare\n"
+        "bib:\n  default_mode: numeric\n  modes:\n    numeric:\n      bibstyle: plain\n",
+        encoding="utf-8",
+    )
+    j = loader.load("nameless", journals_dir=tmp_path / "journals")
+    assert j.display_name == "nameless"  # falls back to the folder name
+
+
+def test_extends_inherits_base_and_overrides_options():
+    variant = loader.load("aps-prl")
+    base = loader.load("revtex4-2")
+    # Overridden by the variant.
+    assert variant.class_options == ("aps", "prl", "reprint")
+    assert variant.display_name != base.display_name
+    # Inherited from the base.
+    assert [p.name for p in variant.packages] == [p.name for p in base.packages]
+    assert variant.bib_modes["numeric"].bibstyle == "apsrev4-2"
+    assert variant.document_class == "revtex4-2"
+    # Templates come from the base folder.
+    assert variant.template_root == base.root
+    assert "\\documentclass[aps,prl,reprint]{revtex4-2}" in variant.render_preamble()
+
+
+def test_extends_can_override_bibstyle():
+    # AIP variants inherit REVTeX templates but use the AIP bibstyle.
+    assert loader.load("aip-apl").bib_modes["numeric"].bibstyle == "aipnum4-2"
+
+
+def test_extends_unknown_base_raises(tmp_path):
+    jdir = tmp_path / "journals" / "orphan"
+    jdir.mkdir(parents=True)
+    (jdir / "manifest.yaml").write_text("extends: nonexistent\n", encoding="utf-8")
+    with pytest.raises(loader.ManifestError, match="not a known journal"):
+        loader.load("orphan", journals_dir=tmp_path / "journals")
+
+
+# --------------------------------------------------------------------------- #
 # Author grouping
 # --------------------------------------------------------------------------- #
 

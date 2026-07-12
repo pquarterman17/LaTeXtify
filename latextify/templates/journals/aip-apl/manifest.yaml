@@ -1,0 +1,12 @@
+# AIP Applied Physics Letters -- REVTeX variant. Inherits revtex4-2's templates
+# and packages; overrides the society/journal options and the bibstyle (AIP uses
+# aipnum4-2, not apsrev4-2).
+display_name: AIP Publishing - Applied Physics Letters (REVTeX)
+extends: revtex4-2
+class_options: [aip, apl, reprint]
+bib:
+  default_mode: numeric
+  modes:
+    numeric:
+      bibstyle: aipnum4-2
+      natbib_options: []

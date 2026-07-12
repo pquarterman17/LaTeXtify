@@ -1,0 +1,6 @@
+# APS Physical Review Letters -- REVTeX variant. Inherits everything from
+# revtex4-2 (templates, packages, apsrev4-2 bibstyle) and changes only the
+# journal option + label. See loader.py's `extends` handling.
+display_name: American Physical Society - Physical Review Letters (REVTeX)
+extends: revtex4-2
+class_options: [aps, prl, reprint]

@@ -3,6 +3,7 @@
 # and copied verbatim; only this manifest and metadata.tex.j2 are IEEE-specific.
 
 # \documentclass[<class_options>]{<class>}
+display_name: IEEE (IEEEtran)
 class: IEEEtran
 class_options: [journal]   # full IEEE Transactions/Journal style, two-column
 

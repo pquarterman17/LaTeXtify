@@ -10,6 +10,7 @@
 # \documentclass option list instead of a \PassOptionsToPackage line.
 
 # \documentclass[<class_options> + <mode natbib_options>]{<class>}
+display_name: Elsevier (elsarticle)
 class: elsarticle
 class_options: [review]    # review mode: 12pt, doublespaced submission layout
 

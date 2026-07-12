@@ -19,6 +19,7 @@
 # automatically) -- so only the class + its two size-option .clo files
 # (iopart10.clo, iopart12.clo -- iopart.cls \input{iopart<size>.clo}
 # internally per the chosen pt-size class option) are vendored.
+display_name: IOP Publishing (iopart)
 class: iopart
 class_options: [12pt]
 

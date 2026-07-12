@@ -1,0 +1,4 @@
+# APS Reviews of Modern Physics -- REVTeX variant (see aps-prl for the pattern).
+display_name: American Physical Society - Reviews of Modern Physics (REVTeX)
+extends: revtex4-2
+class_options: [aps, rmp, reprint]
