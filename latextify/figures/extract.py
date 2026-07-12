@@ -66,7 +66,15 @@ import pypandoc
 
 from latextify.model import Figure
 
-_CAPTION_LABEL_RE = re.compile(r"^(?:Figure|Fig\.?)\s*(\d+)\s*[.:]?\s*(.*)$", re.IGNORECASE)
+# A figure caption label: an optional "Supplemental/Supplementary" prefix, then
+# "Figure"/"Fig.", then the number (which may itself carry an "S" prefix, e.g.
+# "Fig. S1"). Group 1 is the bare digits, group 2 the caption body. Supplement
+# manuscripts commonly label captions "Supplemental Fig. N:" -- without the
+# prefix branch the whole caption is treated as ordinary text and dropped.
+_CAPTION_LABEL_RE = re.compile(
+    r"^(?:Supp(?:lement(?:al|ary)?|l)?\.?\s+)?(?:Figure|Fig\.?)\s*S?\s*(\d+)\s*[.:]?\s*(.*)$",
+    re.IGNORECASE,
+)
 
 # WordprocessingML namespace; a floating text box's text lives in
 # <w:txbxContent><w:p>...<w:t>text</w:t>... anchored to the body.
@@ -142,6 +150,17 @@ def extract_figures(docx_path: Path | str, media_dir: Path | str) -> tuple[Figur
     # cell.
     doc.walk(collect)
     return tuple(figures)
+
+
+def looks_like_figure_caption(text: str) -> bool:
+    """True when ``text`` reads as a figure-caption label line.
+
+    Recognises ``Fig. N`` / ``Figure N`` / ``Supplemental Fig. N`` and the
+    ``S``-numbered variants. Used both to recover text-box captions here and to
+    stop preflight from flagging a caption text box as "content will be dropped"
+    -- those are now recovered, not dropped.
+    """
+    return _CAPTION_LABEL_RE.match(text.strip()) is not None
 
 
 def _textbox_captions(docx_path: Path) -> dict[int, str]:

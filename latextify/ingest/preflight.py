@@ -27,6 +27,7 @@ from pathlib import Path
 
 from lxml import etree
 
+from latextify.figures.extract import looks_like_figure_caption
 from latextify.model.preflight import (
     Location,
     PreflightFinding,
@@ -144,9 +145,18 @@ def _finding(
 def detect_text_boxes(
     document_root: etree._Element, para_index: ParagraphIndex
 ) -> list[PreflightFinding]:
-    """Text box content (w:txbxContent) is invisible to pandoc's docx reader."""
+    """Text box content (w:txbxContent) is invisible to pandoc's docx reader.
+
+    A text box holding a figure caption (``Fig. N`` / ``Supplemental Fig. N``)
+    is exempt: those are recovered by ``figures.extract._textbox_captions`` and
+    re-emitted as the figure's ``\\caption``, so flagging them here would be a
+    false alarm.
+    """
     findings = []
     for element in document_root.iter(_qn("w:txbxContent")):
+        text = "".join(node.text or "" for node in element.iter(_qn("w:t")))
+        if looks_like_figure_caption(text):
+            continue
         finding = _finding(
             "text_box",
             Severity.ERROR,

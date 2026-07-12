@@ -69,6 +69,17 @@ loop above) to catch it._
 
 ## Completed
 
+- ~~**Gap 22 — "Supplemental Fig. N" captions + preflight false alarms**~~ (2026-07-12) —
+  the second manuscript's *supplement* labels its five figure captions "Supplemental Fig. N:",
+  which gap 20's `^(?:Figure|Fig\.?)` label regex rejected (the "Supplemental"
+  prefix blocks the match), so all SI captions were dropped. Broadened
+  `_CAPTION_LABEL_RE` to accept an optional Supplemental/Supplementary prefix and
+  an `S`-prefixed number ("Fig. S1"), and exposed `looks_like_figure_caption`.
+  Also fixed the follow-on: preflight's `detect_text_boxes` flagged all ten SI
+  caption boxes as "content will be dropped" — now that they're recovered, that's
+  a false alarm, so it skips text boxes whose text reads as a figure caption
+  (`ingest/preflight.py`). Screenshot-verified: FIG. S1–S5 render with captions
+  and S-numbering; no spurious text-box errors.
 - ~~**Gap 21 — duplicate reference list on the FIELD-CODE path**~~ (2026-07-12) —
   the second real manuscript uses Zotero/EndNote field codes
   AND left the plugin's formatted bibliography in the body; the emitter renders

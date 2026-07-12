@@ -85,6 +85,45 @@ def test_textbox_captions_first_box_wins_on_duplicate(tmp_path):
     assert _textbox_captions(docx) == {3: "SLD depth profile."}
 
 
+def test_textbox_captions_handle_supplemental_prefix(tmp_path):
+    # Supplement manuscripts label captions "Supplemental Fig. N:" (gap 22).
+    docx = _write_docx(
+        tmp_path / "si.docx",
+        _textbox("Supplemental Fig. 1: Wide angle XRD of the 48 nm samples.")
+        + _textbox("Supplementary Figure 2. Spin asymmetry data."),
+    )
+    assert _textbox_captions(docx) == {
+        1: "Wide angle XRD of the 48 nm samples.",
+        2: "Spin asymmetry data.",
+    }
+
+
+def test_looks_like_figure_caption_variants():
+    from latextify.figures.extract import looks_like_figure_caption
+
+    assert looks_like_figure_caption("Fig. 3: normal")
+    assert looks_like_figure_caption("Figure 4. plain")
+    assert looks_like_figure_caption("Supplemental Fig. 1: XRD")
+    assert looks_like_figure_caption("Figure S2 - text")
+    assert not looks_like_figure_caption("Supported by Fig. 1 in a sentence of prose")
+    assert not looks_like_figure_caption("Just an ordinary text box.")
+
+
+def test_preflight_exempts_caption_textboxes_but_flags_others(tmp_path):
+    from latextify.ingest.preflight import run_preflight
+
+    docx = _write_docx(
+        tmp_path / "mixed.docx",
+        _textbox("Supplemental Fig. 1: A recovered caption.")  # exempt
+        + _textbox("An orphaned note that really will be dropped.")  # flagged
+        + "<w:p><w:r><w:t>Body.</w:t></w:r></w:p>",
+    )
+    report = run_preflight(docx)
+    text_box_findings = [f for f in report.findings if f.detector == "text_box"]
+    assert len(text_box_findings) == 1
+    assert "orphaned note" not in text_box_findings[0].message  # generic message, not the text
+
+
 def test_textbox_captions_absent_yields_empty(tmp_path):
     docx = _write_docx(tmp_path / "plain.docx", "<w:p><w:r><w:t>No text boxes.</w:t></w:r></w:p>")
     assert _textbox_captions(docx) == {}
