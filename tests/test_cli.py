@@ -657,3 +657,268 @@ def test_convert_report_updated_with_compile_diagnostics(tmp_path):
     assert "## Compilation" in report_text
     # Should either say success or include diagnostics
     assert ("Success" in report_text or "Compilation" in report_text)
+
+
+# --------------------------------------------------------------------------- #
+# Batch conversion (plan item 20)
+# --------------------------------------------------------------------------- #
+
+
+def test_batch_with_three_files_creates_per_file_subdirs(tmp_path):
+    """Batch mode should create per-file subdirectories under output/<stem>/<journal>/."""
+    batch_dir = tmp_path / "batch"
+    batch_dir.mkdir()
+
+    # Copy three fixtures into the batch folder.
+    shutil.copy(FIGURES_DOCX, batch_dir / "figures.docx")
+    shutil.copy(ZOTERO_DOCX, batch_dir / "zotero_cited.docx")
+    shutil.copy(FIGURES_DOCX, batch_dir / "clean.docx")
+
+    output = tmp_path / "output"
+    result = runner.invoke(
+        app,
+        ["batch", str(batch_dir), "--journal", "revtex4-2", "--output", str(output)],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert "No .docx files found" not in result.output
+    # Each file should have its own per-stem subdirectory.
+    assert (output / "figures" / "revtex4-2" / "main.tex").is_file()
+    assert (output / "zotero_cited" / "revtex4-2" / "main.tex").is_file()
+    assert (output / "clean" / "revtex4-2" / "main.tex").is_file()
+    # Each should have a report.md.
+    assert (output / "figures" / "revtex4-2" / "report.md").is_file()
+    assert (output / "zotero_cited" / "revtex4-2" / "report.md").is_file()
+    assert (output / "clean" / "revtex4-2" / "report.md").is_file()
+
+
+def test_batch_writes_summary_md_to_output_root(tmp_path):
+    """Batch mode should write batch_summary.md to the output root."""
+    batch_dir = tmp_path / "batch"
+    batch_dir.mkdir()
+    shutil.copy(FIGURES_DOCX, batch_dir / "test1.docx")
+
+    output = tmp_path / "output"
+    result = runner.invoke(
+        app,
+        ["batch", str(batch_dir), "--journal", "revtex4-2", "--output", str(output)],
+    )
+
+    assert result.exit_code == 0, result.output
+    summary_path = output / "batch_summary.md"
+    assert summary_path.is_file()
+    summary_text = summary_path.read_text(encoding="utf-8")
+    assert "Batch Conversion Summary" in summary_text
+    assert "journal: revtex4-2" in summary_text.lower()
+    assert "test1" in summary_text
+
+
+def test_batch_with_corrupt_docx_continues_and_marks_error(tmp_path):
+    """Batch mode should continue on corrupt .docx, mark it as error, exit 1."""
+    batch_dir = tmp_path / "batch"
+    batch_dir.mkdir()
+
+    # One good file, one corrupt.
+    shutil.copy(FIGURES_DOCX, batch_dir / "good.docx")
+    bogus = batch_dir / "corrupt.docx"
+    bogus.write_text("Not a real docx file", encoding="utf-8")
+
+    output = tmp_path / "output"
+    result = runner.invoke(
+        app,
+        ["batch", str(batch_dir), "--journal", "revtex4-2", "--output", str(output)],
+    )
+
+    # Exit code should be 1 because one file errored.
+    assert result.exit_code == 1
+    # But the good file should still have been processed.
+    assert (output / "good" / "revtex4-2" / "main.tex").is_file()
+    # Summary should show error for corrupt file.
+    summary_path = output / "batch_summary.md"
+    assert summary_path.is_file()
+    summary_text = summary_path.read_text(encoding="utf-8")
+    assert "corrupt" in summary_text.lower() or "error" in summary_text.lower()
+
+
+def test_batch_skips_temp_files(tmp_path):
+    """Batch mode should skip Word temp files like ~$name.docx."""
+    batch_dir = tmp_path / "batch"
+    batch_dir.mkdir()
+
+    shutil.copy(FIGURES_DOCX, batch_dir / "good.docx")
+    # Plant a temp file that should be skipped.
+    temp_file = batch_dir / "~$temp.docx"
+    temp_file.write_text("temp", encoding="utf-8")
+
+    output = tmp_path / "output"
+    result = runner.invoke(
+        app,
+        ["batch", str(batch_dir), "--journal", "revtex4-2", "--output", str(output)],
+    )
+
+    assert result.exit_code == 0, result.output
+    # Only the good file should have been converted.
+    assert (output / "good" / "revtex4-2" / "main.tex").is_file()
+    # Temp file should NOT have created an output directory.
+    assert not (output / "~$temp").exists()
+    # Summary should only mention one file.
+    summary_path = output / "batch_summary.md"
+    summary_text = summary_path.read_text(encoding="utf-8")
+    # Count the data rows in the table (not counting header rows).
+    assert summary_text.count("| good") == 1
+    assert "~$temp" not in summary_text
+
+
+def test_batch_empty_folder_exits_zero_with_message(tmp_path):
+    """Empty batch folder should exit 0 with a clear message."""
+    empty_dir = tmp_path / "empty"
+    empty_dir.mkdir()
+
+    output = tmp_path / "output"
+    result = runner.invoke(
+        app,
+        ["batch", str(empty_dir), "--journal", "revtex4-2", "--output", str(output)],
+    )
+
+    assert result.exit_code == 0
+    assert "No .docx files found" in result.output
+
+
+def test_batch_recursive_finds_nested_files(tmp_path):
+    """--recursive should find .docx files in subdirectories."""
+    batch_dir = tmp_path / "batch"
+    batch_dir.mkdir()
+    subdir = batch_dir / "subdir"
+    subdir.mkdir()
+
+    # One file in root, one in subdir.
+    shutil.copy(FIGURES_DOCX, batch_dir / "root.docx")
+    shutil.copy(ZOTERO_DOCX, subdir / "nested.docx")
+
+    output = tmp_path / "output"
+    result = runner.invoke(
+        app,
+        [
+            "batch",
+            str(batch_dir),
+            "--journal",
+            "revtex4-2",
+            "--output",
+            str(output),
+            "--recursive",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert (output / "root" / "revtex4-2" / "main.tex").is_file()
+    assert (output / "nested" / "revtex4-2" / "main.tex").is_file()
+
+
+def test_batch_non_recursive_ignores_nested_files(tmp_path):
+    """Without --recursive, nested .docx files should be ignored."""
+    batch_dir = tmp_path / "batch"
+    batch_dir.mkdir()
+    subdir = batch_dir / "subdir"
+    subdir.mkdir()
+
+    # One file in root, one in subdir.
+    shutil.copy(FIGURES_DOCX, batch_dir / "root.docx")
+    shutil.copy(ZOTERO_DOCX, subdir / "nested.docx")
+
+    output = tmp_path / "output"
+    result = runner.invoke(
+        app,
+        [
+            "batch",
+            str(batch_dir),
+            "--journal",
+            "revtex4-2",
+            "--output",
+            str(output),
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    # Only root file should be processed.
+    assert (output / "root" / "revtex4-2" / "main.tex").is_file()
+    # Nested file should NOT have been processed.
+    assert not (output / "nested").exists()
+
+
+@pytest.mark.tectonic
+def test_batch_with_pdf_flag_compiles_each_file(tmp_path):
+    """Batch mode with --pdf should compile each file to PDF."""
+    batch_dir = tmp_path / "batch"
+    batch_dir.mkdir()
+    shutil.copy(FIGURES_DOCX, batch_dir / "file1.docx")
+    shutil.copy(ZOTERO_DOCX, batch_dir / "file2.docx")
+
+    output = tmp_path / "output"
+    result = runner.invoke(
+        app,
+        [
+            "batch",
+            str(batch_dir),
+            "--journal",
+            "revtex4-2",
+            "--output",
+            str(output),
+            "--pdf",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    # Each file should have compiled to a PDF.
+    assert (output / "file1" / "revtex4-2" / "main.pdf").is_file()
+    assert (output / "file2" / "revtex4-2" / "main.pdf").is_file()
+
+
+def test_batch_summary_table_deterministic_order(tmp_path):
+    """Batch summary should list files in deterministic (sorted) order."""
+    batch_dir = tmp_path / "batch"
+    batch_dir.mkdir()
+
+    # Create files in non-alphabetical order.
+    for name in ["zebra.docx", "apple.docx", "middle.docx"]:
+        shutil.copy(FIGURES_DOCX, batch_dir / name)
+
+    output = tmp_path / "output"
+    result = runner.invoke(
+        app,
+        ["batch", str(batch_dir), "--journal", "revtex4-2", "--output", str(output)],
+    )
+
+    assert result.exit_code == 0, result.output
+    # Check that summary lists them in sorted order.
+    summary_path = output / "batch_summary.md"
+    summary_text = summary_path.read_text(encoding="utf-8")
+    # Find the positions of each filename in the summary.
+    apple_pos = summary_text.find("apple")
+    middle_pos = summary_text.find("middle")
+    zebra_pos = summary_text.find("zebra")
+    # All should be found and in order.
+    assert apple_pos < middle_pos < zebra_pos, "Files should be listed in sorted order"
+
+
+def test_batch_with_unknown_journal_exits_1_with_error(tmp_path):
+    """Batch mode with invalid journal should fail all files and exit 1."""
+    batch_dir = tmp_path / "batch"
+    batch_dir.mkdir()
+    shutil.copy(FIGURES_DOCX, batch_dir / "test.docx")
+
+    output = tmp_path / "output"
+    result = runner.invoke(
+        app,
+        [
+            "batch",
+            str(batch_dir),
+            "--journal",
+            "no-such-journal",
+            "--output",
+            str(output),
+        ],
+    )
+
+    assert result.exit_code == 1
+    assert "no-such-journal" in result.output or "error" in result.output.lower()
+
