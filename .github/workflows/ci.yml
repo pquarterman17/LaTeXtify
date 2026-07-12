@@ -116,12 +116,11 @@ jobs:
           echo "PYBIN=$(uv python find 3.13)" >> "$GITHUB_ENV"
       - name: Install kit + convert to PDF with the network POISONED
         env:
+          # GitHub de-dupes env keys case-insensitively, so set ONE case only.
+          # Uppercase is honoured by Rust/reqwest (Tectonic) and Python alike.
           HTTPS_PROXY: http://127.0.0.1:9
           HTTP_PROXY: http://127.0.0.1:9
           ALL_PROXY: http://127.0.0.1:9
-          https_proxy: http://127.0.0.1:9
-          http_proxy: http://127.0.0.1:9
-          all_proxy: http://127.0.0.1:9
         run: |
           KIT=build/latextify-offline-linux-x64
           "$PYBIN" "$KIT/install.py"
