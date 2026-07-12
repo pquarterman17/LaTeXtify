@@ -20,6 +20,13 @@ Applied in this order:
        typed after a table (not styled as a Word caption) into that table's
        ``\\caption{}``. Runs before :func:`plant_anchors` so the caption
        paragraph is still pristine when consumed.
+    2c. :func:`allow_slash_line_breaks` -- insert ``\\allowbreak`` after every
+       ``/`` in text so a long slash-connected token (a layer stack / chemical
+       formula like ``Ta/MnN/CoFeB/TaOx``) can break across lines instead of
+       forcing a grotesquely stretched Underfull line in a narrow two-column
+       measure. Runs after the text-inspecting structural filters (so their
+       heading/caption detection sees intact ``Str`` text) and before
+       :func:`normalize_tables` (so table-cell text is covered too).
     3. :func:`plant_anchors` -- replace Image nodes with a raw
        ``%%FIGURE:<n>%%`` LaTeX anchor and any ``Cite`` node with a raw
        ``%%CITE:<idx>%%`` anchor, both numbered in document order, 1-based.
@@ -1000,12 +1007,51 @@ def normalize_tables(doc: pf.Doc) -> tuple[pf.Doc, list[FilterFinding]]:
     return doc, findings
 
 
+def allow_slash_line_breaks(doc: pf.Doc) -> pf.Doc:
+    r"""Permit a line break after every ``/`` in body text.
+
+    LaTeX sets no breakpoint after ``/``, so a slash-connected run typeset as a
+    single token -- a layer stack / chemical formula like
+    ``Ta(10)/MnN(t)/CoFeB(t)/TaOx(2.5)``, or a plain ``and/or`` -- is one
+    unbreakable "word". In a journal's narrow two-column measure TeX can neither
+    fit it on the current line nor split it, so it drops the whole token to the
+    next line and stretches the previous line's inter-word glue to justify it
+    (an ``Underfull \hbox`` at badness 10000 -- the grotesque word gaps seen at
+    the start of the MnN paper's Methods section). Splitting each ``Str`` on
+    ``/`` and inserting a raw ``\allowbreak{}`` after the slash lets TeX break
+    the stack across lines; it only *permits* a break, so any run that already
+    fits is visually unchanged.
+
+    Only ``Str`` (text) nodes are rewritten. File paths and URLs live in
+    ``Image``/``Link`` ``.url`` slots (never a ``Str``), so
+    ``\includegraphics{figures/fig1.png}`` and ``\href`` targets are never
+    split. Mutates ``doc`` in place; also returns it for chaining.
+    """
+
+    def action(elem: pf.Element, doc: pf.Doc) -> list | None:
+        if not isinstance(elem, pf.Str) or "/" not in elem.text:
+            return None
+        parts = elem.text.split("/")
+        out: list[pf.Element] = []
+        for i, part in enumerate(parts):
+            last = i == len(parts) - 1
+            text = part if last else part + "/"
+            if text:
+                out.append(pf.Str(text))
+            if not last:
+                out.append(pf.RawInline("\\allowbreak{}", format="latex"))
+        return out
+
+    return doc.walk(action)
+
+
 def apply_all(doc: pf.Doc) -> FilterResult:
     """Run all filters in the fixed order documented above."""
     doc, promo_findings = promote_pseudo_headings(doc)
     doc, heading_findings = normalize_headings(doc)
     doc = strip_word_junk(doc)
     doc, caption_findings = associate_table_captions(doc)
+    doc = allow_slash_line_breaks(doc)
     doc, anchors = plant_anchors(doc)
     doc, table_findings = normalize_tables(doc)
     return FilterResult(

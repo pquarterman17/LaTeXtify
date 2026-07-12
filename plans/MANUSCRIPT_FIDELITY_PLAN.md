@@ -69,6 +69,21 @@ loop above) to catch it._
 
 ## Completed
 
+- ~~**Gap 23 — slash-connected formula stacks force stretched Underfull lines**~~ (2026-07-12) —
+  a layer stack / chemical formula typeset as one token (e.g. `A(10)/B(t)/C(t)/Dx(2.5)`)
+  has no LaTeX breakpoint after `/`, so in a journal's narrow two-column measure
+  TeX can neither fit nor split it: it drops the whole token to the next line and
+  stretches the previous line's inter-word glue to justify it (`Underfull \hbox`
+  badness 10000 — grotesque word gaps at a Methods section start). New
+  `allow_slash_line_breaks` filter splits each `Str` on `/` and inserts a raw
+  `\allowbreak` after the slash so the stack breaks across lines (permits, never
+  forces; visually unchanged for runs that already fit). Only `Str` text is
+  touched — image/URL paths live in `Image`/`Link` `.url` slots, so
+  `\includegraphics{figures/fig1.png}` is never split. `latextify/ingest/filters.py`.
+  Verified on the real second manuscript (aip-apl): the maximally-stretched
+  Methods line is gone. Tests in `tests/test_filters.py`. (Further hardening for
+  non-slash unbreakable tokens — a document-wide `\emergencystretch` — was left
+  out to avoid churning the golden preambles; revisit if a non-slash case appears.)
 - ~~**Gap 22 — "Supplemental Fig. N" captions + preflight false alarms**~~ (2026-07-12) —
   the second manuscript's *supplement* labels its five figure captions "Supplemental Fig. N:",
   which gap 20's `^(?:Figure|Fig\.?)` label regex rejected (the "Supplemental"

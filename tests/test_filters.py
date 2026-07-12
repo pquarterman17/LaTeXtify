@@ -13,6 +13,7 @@ import panflute as pf
 import pypandoc
 
 from latextify.ingest.filters import (
+    allow_slash_line_breaks,
     associate_table_captions,
     normalize_headings,
     normalize_tables,
@@ -267,6 +268,53 @@ def test_anchors_survive_latex_emission_unescaped():
 
     # document order
     assert tex.index("%%FIGURE:1%%") < tex.index("%%CITE:1%%") < tex.index("%%FIGURE:2%%")
+
+
+# ---------------------------
+# allow_slash_line_breaks
+# ---------------------------
+
+
+def _rawinlines(doc: pf.Doc) -> list[str]:
+    out: list[str] = []
+    doc.walk(lambda e, d: out.append(e.text) if isinstance(e, pf.RawInline) else None)
+    return out
+
+
+def test_slash_run_gets_allowbreak_after_each_slash():
+    # A layer stack / chemical formula: one break opportunity per slash.
+    doc = pf.Doc(pf.Para(pf.Str("Ta/MnN/CoFeB")))
+    doc = allow_slash_line_breaks(doc)
+    assert _rawinlines(doc) == ["\\allowbreak{}", "\\allowbreak{}"]
+    # The slash stays attached to the left piece.
+    strs = []
+    doc.walk(lambda e, d: strs.append(e.text) if isinstance(e, pf.Str) else None)
+    assert strs == ["Ta/", "MnN/", "CoFeB"]
+
+
+def test_text_without_slash_is_untouched():
+    doc = pf.Doc(pf.Para(pf.Str("plain"), pf.Space(), pf.Str("prose")))
+    doc = allow_slash_line_breaks(doc)
+    assert _rawinlines(doc) == []
+
+
+def test_allowbreak_reaches_latex_but_image_paths_are_untouched():
+    """End-to-end through pandoc's json->latex writer: \\allowbreak lands after
+    text slashes, but an image's file path (an Image url, never a Str) keeps its
+    slash intact so \\includegraphics still resolves."""
+    doc = pf.Doc(
+        pf.Para(pf.Str("Ta(10)/MnN/CoFeB")),
+        pf.Para(pf.Image(pf.Str("alt"), url="figures/fig1.png")),
+    )
+    doc = allow_slash_line_breaks(doc)
+
+    buf = io.StringIO()
+    pf.dump(doc, buf)
+    tex = pypandoc.convert_text(buf.getvalue(), to="latex", format="json")
+
+    assert "/\\allowbreak{}MnN" in tex
+    assert "figures/fig1.png" in tex  # path intact
+    assert "figures/\\allowbreak" not in tex  # never split the path
 
 
 # ---------------------------
