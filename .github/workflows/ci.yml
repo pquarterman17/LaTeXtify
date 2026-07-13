@@ -62,11 +62,10 @@ jobs:
       - name: Install
         run: uv sync --locked
       - name: Pre-fetch Tectonic binary
-        # Test skip-guards detect the binary at collection time without
-        # downloading (anonymous GitHub API calls rate-limit on runners), so
-        # the integration job fetches it explicitly, authenticated.
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
+        # Test skip-guards only DETECT the binary at collection time (no
+        # download), so the integration job fetches it explicitly first. The
+        # download is a pinned, checksum-verified release-asset URL served by a
+        # CDN (not the rate-limited releases API), so no token is needed.
         run: uv run python -c "from latextify.compile.tectonic import ensure_tectonic; print(ensure_tectonic())"
       - name: Full test suite (real docx -> PDF compiles)
         run: uv run pytest -q -m "not network"
@@ -92,13 +91,9 @@ jobs:
           key: tectonic-${{ runner.os }}-v1
       - name: Install
         run: uv sync --locked
-      - name: Pre-fetch Tectonic (authenticated; anonymous API rate-limits on runners)
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
+      - name: Pre-fetch Tectonic (pinned, checksum-verified release asset)
         run: uv run python -c "from latextify.compile.tectonic import ensure_tectonic; print(ensure_tectonic())"
       - name: Build a current-platform kit (network ON) and a fixture manuscript
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
         run: |
           uv run latextify make-kit --target current --python-versions 3.13 \
             --journals revtex4-2 -o build
