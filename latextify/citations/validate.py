@@ -252,8 +252,15 @@ def validate_entry(
             canonical_entry=canonical.to_refentry(),
         )
 
-    candidates = client.query_bibliographic(_query_text(entry))
-    candidate, score = best_candidate(_query_text(entry), candidates)
+    query = _query_text(entry)
+    try:
+        candidates = client.query_bibliographic_checked(query)
+    except CrossrefUnavailable:
+        # An outage on the no-DOI path must trip the same offline short-circuit
+        # the DOI path does; otherwise validate_references keeps issuing doomed
+        # queries and mislabels every no-DOI reference "unverifiable".
+        return ValidationRecord(key=entry.key, status="unchecked", doi=entry.doi)
+    candidate, score = best_candidate(query, candidates)
     if candidate is not None and score >= threshold and candidate.doi:
         checks = compare_entry_to_candidate(entry, candidate)
         return ValidationRecord(

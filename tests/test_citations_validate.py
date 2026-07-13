@@ -56,8 +56,12 @@ def _entry(**over):
     return RefEntry(**fields)
 
 
-def _client(*, by_doi=None, by_query=None, doi_status=200):
-    """Mock client. ``by_doi``: DOI->work. ``by_query``: keyword->work list."""
+def _client(*, by_doi=None, by_query=None, doi_status=200, query_status=200):
+    """Mock client. ``by_doi``: DOI->work. ``by_query``: keyword->work list.
+
+    ``query_status`` != 200 simulates a Crossref outage on the bibliographic
+    query path (the no-DOI validation path), distinct from ``doi_status``.
+    """
     by_doi = by_doi or {}
     by_query = by_query or {}
 
@@ -68,6 +72,8 @@ def _client(*, by_doi=None, by_query=None, doi_status=200):
             if doi in by_doi:
                 return httpx.Response(doi_status, json={"message": by_doi[doi]})
             return httpx.Response(404, text="Not Found")
+        if query_status != 200:
+            return httpx.Response(query_status, text="Service Unavailable")
         query = request.url.params.get("query.bibliographic", "").lower()
         for keyword, items in by_query.items():
             if keyword in query:
@@ -266,3 +272,22 @@ def test_offline_after_first_failure_marks_rest_unchecked():
     assert report.count("unchecked") == 3
     assert report.any_checked is False
     assert report.flagged_count == 0
+
+
+def test_no_doi_reference_unchecked_on_outage():
+    # A no-DOI reference during a Crossref outage is 'unchecked', not mislabeled
+    # 'unverifiable' (tech-debt finding 1: the no-DOI path swallowed the outage).
+    with _client(query_status=503) as client:
+        record = validate_entry(_entry(doi=None), client)
+    assert record.status == "unchecked"
+    assert record.flagged is False
+
+
+def test_offline_short_circuit_engages_from_no_doi_outage():
+    # The whole-list offline short-circuit must trip even when the first failing
+    # reference has no DOI -- its query path is what detects the outage.
+    entries = [_entry(key="a", doi=None), _entry(key="b", doi=None)]
+    with _client(query_status=503) as client:
+        report = validate_references(entries, client)
+    assert report.count("unchecked") == 2
+    assert report.any_checked is False

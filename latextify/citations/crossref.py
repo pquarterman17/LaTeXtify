@@ -260,8 +260,28 @@ class CrossrefClient:
         never raises -- for a non-200 response, a network failure/timeout, or a
         malformed (non-JSON) response body, so a single flaky Crossref request
         flags its reference for verification instead of crashing the whole
-        reconciliation run (plan item 14's graceful-degradation contract).
+        reconciliation run (plan item 14's graceful-degradation contract). Use
+        :meth:`query_bibliographic_checked` when you need to tell an outage
+        apart from a genuine no-match.
         """
+        try:
+            return self._query_bibliographic(text, rows=rows)
+        except CrossrefUnavailable:
+            return []
+
+    def query_bibliographic_checked(
+        self, text: str, *, rows: int = 3
+    ) -> list[CrossrefCandidate]:
+        """Like :meth:`query_bibliographic` but *raises* :class:`CrossrefUnavailable`
+        when Crossref is unreachable (network failure, timeout, 5xx, or a
+        malformed body), so a caller can record "couldn't check" instead of
+        mislabeling the reference. A successful response with no matches still
+        returns an empty list. Mirrors :meth:`get_by_doi`'s outage semantics so
+        the no-DOI validation path can trip the same offline short-circuit.
+        """
+        return self._query_bibliographic(text, rows=rows)
+
+    def _query_bibliographic(self, text: str, *, rows: int = 3) -> list[CrossrefCandidate]:
         query = (text or "").strip()
         if not query:
             return []
@@ -272,8 +292,8 @@ class CrossrefClient:
             )
             response.raise_for_status()
             payload = response.json()
-        except (httpx.HTTPError, ValueError):
-            return []
+        except (httpx.HTTPError, ValueError) as exc:
+            raise CrossrefUnavailable(str(exc)) from exc
         message = payload.get("message") if isinstance(payload, dict) else None
         items = message.get("items") if isinstance(message, dict) else None
         if not isinstance(items, list):

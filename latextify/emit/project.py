@@ -451,18 +451,12 @@ def emit_project(
         validation, validation_warnings = _run_reference_validation(entries, crossref_mailto)
         warnings.extend(validation_warnings)
 
-    # Generate consolidated report (item 16; item 21 adds the Supplement section).
-    report_path: Path | None = None
-    if report:
-        report_path = write_report(
-            output_dir / "report.md",
-            preflight=preflight_report,
-            emit_result=None,  # Will be filled below after EmitResult is constructed
-            reconciliation=reconciliation,
-            compile_result=None,  # Only added if --pdf is used (item 16 CLI wiring)
-            supplement=supplement_result,
-            validation=validation,
-        )
+    # The report path is deterministic, so we don't need to write anything to
+    # know it; the single write happens below, after the EmitResult exists, so
+    # it can include emit_result (figures/warnings) in one pass rather than
+    # writing a placeholder report first and overwriting it (item 16; item 21
+    # adds the Supplement section).
+    report_path: Path | None = (output_dir / "report.md") if report else None
 
     result = EmitResult(
         output_dir=output_dir,
@@ -484,9 +478,9 @@ def emit_project(
         entries=tuple(entries),
     )
 
-    # Rewrite report with emit_result included (now that we have the full result).
+    # Write the report once, now that the full EmitResult is available.
     if report:
-        report_path = write_report(
+        write_report(
             output_dir / "report.md",
             preflight=preflight_report,
             emit_result=result,
