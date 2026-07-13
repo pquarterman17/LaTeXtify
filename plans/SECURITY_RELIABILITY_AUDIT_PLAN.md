@@ -37,8 +37,8 @@ Check both boxes for an item only after its implementation and its item-specific
 acceptance tests are complete. Keep this tracker synchronized with the detailed
 sections below; a passing implementation box alone does not close an item.
 
-- [ ] **1 — DOCX/ZIP limits: implementation complete**
-- [ ] **1 — DOCX/ZIP limits: acceptance tests pass**
+- [x] **1 — DOCX/ZIP limits: implementation complete**
+- [x] **1 — DOCX/ZIP limits: acceptance tests pass**
 - [ ] **2 — Tectonic bootstrap integrity: implementation complete**
 - [ ] **2 — Tectonic bootstrap integrity: acceptance tests pass**
 - [x] **3 — GUI session expiry/cleanup: implementation complete**

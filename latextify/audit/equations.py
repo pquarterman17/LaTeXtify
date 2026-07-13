@@ -38,6 +38,7 @@ import pypandoc
 from lxml import etree
 
 from latextify.citations.bib import escape_latex
+from latextify.ingest.archive_guard import validate_docx_archive
 from latextify.compile.tectonic import compile_document
 from latextify.model.equations import (
     EquationAuditResult,
@@ -179,6 +180,9 @@ def extract_equations(docx_path: Path | str) -> EquationAuditResult:
     away). The caller (report/CLI rendering) surfaces the mismatch loudly
     rather than pretending the pairing is trustworthy.
     """
+    # Equation-audit-only operation bypasses run_preflight, so bound archive
+    # resource use here too before decompressing any member.
+    validate_docx_archive(docx_path)
     document_root = _read_document_root(docx_path)
     raw = _walk_raw_equations(document_root)
     math_nodes = _pandoc_math_nodes(docx_path)

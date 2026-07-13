@@ -39,6 +39,7 @@ from ..citations.fields import (
     flatten_fields,
     read_document_xml,
 )
+from .archive_guard import stream_zip_member
 
 W = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
 _DOCUMENT_PART = "word/document.xml"
@@ -152,5 +153,10 @@ def rewrite_archive_parts(src: Path, dest: Path, replacements: dict[str, bytes])
         zipfile.ZipFile(dest, "w", zipfile.ZIP_DEFLATED) as zout,
     ):
         for item in zin.infolist():
-            data = replacements.get(item.filename)
-            zout.writestr(item.filename, zin.read(item.filename) if data is None else data)
+            replacement = replacements.get(item.filename)
+            if replacement is not None:
+                zout.writestr(item.filename, replacement)
+            else:
+                # Stream unchanged members in bounded chunks rather than
+                # materializing each (a large embedded figure) as a bytes object.
+                stream_zip_member(zin, zout, item)

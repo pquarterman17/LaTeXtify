@@ -28,6 +28,7 @@ from pathlib import Path
 from lxml import etree
 
 from latextify.figures.extract import looks_like_figure_caption
+from latextify.ingest.archive_guard import validate_docx_archive
 from latextify.model.preflight import (
     Location,
     PreflightFinding,
@@ -316,6 +317,10 @@ def build_style_inventory(
 
 def run_preflight(docx_path: str | Path) -> PreflightReport:
     """Open `docx_path` and run every detector, returning the full report."""
+    # Bound archive resource use before decompressing any member (see
+    # latextify.ingest.archive_guard). This is the earliest ingest boundary for
+    # both the main document and the supplement, which each call run_preflight.
+    validate_docx_archive(docx_path)
     document_root = _read_member_xml(docx_path, "word/document.xml")
     if document_root is None:
         raise ValueError(f"{docx_path}: not a valid .docx (missing word/document.xml)")
