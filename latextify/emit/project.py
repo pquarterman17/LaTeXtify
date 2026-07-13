@@ -89,6 +89,7 @@ from pathlib import Path
 
 from latextify.citations.bib import entries_to_bib, escape_latex
 from latextify.citations.bibtex_in import parse_bibtex
+from latextify.citations.crossref import CrossrefClient
 from latextify.citations.fields import extract_field_citations
 from latextify.citations.merge import merge_ref_entries
 from latextify.citations.plaintext import (
@@ -97,6 +98,7 @@ from latextify.citations.plaintext import (
     strip_reference_section,
     strip_reference_section_to_eof,
 )
+from latextify.citations.validate import validate_references
 from latextify.emit.metadata import load_meta, write_metadata_tex
 from latextify.figures.convert import convert_for_latex
 from latextify.figures.extract import extract_figures
@@ -109,6 +111,7 @@ from latextify.model.figure import Figure
 from latextify.model.meta import Meta
 from latextify.model.reconcile import ReconciliationReport
 from latextify.model.refs import Citation, RefEntry
+from latextify.model.validate import ValidationReport
 from latextify.report.render import write_report
 from latextify.templates import loader as templates_loader
 from latextify.templates.loader import FigureEnv, Journal
@@ -243,6 +246,7 @@ def emit_project(
     supplement_docx_path: Path | str | None = None,
     references_bib_path: Path | str | None = None,
     supplement_onecolumn: bool = False,
+    check_references: bool = False,
 ) -> EmitResult:
     """Convert ``docx_path`` into a journal-ready LaTeX project.
 
@@ -268,6 +272,14 @@ def emit_project(
             field codes). Defaults to the ``LATEXTIFY_CROSSREF_MAILTO`` env var
             or a documented placeholder; override it with a real address.
         report: if True (default), generate report.md; if False, skip it.
+        check_references: when True, every assembled reference is validated
+            online against Crossref (opt-in; needs a network connection). A
+            reference with a DOI is resolved and its stored fields compared
+            against the canonical record; one without a DOI is searched so a DOI
+            can be suggested. Results are attached to ``EmitResult.validation``
+            and summarized in report.md. Degrades gracefully -- a Crossref
+            outage marks references ``unchecked`` rather than failing the emit.
+            Defaults to ``False`` (no network).
         supplement_onecolumn: when True (and a supplement is given), the
             Supplementary Information is emitted as a simplified one-column
             ``\\documentclass[11pt]{article}`` instead of the journal's class,
@@ -431,6 +443,14 @@ def emit_project(
         # unchanged, so main's body.tex, written above, stays correct).
         bib_path.write_text(entries_to_bib(entries), encoding="utf-8")
 
+    # Online reference validation (opt-in): runs on the FINAL merged entry set
+    # (after any supplement folded its references in), so every reference in the
+    # shared references.bib -- main and SI alike -- is checked exactly once.
+    validation: ValidationReport | None = None
+    if check_references and entries:
+        validation, validation_warnings = _run_reference_validation(entries, crossref_mailto)
+        warnings.extend(validation_warnings)
+
     # Generate consolidated report (item 16; item 21 adds the Supplement section).
     report_path: Path | None = None
     if report:
@@ -441,6 +461,7 @@ def emit_project(
             reconciliation=reconciliation,
             compile_result=None,  # Only added if --pdf is used (item 16 CLI wiring)
             supplement=supplement_result,
+            validation=validation,
         )
 
     result = EmitResult(
@@ -459,6 +480,7 @@ def emit_project(
         warnings=tuple(warnings),
         report_path=report_path,
         supplement=supplement_result,
+        validation=validation,
     )
 
     # Rewrite report with emit_result included (now that we have the full result).
@@ -470,6 +492,7 @@ def emit_project(
             reconciliation=reconciliation,
             compile_result=None,
             supplement=supplement_result,
+            validation=validation,
         )
 
     return result
@@ -834,6 +857,43 @@ def _link_plaintext_citations(
     warnings = [EmitWarning(message=message) for message in messages]
     warnings.extend(_verify_warnings(result.records))
     return result.entries, tex, warnings, result.records
+
+
+def _run_reference_validation(
+    entries: list[RefEntry], mailto: str | None
+) -> tuple[ValidationReport | None, list[EmitWarning]]:
+    """Validate the assembled bibliography online (opt-in ``--check-references``).
+
+    Opens a single Crossref client, validates every entry serially, and returns
+    the report plus any user-facing warnings. Never propagates a failure: a
+    fully offline run yields an all-``unchecked`` report (with one advisory
+    warning), and any unexpected error degrades to ``None`` + a warning rather
+    than failing an otherwise-successful emit -- reference checking is a bonus
+    pass, never a gate.
+    """
+    try:
+        with CrossrefClient(mailto=mailto) as client:
+            report = validate_references(entries, client)
+    except Exception as exc:  # never let a bonus check sink the whole emit
+        return None, [
+            EmitWarning(
+                message=(
+                    "online reference check could not run "
+                    f"({type(exc).__name__}: {exc}); skipped. References were not verified."
+                )
+            )
+        ]
+    warnings: list[EmitWarning] = []
+    if not report.any_checked:
+        warnings.append(
+            EmitWarning(
+                message=(
+                    "online reference check requested but Crossref was unreachable; "
+                    "no references were verified (all marked unchecked)."
+                )
+            )
+        )
+    return report, warnings
 
 
 def _verify_warnings(records) -> list[EmitWarning]:

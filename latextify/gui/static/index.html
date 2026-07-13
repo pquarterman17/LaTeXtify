@@ -182,6 +182,7 @@
       <label class="checkbox-row"><input id="opt-si1col" type="checkbox" /> One-column (article) supplement</label>
       <label class="checkbox-row"><input id="opt-zip" type="checkbox" /> Download project as .zip</label>
       <label class="checkbox-row"><input id="opt-audit" type="checkbox" /> Equation-audit PDF</label>
+      <label class="checkbox-row"><input id="opt-checkrefs" type="checkbox" checked /> Check references online (Crossref)</label>
     </div>
 
     <div class="actions">
@@ -265,6 +266,7 @@
   const optSi1col = el("opt-si1col");
   const optZip = el("opt-zip");
   const optAudit = el("opt-audit");
+  const optCheckRefs = el("opt-checkrefs");
   const exportDir = el("export-dir");
   const browseBtn = el("browse-btn");
   const exportBtn = el("export-btn");
@@ -464,7 +466,7 @@
     populateCitationModes(); updateButton(); invalidatePreview();
   });
   // Changing any option makes an earlier preview stale.
-  [citationSelect, optPdf, optCombine, optSi1col, optZip, optAudit].forEach(
+  [citationSelect, optPdf, optCombine, optSi1col, optZip, optAudit, optCheckRefs].forEach(
     (ctrl) => ctrl.addEventListener("change", invalidatePreview)
   );
   crossrefEmail.addEventListener("input", invalidatePreview);
@@ -606,6 +608,7 @@
     fd.append("supplement_onecolumn", optSi1col.checked ? "true" : "false");
     fd.append("want_zip", optZip.checked ? "true" : "false");
     fd.append("equation_audit", optAudit.checked ? "true" : "false");
+    fd.append("check_references", optCheckRefs.checked ? "true" : "false");
     // Preview never exports — the Export button copies the previewed result via
     // its export_token (see /api/export).
     return fd;

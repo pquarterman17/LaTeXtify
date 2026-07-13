@@ -106,6 +106,14 @@ def convert(
         "(\\documentclass[11pt]{article}) instead of the journal class, keeping "
         "S-numbering and the shared references/figures. Needs --supplement.",
     ),
+    check_references: bool = typer.Option(
+        False,
+        "--check-references",
+        help="Validate every reference online against Crossref (needs internet): "
+        "resolve each DOI and compare title/authors/year/journal/volume/pages, "
+        "and suggest DOIs for references that lack one. Results go to report.md. "
+        "Off by default.",
+    ),
 ) -> None:
     """Convert DOCX_PATH into a journal-ready LaTeX project under output/<journal>/."""
     if combine_supplement and supplement is None:
@@ -129,6 +137,7 @@ def convert(
             supplement_docx_path=supplement,
             references_bib_path=references,
             supplement_onecolumn=supplement_onecolumn,
+            check_references=check_references,
         )
     except ManifestError as exc:
         typer.echo(f"error: {exc}", err=True)
@@ -209,6 +218,7 @@ def convert(
             reconciliation=None,  # Already included
             compile_result=compile_result,
             supplement=result.supplement,
+            validation=result.validation,  # keep the section on the post-compile rewrite
         )
 
     # Exit code policy (item 16): nonzero if compile errors (item 21: either document).

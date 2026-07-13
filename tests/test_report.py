@@ -15,6 +15,7 @@ from latextify.model.preflight import (
     StyleInventory,
 )
 from latextify.model.reconcile import ReconcileRecord, ReconciliationReport
+from latextify.model.validate import FieldCheck, ValidationRecord, ValidationReport
 from latextify.report.render import render_report
 
 
@@ -61,6 +62,7 @@ class TestRenderReportEmptySections:
 
         assert "## Preflight Findings\n_None_" in report_text
         assert "## Citation Extraction\n_None_" in report_text
+        assert "## Reference Validation\n_Not checked_" in report_text
         assert "## Figures\n_None_" in report_text
         assert "## Compilation\n_Not compiled_" in report_text
 
@@ -171,6 +173,92 @@ class TestCitationExtractionReporting:
         )
         report_text = render_report(emit_result=emit)
         assert "Extracted 5 citations from field codes" in report_text
+
+
+class TestReferenceValidationReporting:
+    """The Reference Validation section (opt-in --check-references)."""
+
+    def test_not_checked_when_no_validation(self):
+        report_text = render_report()
+        assert "## Reference Validation\n_Not checked_" in report_text
+
+    def test_summary_counts_and_flagged_detail(self):
+        report = ValidationReport(
+            records=(
+                ValidationRecord(key="ok1", status="verified", doi="10.1/a"),
+                ValidationRecord(key="ok2", status="verified", doi="10.1/b"),
+                ValidationRecord(
+                    key="bad_year",
+                    status="mismatch",
+                    doi="10.1/c",
+                    checks=(FieldCheck(field="year", ours="2019", canonical="2020", ok=False),),
+                ),
+                ValidationRecord(
+                    key="typo_doi", status="dead_doi", doi="10.9999/nope",
+                    note="DOI does not resolve in Crossref",
+                ),
+                ValidationRecord(
+                    key="no_doi", status="doi_suggested", suggested_doi="10.1/found",
+                ),
+            )
+        )
+        text = render_report(validation=report)
+        assert "Checked 5 reference(s) against Crossref" in text
+        assert "2 verified" in text
+        assert "1 field mismatch" in text
+        # Flagged records are listed with detail; verified ones are only counted.
+        assert "`bad_year`" in text
+        assert 'year: ours "2019" ≠ Crossref "2020"' in text
+        assert "`10.9999/nope`" in text  # dead DOI shown
+        assert "add `10.1/found`" in text  # suggested DOI shown
+        assert "`ok1`" not in text  # verified refs not listed individually
+
+    def test_flagged_sorted_worst_first(self):
+        report = ValidationReport(
+            records=(
+                ValidationRecord(key="zzz", status="unverifiable"),
+                ValidationRecord(key="aaa", status="dead_doi", doi="10.9/x"),
+            )
+        )
+        text = render_report(validation=report)
+        # dead_doi (worst) must appear before unverifiable regardless of key order.
+        assert text.index("`aaa`") < text.index("`zzz`")
+
+    def test_all_verified_shows_clean_message(self):
+        report = ValidationReport(
+            records=(ValidationRecord(key="ok", status="verified", doi="10.1/a"),)
+        )
+        text = render_report(validation=report)
+        assert "All checked references verified cleanly" in text
+
+    def test_offline_reports_unreachable(self):
+        report = ValidationReport(
+            records=(
+                ValidationRecord(key="a", status="unchecked"),
+                ValidationRecord(key="b", status="unchecked"),
+            )
+        )
+        text = render_report(validation=report)
+        assert "Crossref was unreachable" in text
+
+    def test_mismatch_field_detail_flattened(self):
+        # Markdown-injection guard on the field values.
+        report = ValidationReport(
+            records=(
+                ValidationRecord(
+                    key="x",
+                    status="mismatch",
+                    doi="10.1/a",
+                    checks=(
+                        FieldCheck(
+                            field="title", ours="Real\n## Injected", canonical="Canon", ok=False
+                        ),
+                    ),
+                ),
+            )
+        )
+        text = render_report(validation=report)
+        assert "\n## Injected" not in text
 
 
 class TestFigureReporting:
@@ -374,6 +462,7 @@ class TestZeroOfEverything:
         for section in (
             "## Preflight Findings",
             "## Citation Extraction",
+            "## Reference Validation",
             "## Figures",
             "## Compilation",
             "## Warnings",

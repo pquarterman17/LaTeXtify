@@ -15,6 +15,7 @@ from latextify.citations.crossref import (
     DEFAULT_MAILTO,
     CrossrefCandidate,
     CrossrefClient,
+    CrossrefUnavailable,
     candidate_from_item,
     resolve_mailto,
 )
@@ -191,6 +192,79 @@ def test_reconcile_survives_crossref_server_error(monkeypatch):
 def test_client_context_manager_closes():
     with _client_capturing([]) as client:
         assert client.query_bibliographic("x")
+
+
+# --------------------------------------------------------------------------- #
+# get_by_doi (exact DOI lookup for reference validation)
+# --------------------------------------------------------------------------- #
+
+
+def _doi_client(handler):
+    return CrossrefClient(mailto="t@e.org", transport=httpx.MockTransport(handler))
+
+
+def test_get_by_doi_returns_candidate_on_200():
+    captured: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured.append(request)
+        # /works/{doi} returns a single work under "message", not an items list.
+        return httpx.Response(200, json={"message": _work()})
+
+    with _doi_client(handler) as client:
+        cand = client.get_by_doi("10.1000/widgets.1998")
+
+    assert cand is not None
+    assert cand.doi == "10.1000/widgets.1998"
+    assert cand.title == "A Fine Paper on Widgets"
+    assert captured[0].url.path == "/works/10.1000/widgets.1998"
+
+
+def test_get_by_doi_strips_url_and_doi_prefixes():
+    captured: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured.append(request)
+        return httpx.Response(200, json={"message": _work()})
+
+    with _doi_client(handler) as client:
+        client.get_by_doi("https://doi.org/10.1000/widgets.1998")
+        client.get_by_doi("doi:10.1000/widgets.1998")
+
+    assert captured[0].url.path == "/works/10.1000/widgets.1998"
+    assert captured[1].url.path == "/works/10.1000/widgets.1998"
+
+
+def test_get_by_doi_returns_none_on_404():
+    with _doi_client(lambda r: httpx.Response(404, text="Not Found")) as client:
+        assert client.get_by_doi("10.9999/nope") is None
+
+
+def test_get_by_doi_blank_makes_no_request():
+    captured: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured.append(request)
+        return httpx.Response(200, json={"message": _work()})
+
+    with _doi_client(handler) as client:
+        assert client.get_by_doi("   ") is None
+    assert captured == []
+
+
+def test_get_by_doi_raises_unavailable_on_server_error():
+    with _doi_client(lambda r: httpx.Response(503, text="down")) as client:
+        with pytest.raises(CrossrefUnavailable):
+            client.get_by_doi("10.1000/widgets.1998")
+
+
+def test_get_by_doi_raises_unavailable_on_timeout():
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectTimeout("timed out", request=request)
+
+    with _doi_client(handler) as client:
+        with pytest.raises(CrossrefUnavailable):
+            client.get_by_doi("10.1000/widgets.1998")
 
 
 # --------------------------------------------------------------------------- #

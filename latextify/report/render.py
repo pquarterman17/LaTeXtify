@@ -21,6 +21,7 @@ from latextify.model.compile import CompileResult
 from latextify.model.emit import EmitResult, SupplementResult
 from latextify.model.preflight import PreflightReport
 from latextify.model.reconcile import ReconciliationReport
+from latextify.model.validate import ValidationRecord, ValidationReport
 
 
 def _flatten(text: str) -> str:
@@ -34,6 +35,70 @@ def _flatten(text: str) -> str:
     return text.replace("\r\n", " ").replace("\r", " ").replace("\n", " ")
 
 
+# Human-readable label + marker per flagged validation status. Verified and
+# unchecked references are only counted (not listed), so they are absent here.
+_VALIDATION_LABELS = {
+    "mismatch": ("⚠️", "field mismatch vs Crossref"),
+    "dead_doi": ("⚠️", "DOI does not resolve in Crossref"),
+    "doi_suggested": ("💡", "no DOI in reference — Crossref match found"),
+    "unverifiable": ("❔", "no DOI and no confident Crossref match"),
+}
+# Order flagged records worst-first, then by key for stable diffs.
+_VALIDATION_ORDER = {"dead_doi": 0, "mismatch": 1, "doi_suggested": 2, "unverifiable": 3}
+
+
+def _render_validation_record(record: ValidationRecord) -> list[str]:
+    """One flagged reference: header line plus any field-level detail."""
+    marker, label = _VALIDATION_LABELS.get(record.status, ("⚠️", record.status))
+    out = [f"- {marker} `{record.key}` — {label}"]
+    if record.status == "dead_doi" and record.doi:
+        out[0] += f" (`{record.doi}`)"
+    if record.status == "doi_suggested" and record.suggested_doi:
+        out[0] += f": add `{record.suggested_doi}`"
+    out[0] += "\n"
+    for check in record.problems:
+        out.append(
+            f'  - {check.field}: ours "{_flatten(check.ours)}" '
+            f'≠ Crossref "{_flatten(check.canonical)}"\n'
+        )
+    return out
+
+
+def _render_validation(validation: ValidationReport) -> list[str]:
+    """Render the Reference Validation section body (excludes the header)."""
+    lines: list[str] = []
+    if not validation.any_checked:
+        lines.append(
+            "_Requested, but Crossref was unreachable_ — no references were "
+            "verified (network required).\n"
+        )
+        return lines
+    # Summary line: counts per status, only the non-zero ones.
+    order = ["verified", "mismatch", "dead_doi", "doi_suggested", "unverifiable", "unchecked"]
+    labels = {
+        "verified": "verified",
+        "mismatch": "field mismatch",
+        "dead_doi": "dead DOI",
+        "doi_suggested": "DOI suggested",
+        "unverifiable": "unverifiable",
+        "unchecked": "unchecked (offline)",
+    }
+    parts = [f"{validation.count(s)} {labels[s]}" for s in order if validation.count(s)]
+    lines.append(
+        f"Checked {validation.total} reference(s) against Crossref: " + ", ".join(parts) + ".\n"
+    )
+    flagged = sorted(
+        (r for r in validation.records if r.flagged),
+        key=lambda r: (_VALIDATION_ORDER.get(r.status, 9), r.key),
+    )
+    if flagged:
+        for record in flagged:
+            lines.extend(_render_validation_record(record))
+    else:
+        lines.append("All checked references verified cleanly. ✓\n")
+    return lines
+
+
 def render_report(
     *,
     preflight: PreflightReport | None = None,
@@ -41,6 +106,7 @@ def render_report(
     reconciliation: ReconciliationReport | None = None,
     compile_result: CompileResult | None = None,
     supplement: SupplementResult | None = None,
+    validation: ValidationReport | None = None,
 ) -> str:
     """Render all aggregated findings into a markdown report string.
 
@@ -52,6 +118,8 @@ def render_report(
         compile_result: Tectonic compilation outcome (errors, warnings, success).
         supplement: supplementary-material emission outcome (plan item 21),
             only present when ``latextify convert`` was given ``--supplement``.
+        validation: online reference-validation outcome, only present when
+            ``latextify convert`` was given ``--check-references``.
 
     Returns:
         Markdown string (deterministically ordered, stable across runs).
@@ -122,6 +190,16 @@ def render_report(
         )
     else:
         lines.append("_None_\n")
+
+    # Reference validation (online Crossref check; opt-in --check-references).
+    # Placed right after citation extraction: both concern the bibliography, and
+    # the validation refines what extraction produced. Always renders so its
+    # absence in the report unambiguously means "not requested".
+    lines.append("\n## Reference Validation\n")
+    if validation is not None:
+        lines.extend(_render_validation(validation))
+    else:
+        lines.append("_Not checked_ (use `--check-references` to validate online).\n")
 
     # Figures
     lines.append("\n## Figures\n")
@@ -218,13 +296,14 @@ def write_report(
     reconciliation: ReconciliationReport | None = None,
     compile_result: CompileResult | None = None,
     supplement: SupplementResult | None = None,
+    validation: ValidationReport | None = None,
 ) -> Path:
     """Render and write the report to a file.
 
     Args:
         output_path: destination for report.md (must be a file path, not a directory).
-        preflight, emit_result, reconciliation, compile_result, supplement:
-            see :func:`render_report`.
+        preflight, emit_result, reconciliation, compile_result, supplement,
+            validation: see :func:`render_report`.
 
     Returns:
         The path to the written report file.
@@ -235,6 +314,7 @@ def write_report(
         reconciliation=reconciliation,
         compile_result=compile_result,
         supplement=supplement,
+        validation=validation,
     )
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(report_text, encoding="utf-8")

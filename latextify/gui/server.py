@@ -422,6 +422,7 @@ def create_app(*, workdir: Path | None = None) -> FastAPI:
         combine: bool = Form(False),
         supplement_onecolumn: bool = Form(False),
         equation_audit: bool = Form(False),
+        check_references: bool = Form(False),
         want_zip: bool = Form(False),
         pdf: bool = Form(True),
         export_dir: str | None = Form(None),
@@ -493,6 +494,7 @@ def create_app(*, workdir: Path | None = None) -> FastAPI:
                 supplement_docx_path=supplement_path,
                 references_bib_path=references_path,
                 supplement_onecolumn=supplement_onecolumn,
+                check_references=check_references,
             )
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc

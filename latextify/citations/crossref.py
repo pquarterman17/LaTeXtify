@@ -98,6 +98,10 @@ class CrossrefCandidate:
     year: str | None
     doi: str | None
     container_title: str | None = None
+    #: Crossref's abbreviated journal title ("Phys. Rev. B"), when present -- lets
+    #: reference validation accept an abbreviated journal name without a false
+    #: "wrong journal" flag. Not carried into the .bib.
+    short_container_title: str | None = None
     publisher: str | None = None
     volume: str | None = None
     issue: str | None = None

@@ -14,6 +14,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from latextify.model.figure import Figure
+from latextify.model.validate import ValidationReport
 
 
 @dataclass(frozen=True)
@@ -78,6 +79,9 @@ class EmitResult:
     ``supplement`` is ``None`` unless ``emit_project`` was called with
     ``supplement_docx_path`` set (plan item 21); when present it carries the
     outcome of emitting the second, S-numbered ``supplement.tex`` document.
+    ``validation`` is ``None`` unless ``emit_project`` was called with
+    ``check_references=True`` (the opt-in online Crossref check); when present
+    it carries the per-reference validation outcomes for the report.
     """
 
     output_dir: Path
@@ -95,3 +99,4 @@ class EmitResult:
     warnings: tuple[EmitWarning, ...] = field(default_factory=tuple)
     report_path: Path | None = None
     supplement: SupplementResult | None = None
+    validation: ValidationReport | None = None

@@ -771,3 +771,70 @@ def test_citation_free_manuscript_compiles_under_ieeetran(tmp_path):
     assert compile_result.pdf_path is not None
     assert compile_result.pdf_path.is_file()
     assert compile_result.pdf_path.stat().st_size > 0
+
+
+# --------------------------------------------------------------------------- #
+# Online reference validation wiring (opt-in --check-references)
+# --------------------------------------------------------------------------- #
+
+
+def test_check_references_off_by_default(tmp_path):
+    # Default emit does NO online validation: result.validation is None and the
+    # report says so (never touches the network).
+    docx = _copy_fixture(tmp_path, ZOTERO_DOCX)
+    result = emit_project(docx, "revtex4-2", tmp_path / "output")
+
+    assert result.validation is None
+    report = result.report_path.read_text(encoding="utf-8")
+    assert "## Reference Validation\n_Not checked_" in report
+
+
+def test_check_references_attaches_report_and_renders(tmp_path, monkeypatch):
+    # With check_references=True the emitter validates the FINAL entry set and
+    # folds the outcome into EmitResult.validation and report.md. The Crossref
+    # round-trip is stubbed here (the validation logic itself is unit-tested in
+    # test_citations_validate.py against a mock transport).
+    from latextify.emit import project as project_mod
+    from latextify.model.validate import ValidationRecord, ValidationReport
+
+    captured: dict[str, object] = {}
+
+    def fake_validate(entries, client, **kwargs):
+        captured["entries"] = entries
+        return ValidationReport(
+            records=tuple(
+                ValidationRecord(key=e.key, status="verified", doi=e.doi) for e in entries
+            )
+            + (ValidationRecord(key="planted", status="dead_doi", doi="10.9/x"),)
+        )
+
+    monkeypatch.setattr(project_mod, "validate_references", fake_validate)
+
+    docx = _copy_fixture(tmp_path, ZOTERO_DOCX)
+    result = emit_project(docx, "revtex4-2", tmp_path / "output", check_references=True)
+
+    # The real, keyed entries reached the validator (not an empty list).
+    assert captured["entries"], "validator should receive the assembled entries"
+    assert result.validation is not None
+    assert result.validation.count("dead_doi") == 1
+
+    report = result.report_path.read_text(encoding="utf-8")
+    assert "## Reference Validation" in report
+    assert "Checked" in report and "against Crossref" in report
+    assert "`planted`" in report  # the flagged record is listed
+
+
+def test_check_references_skipped_when_no_entries(tmp_path, monkeypatch):
+    # A citation-free manuscript has no entries, so validation is skipped
+    # entirely (no client built, no network) even when requested.
+    from latextify.emit import project as project_mod
+
+    def exploding_validate(entries, client, **kwargs):  # pragma: no cover - must not run
+        raise AssertionError("validation must not run with an empty entry set")
+
+    monkeypatch.setattr(project_mod, "validate_references", exploding_validate)
+
+    docx = _copy_fixture(tmp_path, CLEAN_DOCX)
+    result = emit_project(docx, "revtex4-2", tmp_path / "output", check_references=True)
+
+    assert result.validation is None
