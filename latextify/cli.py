@@ -241,6 +241,7 @@ def convert(
             reconciliation=None,  # Already included
             compile_result=compile_result,
             supplement=result.supplement,
+            supplement_compile=supplement_compile_result,  # surface SI compile diagnostics
             validation=result.validation,  # keep the section on the post-compile rewrite
         )
 

@@ -14,7 +14,7 @@ from pathlib import Path
 import pytest
 
 from latextify.compile.tectonic import find_tectonic
-from latextify.emit.project import _copy_figures, emit_project
+from latextify.emit.project import _copy_figures, _prune_stale_figures, emit_project
 from latextify.model import BodyConversionResult
 from latextify.model.figure import Figure
 
@@ -838,3 +838,86 @@ def test_check_references_skipped_when_no_entries(tmp_path, monkeypatch):
     result = emit_project(docx, "revtex4-2", tmp_path / "output", check_references=True)
 
     assert result.validation is None
+
+
+# --------------------------------------------------------------------------- #
+# Stale generated figure reconciliation (audit item 7)
+# --------------------------------------------------------------------------- #
+
+
+def _touch(dirp: Path, name: str) -> Path:
+    dirp.mkdir(parents=True, exist_ok=True)
+    p = dirp / name
+    p.write_bytes(b"x")
+    return p
+
+
+def test_prune_removes_only_unkept_owned_main_figures(tmp_path):
+    figs = tmp_path / "figures"
+    _touch(figs, "fig1.pdf")   # current
+    _touch(figs, "fig2.png")   # stale (fewer figures now)
+    _prune_stale_figures(figs, "", {"fig1.pdf"})
+    assert (figs / "fig1.pdf").exists()
+    assert not (figs / "fig2.png").exists()
+
+
+def test_prune_handles_format_change(tmp_path):
+    figs = tmp_path / "figures"
+    _touch(figs, "fig1.png")   # last run's raster
+    _prune_stale_figures(figs, "", {"fig1.pdf"})  # now a PDF
+    assert not (figs / "fig1.png").exists()
+
+
+def test_prune_preserves_user_files_and_sibling_document(tmp_path):
+    figs = tmp_path / "figures"
+    _touch(figs, "fig1.pdf")        # current main
+    _touch(figs, "Fig1.png")        # user file (capital F) -- must survive
+    _touch(figs, "diagram.pdf")     # user file -- must survive
+    _touch(figs, "figS1.pdf")       # supplement's figure -- main pass must NOT touch
+    _prune_stale_figures(figs, "", {"fig1.pdf"})
+    assert (figs / "Fig1.png").exists()
+    assert (figs / "diagram.pdf").exists()
+    assert (figs / "figS1.pdf").exists()
+
+
+def test_prune_supplement_prefix_leaves_main_alone(tmp_path):
+    figs = tmp_path / "figures"
+    _touch(figs, "fig1.pdf")        # main figure
+    _touch(figs, "figS1.pdf")       # current supplement
+    _touch(figs, "figS2.pdf")       # stale supplement
+    _prune_stale_figures(figs, "S", {"figS1.pdf"})
+    assert (figs / "fig1.pdf").exists()      # untouched by supplement pass
+    assert (figs / "figS1.pdf").exists()
+    assert not (figs / "figS2.pdf").exists()
+
+
+def test_prune_zero_figures_clears_all_owned(tmp_path):
+    figs = tmp_path / "figures"
+    _touch(figs, "fig1.pdf")
+    _touch(figs, "fig2.pdf")
+    _touch(figs, "keep.txt")
+    _prune_stale_figures(figs, "", set())  # a run with no figures
+    assert not (figs / "fig1.pdf").exists()
+    assert not (figs / "fig2.pdf").exists()
+    assert (figs / "keep.txt").exists()
+
+
+def test_emit_rerun_removes_stale_generated_figures(tmp_path):
+    # Full pipeline: emit once (writes fig1..figN), drop a stale generated figure
+    # and a user file into figures/, emit again -> stale gone, user file kept,
+    # current figures present.
+    docx = _copy_fixture(tmp_path, FIGURES_DOCX)
+    output_root = tmp_path / "output"
+    first = emit_project(docx, "revtex4-2", output_root)
+    figs_dir = first.figures_dir
+    current = {p.name for p in figs_dir.glob("fig*.*")}
+    assert current, "expected generated figures on the first run"
+
+    stale = _touch(figs_dir, "fig99.png")   # generated-looking, not produced now
+    user = _touch(figs_dir, "my_photo.jpg")  # user-owned
+
+    emit_project(docx, "revtex4-2", output_root)
+    assert not stale.exists(), "stale generated figure should be pruned on re-run"
+    assert user.exists(), "user file must be preserved"
+    for name in current:
+        assert (figs_dir / name).exists(), f"current figure {name} must remain"

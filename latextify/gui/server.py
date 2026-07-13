@@ -44,7 +44,9 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 import uuid
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
@@ -98,14 +100,21 @@ class ConvertMultiResponse(BaseModel):
 
     Every ``*_url`` is a server-issued download token or ``None`` when that
     artifact was not produced (no supplement, combine off, audit off, zip off,
-    or a compile that failed). ``success`` is the main document's compile
-    outcome (``True`` when ``--pdf`` was off and emission succeeded).
+    or a compile that failed). ``success`` is ``True`` only when EVERY requested
+    compilation succeeded -- a main-success-but-supplement-failure run reports
+    ``success=False`` (partial), never a misleading success. The per-document
+    ``main_compile_success`` / ``supplement_compile_success`` fields give the
+    breakdown (``None`` when that document was not compiled). ``success`` is
+    ``True`` when ``--pdf`` was off and emission succeeded.
     """
 
     output_dir: str
     warnings: list[str]
     report_md: str
     success: bool
+    #: Per-document compile outcomes; None when that document was not compiled.
+    main_compile_success: bool | None = None
+    supplement_compile_success: bool | None = None
     pdf_url: str | None = None
     supplement_pdf_url: str | None = None
     combined_pdf_url: str | None = None
@@ -237,6 +246,59 @@ def _issue_token(tokens: dict[str, Path], path: Path) -> str:
     return token
 
 
+# Session lifecycle (audit item 3). Previews write uploads + generated artifacts
+# under a per-run session directory and issue in-memory download tokens; without
+# bounds these retain private manuscripts and grow on disk/in memory forever.
+_SESSION_TTL_SECONDS = 3600.0  # a previewed conversion stays exportable for 1 hour
+_MAX_SESSIONS = 32  # cap concurrent retained sessions; LRU-evict oldest beyond it
+
+
+def _rmtree(path: Path | None) -> None:
+    """Best-effort recursive delete; never raises (cleanup must not mask errors)."""
+    if isinstance(path, Path):
+        shutil.rmtree(path, ignore_errors=True)
+
+
+def _prune_dead_tokens(app: FastAPI) -> None:
+    """Drop PDF/zip tokens whose backing file is gone (its session was cleaned)."""
+    for store in (app.state.pdf_tokens, app.state.zip_tokens):
+        for token, path in list(store.items()):
+            if not path.is_file():
+                store.pop(token, None)
+
+
+def _prune_sessions(app: FastAPI, *, now: float) -> None:
+    """Remove sessions past their TTL, deleting each one's on-disk directory."""
+    sessions = app.state.export_sessions
+    for token, session in list(sessions.items()):
+        if now - float(session.get("_last_access", now)) > _SESSION_TTL_SECONDS:
+            _rmtree(session.get("_session_dir"))  # type: ignore[arg-type]
+            sessions.pop(token, None)
+    _prune_dead_tokens(app)
+
+
+def _touch_session(session: dict[str, object], *, now: float | None = None) -> None:
+    """Refresh a session's last-access time so active use defers its expiry."""
+    session["_last_access"] = now if now is not None else time.time()
+
+
+def _register_session(
+    app: FastAPI, token: str, session: dict[str, object], *, session_dir: Path, now: float
+) -> None:
+    """Register a completed run's session, pruning expired + capping total count."""
+    sessions = app.state.export_sessions
+    _prune_sessions(app, now=now)
+    # LRU-evict (by last access) down to the cap before admitting the new one.
+    while len(sessions) >= _MAX_SESSIONS:
+        oldest = min(sessions, key=lambda t: float(sessions[t].get("_last_access", 0.0)))
+        _rmtree(sessions[oldest].get("_session_dir"))  # type: ignore[arg-type]
+        sessions.pop(oldest, None)
+    session["_session_dir"] = session_dir
+    session["_created"] = now
+    session["_last_access"] = now
+    sessions[token] = session
+
+
 _VALIDATION_STATUS_ORDER = (
     "verified", "mismatch", "dead_doi", "doi_suggested", "unverifiable", "unchecked",
 )
@@ -279,7 +341,21 @@ def _build_validation_out(
 
 # Artifact types the Export panel can copy to a chosen folder. Keys are the
 # values the frontend sends; each maps to a produced path (or the project tree).
-_EXPORTABLE = ("project", "main_pdf", "combined_pdf", "audit_pdf", "zip")
+_EXPORTABLE = ("project", "main_pdf", "supplement_pdf", "combined_pdf", "audit_pdf", "zip")
+
+# Upload validation (audit item 5). Case-insensitive extension allowlists,
+# checked before anything touches disk or Pandoc. Figure extensions mirror the
+# formats the conversion pipeline already handles (raster + vector + PDF);
+# references accept the two reference-manager exports the pipeline recognizes.
+_ALLOWED_FIGURE_EXTS = frozenset(
+    {"png", "jpg", "jpeg", "tif", "tiff", "gif", "bmp", "webp", "eps", "svg", "pdf"}
+)
+_ALLOWED_REFERENCE_EXTS = frozenset({"bib", "ris"})
+
+
+def _lower_ext(name: str | None) -> str:
+    """Lowercase extension without the dot ("Paper.DOCX" -> "docx"); "" if none."""
+    return Path(name or "").suffix.lstrip(".").lower()
 
 _PICK_FOLDER_SCRIPT = (
     "import tkinter, tkinter.filedialog as fd, sys\n"
@@ -394,9 +470,21 @@ def create_app(*, workdir: Path | None = None) -> FastAPI:
         Path(workdir) if workdir is not None else Path(tempfile.mkdtemp(prefix="latextify-gui-"))
     )
     root.mkdir(parents=True, exist_ok=True)
+    # Only a root WE created (no caller workdir) is ours to delete on shutdown;
+    # a caller-supplied --workdir is persistent and left untouched.
+    owns_root = workdir is None
 
-    app = FastAPI(title="LaTeXtify", docs_url=None, redoc_url=None)
+    @asynccontextmanager
+    async def _lifespan(app: FastAPI):
+        yield
+        # Shutdown: drop the temp tree holding uploaded manuscripts + artifacts.
+        # Wired to the app lifecycle (not atexit) so it runs on a clean stop.
+        if owns_root:
+            _rmtree(root)
+
+    app = FastAPI(title="LaTeXtify", docs_url=None, redoc_url=None, lifespan=_lifespan)
     app.state.workdir = root
+    app.state.owns_root = owns_root
     # Opaque server-issued token -> real compiled PDF path. Populated only by
     # a successful --pdf compile in /api/convert; /api/pdf/{token} only ever
     # reads from this dict, never from the URL path itself (see module
@@ -559,6 +647,32 @@ def create_app(*, workdir: Path | None = None) -> FastAPI:
                     f"({len(figure_numbers)}) must have the same length"
                 ),
             )
+        # Type/naming validation (audit item 5), all before anything is written or
+        # Pandoc runs. Extensions are a fast first gate; the archive CONTENTS are
+        # still validated downstream (emit_project raises ValueError -> 400 for a
+        # non-DOCX/corrupt file), so this never *replaces* content checking.
+        if _lower_ext(main.filename) != "docx":
+            raise HTTPException(status_code=400, detail="main manuscript must be a .docx file")
+        if supplement is not None and _lower_ext(supplement.filename) != "docx":
+            raise HTTPException(status_code=400, detail="supplement must be a .docx file")
+        if references is not None:
+            if _lower_ext(references.filename) not in _ALLOWED_REFERENCE_EXTS:
+                raise HTTPException(status_code=400, detail="references must be .bib or .ris")
+        if any(n <= 0 for n in figure_numbers):
+            raise HTTPException(status_code=400, detail="figure numbers must be positive")
+        if len(set(figure_numbers)) != len(figure_numbers):
+            raise HTTPException(status_code=400, detail="figure numbers must be unique")
+        for fig_upload in figures:
+            fig_ext = _lower_ext(fig_upload.filename)
+            if fig_ext not in _ALLOWED_FIGURE_EXTS:
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        f"unsupported figure type '.{fig_ext or '?'}' "
+                        f"({fig_upload.filename or 'figure'}); allowed: "
+                        + ", ".join(sorted(_ALLOWED_FIGURE_EXTS))
+                    ),
+                )
 
         try:
             journal_obj = templates_loader.load(journal)
@@ -569,29 +683,40 @@ def create_app(*, workdir: Path | None = None) -> FastAPI:
         upload_dir = session_dir / "upload"
         upload_dir.mkdir(parents=True, exist_ok=True)
 
-        main_path = upload_dir / _safe_filename(main.filename)
-        await _stream_upload(main, main_path)
-
+        # Server-selected names, never client basenames: a main and a references
+        # upload can no longer collide (main.docx vs references.bib), and no
+        # attacker-controlled name reaches the filesystem. The DOCX's own content
+        # -- not its filename -- carries the manuscript metadata.
         supplement_path: Path | None = None
-        if supplement is not None:
-            supplement_path = upload_dir / ("supplement_" + _safe_filename(supplement.filename))
-            await _stream_upload(supplement, supplement_path)
-
         references_path: Path | None = None
-        if references is not None:
-            references_path = upload_dir / _safe_filename(references.filename)
-            await _stream_upload(references, references_path)
+        try:
+            main_path = upload_dir / "main.docx"
+            await _stream_upload(main, main_path)
 
-        # Figure files land as figures/fig<N>.<ext> beside the main docx so the
-        # existing folder-convention override picks them up. NB overrides REPLACE
-        # an embedded figure -- a docx with no embedded image for figure N has
-        # nothing to attach the dropped file to (multi-file plan, Context).
-        if figures:
-            figures_override_dir = upload_dir / "figures"
-            figures_override_dir.mkdir(exist_ok=True)
-            for fig_upload, number in zip(figures, figure_numbers, strict=True):
-                ext = Path(fig_upload.filename or "").suffix.lstrip(".").lower() or "png"
-                await _stream_upload(fig_upload, figures_override_dir / f"fig{number}.{ext}")
+            if supplement is not None:
+                supplement_path = upload_dir / "supplement.docx"
+                await _stream_upload(supplement, supplement_path)
+
+            if references is not None:
+                references_path = upload_dir / f"references.{_lower_ext(references.filename)}"
+                await _stream_upload(references, references_path)
+
+            # Figure files land as figures/fig<N>.<ext> beside the main docx so the
+            # existing folder-convention override picks them up. NB overrides REPLACE
+            # an embedded figure -- a docx with no embedded image for figure N has
+            # nothing to attach the dropped file to (multi-file plan, Context).
+            # Numbers are validated positive+unique above, so destinations are unique.
+            if figures:
+                figures_override_dir = upload_dir / "figures"
+                figures_override_dir.mkdir(exist_ok=True)
+                for fig_upload, number in zip(figures, figure_numbers, strict=True):
+                    ext = _lower_ext(fig_upload.filename)
+                    if ext == "jpeg":  # normalize deliberately so fig<N>.jpg is canonical
+                        ext = "jpg"
+                    await _stream_upload(fig_upload, figures_override_dir / f"fig{number}.{ext}")
+        except Exception:  # an oversized/failed upload must not orphan the session dir
+            _rmtree(session_dir)
+            raise
 
         try:
             result = emit_project(
@@ -606,6 +731,7 @@ def create_app(*, workdir: Path | None = None) -> FastAPI:
                 check_references=check_references,
             )
         except ValueError as exc:
+            _rmtree(session_dir)  # a failed emit leaves the upload behind otherwise
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
         warnings = [w.message for w in result.warnings]
@@ -618,6 +744,8 @@ def create_app(*, workdir: Path | None = None) -> FastAPI:
         audit_pdf_url: str | None = None
         zip_url: str | None = None
         success = True
+        main_compile_success: bool | None = None
+        supplement_compile_success: bool | None = None
         # Real paths of every produced artifact, for the optional folder export.
         produced: dict[str, Path] = {"project": result.output_dir}
 
@@ -629,7 +757,7 @@ def create_app(*, workdir: Path | None = None) -> FastAPI:
                 main_compile = compile_document(
                     result.main_tex_path, tectonic_path=tectonic, vendor_dir=vendor_dir
                 )
-                success = main_compile.success
+                main_compile_success = main_compile.success
                 if main_compile.success and main_compile.pdf_path is not None:
                     pdf_url = f"/api/pdf/{_issue_token(pdf_tokens, main_compile.pdf_path)}"
                     produced["main_pdf"] = main_compile.pdf_path
@@ -641,10 +769,23 @@ def create_app(*, workdir: Path | None = None) -> FastAPI:
                         tectonic_path=tectonic,
                         vendor_dir=vendor_dir,
                     )
+                    supplement_compile_success = supplement_compile.success
                     if supplement_compile.success and supplement_compile.pdf_path is not None:
                         supplement_pdf_url = (
                             f"/api/pdf/{_issue_token(pdf_tokens, supplement_compile.pdf_path)}"
                         )
+                        produced["supplement_pdf"] = supplement_compile.pdf_path
+                    else:
+                        warnings.append(
+                            "supplement PDF failed to compile -- the main document is unaffected; "
+                            "see the supplement diagnostics in report.md."
+                        )
+
+                # Overall success requires EVERY requested compile to succeed, so a
+                # main-ok/supplement-failed run is honestly reported as not-success.
+                success = main_compile.success and (
+                    supplement_compile is None or supplement_compile.success
+                )
 
                 if (
                     combine
@@ -665,12 +806,16 @@ def create_app(*, workdir: Path | None = None) -> FastAPI:
                         reconciliation=None,
                         compile_result=main_compile,
                         supplement=result.supplement,
+                        supplement_compile=supplement_compile,
+                        validation=result.validation,
                     )
             except HTTPException:
+                _rmtree(session_dir)
                 raise
             except Exception as exc:
                 # Mirrors /api/convert: a hung/broken compile is a 500, not a raw
                 # traceback. The LaTeX project itself is still written to disk.
+                _rmtree(session_dir)
                 raise HTTPException(
                     status_code=500, detail=f"compilation failed: {exc}"
                 ) from exc
@@ -687,6 +832,7 @@ def create_app(*, workdir: Path | None = None) -> FastAPI:
                     audit_pdf_url = f"/api/pdf/{_issue_token(pdf_tokens, audit.audit_pdf_path)}"
                     produced["audit_pdf"] = audit.audit_pdf_path
             except Exception as exc:
+                _rmtree(session_dir)
                 raise HTTPException(
                     status_code=500, detail=f"equation audit failed: {exc}"
                 ) from exc
@@ -713,6 +859,7 @@ def create_app(*, workdir: Path | None = None) -> FastAPI:
                 )
                 warnings.extend(export_warnings)
             except OSError as exc:
+                _rmtree(session_dir)
                 raise HTTPException(
                     status_code=400, detail=f"could not export to {export_dir!r}: {exc}"
                 ) from exc
@@ -720,22 +867,30 @@ def create_app(*, workdir: Path | None = None) -> FastAPI:
         # Register this run's artifacts so the UI can export them later without
         # recompiling (preview-then-export). Also carry the entry set + validation
         # + compile context so /api/apply-corrections can rewrite references.bib
-        # and recompile the SAME project without a re-conversion.
+        # and recompile the SAME project without a re-conversion. The session
+        # (and its on-disk directory) is TTL-bounded + LRU-capped + shutdown-swept
+        # by _register_session / _prune_sessions / the lifespan (audit item 3).
         export_token = uuid.uuid4().hex
-        app.state.export_sessions[export_token] = {
-            "output_dir": result.output_dir,
-            "produced": produced,
-            "entries": result.entries,
-            "validation": result.validation,
-            "bib_path": result.bib_path,
-            "main_tex_path": result.main_tex_path,
-            "supplement_tex_path": (
-                result.supplement.supplement_tex_path if result.supplement else None
-            ),
-            "journal": journal,
-            "compiled": pdf,
-            "combine": combine,
-        }
+        _register_session(
+            app,
+            export_token,
+            {
+                "output_dir": result.output_dir,
+                "produced": produced,
+                "entries": result.entries,
+                "validation": result.validation,
+                "bib_path": result.bib_path,
+                "main_tex_path": result.main_tex_path,
+                "supplement_tex_path": (
+                    result.supplement.supplement_tex_path if result.supplement else None
+                ),
+                "journal": journal,
+                "compiled": pdf,
+                "combine": combine,
+            },
+            session_dir=session_dir,
+            now=time.time(),
+        )
 
         report_md = ""
         if result.report_path is not None and result.report_path.is_file():
@@ -752,6 +907,8 @@ def create_app(*, workdir: Path | None = None) -> FastAPI:
             warnings=warnings,
             report_md=report_md,
             success=success,
+            main_compile_success=main_compile_success,
+            supplement_compile_success=supplement_compile_success,
             pdf_url=pdf_url,
             supplement_pdf_url=supplement_pdf_url,
             combined_pdf_url=combined_pdf_url,
@@ -799,6 +956,7 @@ def create_app(*, workdir: Path | None = None) -> FastAPI:
                 status_code=404,
                 detail="unknown or expired export token -- preview the conversion again",
             )
+        _touch_session(session)  # active export defers this session's expiry
         if not req.export_dir.strip():
             raise HTTPException(status_code=400, detail="no destination folder given")
         try:
@@ -830,6 +988,7 @@ def create_app(*, workdir: Path | None = None) -> FastAPI:
                 status_code=404,
                 detail="unknown or expired token -- preview the conversion again",
             )
+        _touch_session(session)  # applying corrections is active use; defer expiry
         report = session.get("validation")
         if not isinstance(report, ValidationReport):
             raise HTTPException(
@@ -877,7 +1036,6 @@ def create_app(*, workdir: Path | None = None) -> FastAPI:
                 main_compile = compile_document(
                     session["main_tex_path"], tectonic_path=tectonic, vendor_dir=vendor_dir
                 )
-                success = main_compile.success
                 if main_compile.success and main_compile.pdf_path is not None:
                     token = _issue_token(app.state.pdf_tokens, main_compile.pdf_path)
                     pdf_url = f"/api/pdf/{token}"
@@ -893,6 +1051,15 @@ def create_app(*, workdir: Path | None = None) -> FastAPI:
                     if supplement_compile.success and supplement_compile.pdf_path is not None:
                         token = _issue_token(app.state.pdf_tokens, supplement_compile.pdf_path)
                         supplement_pdf_url = f"/api/pdf/{token}"
+                        produced["supplement_pdf"] = supplement_compile.pdf_path
+                    else:
+                        warnings.append("supplement PDF failed to recompile (main is unaffected).")
+
+                # Same honest-success rule as convert-multi: every recompiled
+                # document must succeed for the overall result to be a success.
+                success = main_compile.success and (
+                    supplement_compile is None or supplement_compile.success
+                )
 
                 if (
                     session.get("combine")

@@ -839,3 +839,272 @@ def test_apply_corrections_recompiles_pdf(tmp_path, monkeypatch):
     pdf = client.get(payload["pdf_url"])
     assert pdf.status_code == 200
     assert pdf.content[:4] == b"%PDF"
+
+
+# --------------------------------------------------------------------------- #
+# Supplement export + honest compile success (audit item 6)
+# --------------------------------------------------------------------------- #
+
+
+def test_export_artifacts_can_copy_supplement_pdf(tmp_path):
+    from latextify.gui.server import _export_artifacts
+
+    src = tmp_path / "supplement.pdf"
+    src.write_bytes(b"%PDF-1.4\n")
+    dest_dir = tmp_path / "out"
+    dest, exported, warnings = _export_artifacts(
+        str(dest_dir), {"supplement_pdf"},
+        output_dir=tmp_path / "proj",
+        produced={"project": tmp_path / "proj", "supplement_pdf": src},
+    )
+    assert "supplement.pdf" in exported
+    assert (dest_dir / "supplement.pdf").is_file()
+    assert warnings == []
+
+
+def test_supplement_pdf_is_exportable_type():
+    from latextify.gui.server import _EXPORTABLE
+
+    assert "supplement_pdf" in _EXPORTABLE
+
+
+def test_convert_multi_no_pdf_has_null_compile_success(tmp_path):
+    with FIGURES_DOCX.open("rb") as fh:
+        body = _client(tmp_path).post(
+            "/api/convert-multi",
+            files={"main": ("figures.docx", fh, "application/octet-stream")},
+            data={"journal": "revtex4-2", "pdf": "false"},
+        ).json()
+    # No compile requested: overall success True, per-document outcomes are None.
+    assert body["success"] is True
+    assert body["main_compile_success"] is None
+    assert body["supplement_compile_success"] is None
+
+
+# --------------------------------------------------------------------------- #
+# Upload naming + validation (audit item 5)
+# --------------------------------------------------------------------------- #
+
+
+def test_main_must_be_docx(tmp_path):
+    resp = _client(tmp_path).post(
+        "/api/convert-multi",
+        files={"main": ("paper.txt", b"not a docx", "text/plain")},
+        data={"journal": "revtex4-2", "pdf": "false"},
+    )
+    assert resp.status_code == 400
+    assert "docx" in resp.json()["detail"].lower()
+
+
+def test_supplement_must_be_docx(tmp_path):
+    with FIGURES_DOCX.open("rb") as fh:
+        resp = _client(tmp_path).post(
+            "/api/convert-multi",
+            files=[
+                ("main", ("figures.docx", fh.read(), "application/octet-stream")),
+                ("supplement", ("si.pdf", b"%PDF-1.4", "application/pdf")),
+            ],
+            data={"journal": "revtex4-2", "pdf": "false"},
+        )
+    assert resp.status_code == 400
+    assert "supplement" in resp.json()["detail"].lower()
+
+
+def test_references_must_be_bib_or_ris(tmp_path):
+    with FIGURES_DOCX.open("rb") as fh:
+        resp = _client(tmp_path).post(
+            "/api/convert-multi",
+            files=[
+                ("main", ("figures.docx", fh.read(), "application/octet-stream")),
+                ("references", ("lib.txt", b"junk", "text/plain")),
+            ],
+            data={"journal": "revtex4-2", "pdf": "false"},
+        )
+    assert resp.status_code == 400
+    assert "bib" in resp.json()["detail"].lower()
+
+
+def test_figure_number_must_be_positive(tmp_path):
+    with FIGURES_DOCX.open("rb") as fh:
+        resp = _client(tmp_path).post(
+            "/api/convert-multi",
+            files=[
+                ("main", ("figures.docx", fh.read(), "application/octet-stream")),
+                ("figures", ("fig.png", b"\x89PNG\r\n", "image/png")),
+            ],
+            data={"journal": "revtex4-2", "pdf": "false", "figure_numbers": "0"},
+        )
+    assert resp.status_code == 400
+    assert "positive" in resp.json()["detail"].lower()
+
+
+def test_duplicate_figure_numbers_rejected(tmp_path):
+    with FIGURES_DOCX.open("rb") as fh:
+        resp = _client(tmp_path).post(
+            "/api/convert-multi",
+            files=[
+                ("main", ("figures.docx", fh.read(), "application/octet-stream")),
+                ("figures", ("a.png", b"\x89PNG\r\n", "image/png")),
+                ("figures", ("b.png", b"\x89PNG\r\n", "image/png")),
+            ],
+            data={"journal": "revtex4-2", "pdf": "false",
+                  "figure_numbers": ["1", "1"]},
+        )
+    assert resp.status_code == 400
+    assert "unique" in resp.json()["detail"].lower()
+
+
+def test_unsupported_figure_extension_rejected(tmp_path):
+    with FIGURES_DOCX.open("rb") as fh:
+        resp = _client(tmp_path).post(
+            "/api/convert-multi",
+            files=[
+                ("main", ("figures.docx", fh.read(), "application/octet-stream")),
+                ("figures", ("evil.exe", b"MZ", "application/octet-stream")),
+            ],
+            data={"journal": "revtex4-2", "pdf": "false", "figure_numbers": "1"},
+        )
+    assert resp.status_code == 400
+    assert "unsupported figure type" in resp.json()["detail"].lower()
+
+
+def test_uppercase_docx_extension_accepted(tmp_path):
+    # Extension check is case-insensitive; a valid manuscript still converts.
+    with FIGURES_DOCX.open("rb") as fh:
+        resp = _client(tmp_path).post(
+            "/api/convert-multi",
+            files={"main": ("PAPER.DOCX", fh, "application/octet-stream")},
+            data={"journal": "revtex4-2", "pdf": "false"},
+        )
+    assert resp.status_code == 200, resp.text
+    # Stored under the fixed server name regardless of the client's basename.
+    mains = list((tmp_path / "gui-workdir").rglob("main.docx"))
+    assert mains, "upload should be stored as main.docx"
+
+
+def test_main_and_references_cannot_collide(tmp_path):
+    # Same client basename for main and references must not overwrite each other.
+    with FIGURES_DOCX.open("rb") as fh:
+        resp = _client(tmp_path).post(
+            "/api/convert-multi",
+            files=[
+                ("main", ("paper.docx", fh.read(), "application/octet-stream")),
+                ("references", ("paper.bib", _SAMPLE_BIB, "text/plain")),
+            ],
+            data={"journal": "revtex4-2", "pdf": "false"},
+        )
+    assert resp.status_code == 200, resp.text
+    workdir = tmp_path / "gui-workdir"
+    assert list(workdir.rglob("main.docx")), "main stored as main.docx"
+    assert list(workdir.rglob("references.bib")), "references stored as references.bib"
+
+
+# --------------------------------------------------------------------------- #
+# Session TTL / cleanup / lifecycle (audit item 3)
+# --------------------------------------------------------------------------- #
+
+
+def test_expired_session_is_pruned_and_tokens_404(tmp_path):
+    import time as _time
+
+    from latextify.gui import server as srv
+    from latextify.gui.server import create_app
+
+    app = create_app(workdir=tmp_path / "wd")
+    client = TestClient(app)
+    with FIGURES_DOCX.open("rb") as fh:
+        body = client.post(
+            "/api/convert-multi",
+            files={"main": ("figures.docx", fh, "application/octet-stream")},
+            data={"journal": "revtex4-2", "pdf": "false", "want_zip": "true"},
+        ).json()
+    token, zip_url = body["export_token"], body["zip_url"]
+    session_dir = app.state.export_sessions[token]["_session_dir"]
+    assert session_dir.is_dir()
+    assert client.get(zip_url).status_code == 200  # downloadable while live
+
+    # Force every session past its TTL.
+    srv._prune_sessions(app, now=_time.time() + srv._SESSION_TTL_SECONDS + 10)
+
+    assert token not in app.state.export_sessions
+    assert not session_dir.exists()          # on-disk directory removed
+    assert client.get(zip_url).status_code == 404  # its token no longer resolves
+    export = client.post(
+        "/api/export",
+        json={"export_token": token, "export_dir": str(tmp_path / "out"),
+              "export_types": ["project"]},
+    )
+    assert export.status_code == 404
+
+
+def test_touch_session_defers_expiry(tmp_path):
+    from latextify.gui import server as srv
+    from latextify.gui.server import _prune_sessions, _register_session, _touch_session, create_app
+
+    app = create_app(workdir=tmp_path / "wd")
+    d = tmp_path / "wd" / "s"
+    d.mkdir(parents=True)
+    _register_session(app, "t", {"output_dir": d}, session_dir=d, now=0.0)
+
+    _touch_session(app.state.export_sessions["t"], now=1000.0)
+    _prune_sessions(app, now=1000.0 + srv._SESSION_TTL_SECONDS - 1)
+    assert "t" in app.state.export_sessions          # refreshed access keeps it alive
+    _prune_sessions(app, now=1000.0 + srv._SESSION_TTL_SECONDS + 1)
+    assert "t" not in app.state.export_sessions       # then it expires
+
+
+def test_failed_conversion_leaves_no_session_dir(tmp_path):
+    from latextify.gui.server import create_app
+
+    wd = tmp_path / "wd"
+    client = TestClient(create_app(workdir=wd))
+    resp = client.post(
+        "/api/convert-multi",
+        files={"main": ("bogus.docx", b"not a real docx", "application/octet-stream")},
+        data={"journal": "revtex4-2", "pdf": "false"},
+    )
+    assert resp.status_code == 400
+    # The failed run's upload directory must not linger.
+    assert [p for p in wd.iterdir() if p.is_dir()] == []
+
+
+def test_register_session_lru_evicts_oldest(tmp_path):
+    from latextify.gui import server as srv
+    from latextify.gui.server import _register_session, create_app
+
+    app = create_app(workdir=tmp_path / "wd")
+    dirs = []
+    for i in range(srv._MAX_SESSIONS + 3):
+        d = tmp_path / "wd" / f"s{i}"
+        d.mkdir(parents=True)
+        dirs.append(d)
+        _register_session(app, f"tok{i}", {"output_dir": d}, session_dir=d, now=float(i))
+
+    sessions = app.state.export_sessions
+    assert len(sessions) <= srv._MAX_SESSIONS
+    assert "tok0" not in sessions        # oldest evicted
+    assert not dirs[0].exists()          # and its directory removed
+    assert f"tok{srv._MAX_SESSIONS + 2}" in sessions  # newest retained
+
+
+def test_shutdown_removes_auto_created_root():
+    from latextify.gui.server import create_app
+
+    app = create_app()  # no workdir -> owns a temp root
+    root = app.state.workdir
+    assert root.is_dir()
+    assert app.state.owns_root is True
+    with TestClient(app):  # entering+exiting runs the lifespan (startup + shutdown)
+        pass
+    assert not root.exists()
+
+
+def test_shutdown_preserves_caller_workdir(tmp_path):
+    from latextify.gui.server import create_app
+
+    wd = tmp_path / "persist"
+    app = create_app(workdir=wd)
+    assert app.state.owns_root is False
+    with TestClient(app):
+        pass
+    assert wd.is_dir()  # a caller-supplied workdir is never deleted

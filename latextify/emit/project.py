@@ -571,8 +571,10 @@ def _copy_figures(
                 )
             )
         )
+    kept: set[str] = set()
     for figure in figures:
         outcome = convert_for_latex(figure.resolved_path, figures_dir, figure.number, prefix=prefix)
+        kept.add(outcome.dest_path.name)
         files[figure.number] = f"figures/{outcome.dest_path.name}"
         if outcome.note is not None:
             figure = replace(figure, conversion_note=outcome.note)
@@ -581,7 +583,36 @@ def _copy_figures(
         if outcome.warning is not None:
             warnings.append(EmitWarning(message=f"figure {figure.number}: {outcome.warning}"))
         updated.append(figure)
+    # Re-running into an existing tree can leave last run's generated figures
+    # behind (fewer figures now, or a format change PNG->PDF). Those stale files
+    # would ride along into an exported project/ZIP though nothing references
+    # them -- remove the ones this document owns and no longer produced.
+    _prune_stale_figures(figures_dir, prefix, kept)
     return files, tuple(updated), tuple(warnings)
+
+
+# A LaTeXtify-generated figure file: literal "fig" + the document prefix
+# ("" main, "S" supplement) + the figure number + an extension. Case-sensitive
+# and prefix-scoped so the main pass (``fig<N>.*``) never matches a supplement's
+# ``figS<N>.*`` (and vice versa), and a user's own ``Fig1.png``/``diagram.pdf``
+# in figures/ is never touched.
+def _owned_figure_re(prefix: str) -> re.Pattern[str]:
+    return re.compile(rf"^fig{re.escape(prefix)}\d+\.")
+
+
+def _prune_stale_figures(figures_dir: Path, prefix: str, keep_names: set[str]) -> None:
+    """Delete this document's generated figures that the current run did not write.
+
+    Only files matching :func:`_owned_figure_re` for ``prefix`` are eligible, so
+    user-supplied files and the sibling document's figures are preserved. A run
+    with zero figures legitimately clears all of this prefix's generated files.
+    """
+    if not figures_dir.is_dir():
+        return
+    owned = _owned_figure_re(prefix)
+    for path in figures_dir.iterdir():
+        if path.is_file() and path.name not in keep_names and owned.match(path.name):
+            path.unlink()
 
 
 # --------------------------------------------------------------------------- #

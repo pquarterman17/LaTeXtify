@@ -41,16 +41,16 @@ sections below; a passing implementation box alone does not close an item.
 - [ ] **1 — DOCX/ZIP limits: acceptance tests pass**
 - [ ] **2 — Tectonic bootstrap integrity: implementation complete**
 - [ ] **2 — Tectonic bootstrap integrity: acceptance tests pass**
-- [ ] **3 — GUI session expiry/cleanup: implementation complete**
-- [ ] **3 — GUI session expiry/cleanup: acceptance tests pass**
+- [x] **3 — GUI session expiry/cleanup: implementation complete**
+- [x] **3 — GUI session expiry/cleanup: acceptance tests pass**
 - [ ] **4 — Local GUI request protection: implementation complete**
 - [ ] **4 — Local GUI request protection: acceptance tests pass**
-- [ ] **5 — Upload naming/validation: implementation complete**
-- [ ] **5 — Upload naming/validation: acceptance tests pass**
-- [ ] **6 — Supplement export/status: implementation complete**
-- [ ] **6 — Supplement export/status: acceptance tests pass**
-- [ ] **7 — Stale figure reconciliation: implementation complete**
-- [ ] **7 — Stale figure reconciliation: acceptance tests pass**
+- [x] **5 — Upload naming/validation: implementation complete**
+- [x] **5 — Upload naming/validation: acceptance tests pass**
+- [x] **6 — Supplement export/status: implementation complete**
+- [x] **6 — Supplement export/status: acceptance tests pass**
+- [x] **7 — Stale figure reconciliation: implementation complete**
+- [x] **7 — Stale figure reconciliation: acceptance tests pass**
 - [ ] **8 — Dependency/CI security checks: implementation complete**
 - [ ] **8 — Dependency/CI security checks: acceptance criteria pass**
 - [ ] **Final verification and handoff complete**

@@ -152,10 +152,13 @@ figure files, and a `.bib` reference library together** — then set each
 file's role, pick a journal from the full publisher list, choose options
 (compile PDF, combine supplement, one-column SI, equation audit, project
 `.zip`), and click **Preview**. The compiled PDFs render inline so you can
-confirm the conversion worked — **nothing is written to your disk yet**. Once
-it looks good, the **Export** panel lets you pick a destination folder (a
-native "Browse…" dialog) and copy any subset of the outputs — the LaTeX
-project, individual PDFs, or the `.zip` — to where you want them.
+confirm the conversion worked. A preview is held only in **temporary local
+storage** (a private working directory the app owns) — it is pruned
+automatically about an hour after its last use and deleted when the app shuts
+down, so nothing lingers unless you keep it. Once it looks good, the **Export**
+panel lets you pick a destination folder (a native "Browse…" dialog) and copy
+any subset of the outputs — the LaTeX project, individual PDFs, or the `.zip` —
+to the folder you choose to keep.
 
 Output layout per conversion:
 

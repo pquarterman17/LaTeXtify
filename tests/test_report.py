@@ -331,7 +331,8 @@ class TestCompilationReporting:
             returncode=0,
         )
         report_text = render_report(compile_result=compile_result)
-        assert "✓ **Success**" in report_text
+        assert "**Main:**" in report_text
+        assert "✓ compiled without errors" in report_text
 
     def test_compile_failure_with_diagnostics(self):
         diags = (
@@ -363,12 +364,48 @@ class TestCompilationReporting:
         )
         report_text = render_report(compile_result=compile_result)
 
-        assert "✗ **Failed**" in report_text
+        assert "✗ failed" in report_text
         # Errors should come before warnings
         assert report_text.index("[ERROR]") < report_text.index("[WARNING]")
         # Check that diagnostics are present
         assert "Undefined control sequence" in report_text
         assert "preamble.tex:10" in report_text
+
+
+def _compile(success, diagnostics=()):
+    from latextify.model.compile import CompileResult
+
+    return CompileResult(
+        success=success,
+        pdf_path=Path("/tmp/x.pdf") if success else None,
+        diagnostics=diagnostics,
+        raw_log="",
+        returncode=0 if success else 1,
+    )
+
+
+class TestSupplementCompileReporting:
+    """A supplement compile is reported as its own labeled outcome (audit item 6)."""
+
+    def test_supplement_failure_surfaces_even_when_main_ok(self):
+        diags = (
+            CompileDiagnostic(
+                severity=DiagnosticSeverity.ERROR, message="SI undefined macro",
+                file="supplement.tex", line=7,
+            ),
+        )
+        text = render_report(
+            compile_result=_compile(True),
+            supplement_compile=_compile(False, diags),
+        )
+        assert "**Main:**" in text and "✓ compiled" in text
+        assert "**Supplement:**" in text and "✗ failed" in text
+        assert "SI undefined macro" in text
+        assert "supplement.tex:7" in text
+
+    def test_no_supplement_compile_omits_supplement_line(self):
+        text = render_report(compile_result=_compile(True))
+        assert "**Supplement:**" not in text
 
 
 class TestWarningsReporting:

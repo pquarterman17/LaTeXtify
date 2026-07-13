@@ -224,8 +224,9 @@
 
   <section class="panel">
     <h2>Export to a folder</h2>
-    <p class="hint">Preview first (above) to check the conversion compiled. Once it looks good, pick a
-      folder and copy the files you want — nothing is written to disk until you click Export.</p>
+    <p class="hint">Preview first (above) to check the conversion compiled. A preview is kept in
+      temporary local storage (cleared automatically after about an hour and when the app closes);
+      Export copies the files you pick to a folder you choose to keep.</p>
     <div class="controls">
       <div class="field">
         <label for="export-dir">Destination folder</label>
@@ -238,6 +239,7 @@
     <div class="options-grid">
       <label class="checkbox-row"><input id="exp-project" type="checkbox" checked /> LaTeX project folder</label>
       <label class="checkbox-row"><input id="exp-main_pdf" type="checkbox" /> Main PDF</label>
+      <label class="checkbox-row"><input id="exp-supplement_pdf" type="checkbox" /> Supplement PDF</label>
       <label class="checkbox-row"><input id="exp-combined_pdf" type="checkbox" /> Combined PDF</label>
       <label class="checkbox-row"><input id="exp-audit_pdf" type="checkbox" /> Equation-audit PDF</label>
       <label class="checkbox-row"><input id="exp-zip" type="checkbox" /> Project .zip</label>
@@ -314,7 +316,7 @@
   const exportStatus = el("export-status");
   // Export checkbox id suffix -> the export_types value the server expects.
   const EXPORT_TYPES = {
-    "exp-project": "project", "exp-main_pdf": "main_pdf",
+    "exp-project": "project", "exp-main_pdf": "main_pdf", "exp-supplement_pdf": "supplement_pdf",
     "exp-combined_pdf": "combined_pdf", "exp-audit_pdf": "audit_pdf", "exp-zip": "zip",
   };
   const convertBtn = el("convert-btn");

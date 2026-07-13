@@ -99,6 +99,36 @@ def _render_validation(validation: ValidationReport) -> list[str]:
     return lines
 
 
+def _render_compile_outcome(lines: list[str], result: CompileResult, *, label: str) -> None:
+    """Append one document's compile outcome + sorted diagnostics to ``lines``.
+
+    Shared by the main and supplement documents so a supplement failure is
+    reported exactly like the main one (heading, ✓/✗ status, ERROR/WARNING
+    diagnostics sorted by severity then location).
+    """
+    lines.append(f"**{label}:** ")
+    if result.success:
+        lines.append("✓ compiled without errors.\n")
+    else:
+        lines.append("✗ failed — see diagnostics below.\n")
+    if result.diagnostics:
+        sorted_diags = sorted(
+            result.diagnostics,
+            key=lambda d: (0 if d.severity.value == "error" else 1, d.file or "", d.line or 0),
+        )
+        for diag in sorted_diags:
+            sev = diag.severity.value.upper()
+            loc = ""
+            if diag.file or diag.line:
+                loc = f" ({diag.file}"
+                if diag.line:
+                    loc += f":{diag.line}"
+                loc += ")"
+            lines.append(f"**[{sev}]{loc}:** {_flatten(diag.message)}\n")
+    elif not result.success:
+        lines.append("No diagnostics available.\n")
+
+
 def render_report(
     *,
     preflight: PreflightReport | None = None,
@@ -106,6 +136,7 @@ def render_report(
     reconciliation: ReconciliationReport | None = None,
     compile_result: CompileResult | None = None,
     supplement: SupplementResult | None = None,
+    supplement_compile: CompileResult | None = None,
     validation: ValidationReport | None = None,
 ) -> str:
     """Render all aggregated findings into a markdown report string.
@@ -218,32 +249,12 @@ def render_report(
     # Compilation
     lines.append("\n## Compilation\n")
     if compile_result:
-        if compile_result.success:
-            lines.append("✓ **Success** — PDF compiled without errors.\n")
-        else:
-            lines.append("✗ **Failed** — see diagnostics below.\n")
-
-        if compile_result.diagnostics:
-            # Sort by severity (ERROR, WARNING) then by location
-            sorted_diags = sorted(
-                compile_result.diagnostics,
-                key=lambda d: (
-                    0 if d.severity.value == "error" else 1,
-                    d.file or "",
-                    d.line or 0,
-                ),
-            )
-            for diag in sorted_diags:
-                sev = diag.severity.value.upper()
-                loc = ""
-                if diag.file or diag.line:
-                    loc = f" ({diag.file}"
-                    if diag.line:
-                        loc += f":{diag.line}"
-                    loc += ")"
-                lines.append(f"**[{sev}]{loc}:** {_flatten(diag.message)}\n")
-        else:
-            lines.append("No diagnostics available.\n")
+        _render_compile_outcome(lines, compile_result, label="Main")
+        # Supplement compile is a SEPARATE document: report its own outcome and
+        # diagnostics so a supplement failure is visible even when the main PDF
+        # compiled cleanly (previously only the main outcome was ever surfaced).
+        if supplement_compile is not None:
+            _render_compile_outcome(lines, supplement_compile, label="Supplement")
     else:
         lines.append("_Not compiled_ (use `--pdf` to compile).\n")
 
@@ -296,6 +307,7 @@ def write_report(
     reconciliation: ReconciliationReport | None = None,
     compile_result: CompileResult | None = None,
     supplement: SupplementResult | None = None,
+    supplement_compile: CompileResult | None = None,
     validation: ValidationReport | None = None,
 ) -> Path:
     """Render and write the report to a file.
@@ -303,7 +315,7 @@ def write_report(
     Args:
         output_path: destination for report.md (must be a file path, not a directory).
         preflight, emit_result, reconciliation, compile_result, supplement,
-            validation: see :func:`render_report`.
+            supplement_compile, validation: see :func:`render_report`.
 
     Returns:
         The path to the written report file.
@@ -314,6 +326,7 @@ def write_report(
         reconciliation=reconciliation,
         compile_result=compile_result,
         supplement=supplement,
+        supplement_compile=supplement_compile,
         validation=validation,
     )
     output_path.parent.mkdir(parents=True, exist_ok=True)
