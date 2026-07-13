@@ -51,8 +51,8 @@ sections below; a passing implementation box alone does not close an item.
 - [x] **6 — Supplement export/status: acceptance tests pass**
 - [x] **7 — Stale figure reconciliation: implementation complete**
 - [x] **7 — Stale figure reconciliation: acceptance tests pass**
-- [ ] **8 — Dependency/CI security checks: implementation complete**
-- [ ] **8 — Dependency/CI security checks: acceptance criteria pass**
+- [x] **8 — Dependency/CI security checks: implementation complete**
+- [x] **8 — Dependency/CI security checks: acceptance criteria pass**
 - [ ] **Final verification and handoff complete**
 
 ---
@@ -323,8 +323,7 @@ included in an exported project/ZIP even though they are no longer referenced.
 
 ## 8. Complete dependency and CI security checks
 
-**Partially complete (2026-07-12):** the dependency-audit half is done; the
-GitHub Actions SHA-pinning bullet remains open.
+**Complete (2026-07-12).**
 
 ### Work
 
@@ -338,9 +337,10 @@ GitHub Actions SHA-pinning bullet remains open.
   push/PR and a weekly schedule; the failure/waiver policy is documented inline.
 - Static security check: **already covered** by the existing CodeQL workflow
   (`.github/workflows/codeql.yml`); do not add a second scanner.
-- Ensure GitHub Actions are pinned to immutable commit SHAs, with the readable
-  release tag retained in comments. *(OPEN — low priority for this repo; see the
-  audit hand-off notes.)*
+- ~~Ensure GitHub Actions are pinned to immutable commit SHAs, with the readable
+  release tag retained in comments.~~ (2026-07-12) — all `uses:` across ci.yml,
+  codeql.yml, dependency-audit.yml, and release.yml pinned to the tag's commit
+  SHA with a `# vN` comment; validated with actionlint.
 
 ### Acceptance criteria
 
