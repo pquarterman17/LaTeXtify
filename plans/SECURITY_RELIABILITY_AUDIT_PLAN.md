@@ -312,17 +312,24 @@ included in an exported project/ZIP even though they are no longer referenced.
 
 ## 8. Complete dependency and CI security checks
 
+**Partially complete (2026-07-12):** the dependency-audit half is done; the
+GitHub Actions SHA-pinning bullet remains open.
+
 ### Work
 
-- Run `pip-audit` (or an equivalent Python advisory scanner) against the locked
-  environment outside the OneDrive hardlink failure mode. Record and remediate
-  actionable findings without blindly upgrading across incompatible major
-  versions.
-- Add a CI dependency-audit job with a documented failure/update policy.
-- Consider a lightweight static security check only if it has low noise and
-  does not duplicate Ruff; avoid turning this plan into a tooling expansion.
+- ~~Run `pip-audit` against the locked environment outside the OneDrive
+  hardlink failure mode.~~ (2026-07-12) — ran locally with `UV_LINK_MODE=copy`
+  (the hardlink workaround): 33 locked runtime dependencies, **no known
+  vulnerabilities**. Nothing to remediate.
+- ~~Add a CI dependency-audit job with a documented failure/update policy.~~
+  (2026-07-12) — `.github/workflows/dependency-audit.yml` runs `uvx pip-audit`
+  over the locked runtime deps (`uv export --no-dev --no-emit-project`) on
+  push/PR and a weekly schedule; the failure/waiver policy is documented inline.
+- Static security check: **already covered** by the existing CodeQL workflow
+  (`.github/workflows/codeql.yml`); do not add a second scanner.
 - Ensure GitHub Actions are pinned to immutable commit SHAs, with the readable
-  release tag retained in comments.
+  release tag retained in comments. *(OPEN — low priority for this repo; see the
+  audit hand-off notes.)*
 
 ### Acceptance criteria
 

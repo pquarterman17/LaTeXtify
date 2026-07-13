@@ -1,0 +1,45 @@
+name: Dependency audit
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    # Weekly (Mon 06:00 UTC): catch advisories newly disclosed against pinned,
+    # otherwise-unchanged dependencies between code changes.
+    - cron: "0 6 * * 1"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  pip-audit:
+    name: pip-audit (locked runtime deps)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v7
+        with:
+          python-version: "3.12"
+      - name: Export locked runtime dependencies
+        # Audit exactly what ships to users: runtime deps only (no dev tools),
+        # resolved from uv.lock so the audit matches the pinned tree. --no-deps
+        # in the next step then audits precisely this closure without
+        # re-resolving. Hashes are omitted here because uv already verifies them
+        # on install; pip-audit's job in CI is CVE scanning, not integrity.
+        run: >-
+          uv export --frozen --no-dev --no-emit-project --no-hashes
+          --format requirements-txt -o requirements-audit.txt
+      - name: Audit for known vulnerabilities
+        # Exits non-zero if any dependency has a known advisory (PyPI + OSV).
+        #
+        # Failure policy: a PR that introduces or inherits a vulnerable
+        # dependency must upgrade it. An advisory may be waived only with a
+        # documented exception -- add `--ignore-vuln <ID>` below with a comment
+        # naming the package, advisory ID, why LaTeXtify is not exposed, and a
+        # review/expiry date.
+        run: uvx pip-audit --requirement requirements-audit.txt --no-deps
