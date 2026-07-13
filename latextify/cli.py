@@ -4,7 +4,8 @@ Current surface (plan items 5, 16, 18, 19, 20, 21, 23):
 
     latextify convert paper.docx --journal revtex4-2 [--output output] \\
         [--citation-style numeric|authoryear] [--pdf] [--report/--no-report] \\
-        [--supplement si.docx] [--combine-supplement]  # Supplementary Material (item 21)
+        [--supplement si.docx] [--combine-supplement] \\  # Supplementary Material (item 21)
+        [--check-references] [--review]  # online Crossref check + interactive review
     latextify batch folder --journal J [--citation-style S] [--pdf] \\
         [--output output] [--recursive]          # batch conversion (item 20)
     latextify journals              # list registered journal templates (item 18)
@@ -19,6 +20,7 @@ Planned (later items):
 from __future__ import annotations
 
 import subprocess
+import sys
 import webbrowser
 from dataclasses import dataclass
 from pathlib import Path
@@ -26,8 +28,12 @@ from pathlib import Path
 import typer
 
 from latextify.audit.equations import write_equation_audit
+from latextify.citations.bib import entries_to_bib
+from latextify.citations.corrections import apply_corrections
+from latextify.cli_review import review_corrections
 from latextify.compile.tectonic import TectonicNotAvailableError, compile_document, ensure_tectonic
 from latextify.emit.project import emit_project
+from latextify.model.emit import EmitResult
 from latextify.report.render import write_report
 from latextify.templates import loader
 from latextify.templates.loader import ManifestError, load
@@ -114,6 +120,14 @@ def convert(
         "and suggest DOIs for references that lack one. Results go to report.md. "
         "Off by default.",
     ),
+    review: bool = typer.Option(
+        False,
+        "--review",
+        help="Interactively review the online reference check: step through each "
+        "flagged reference and approve / deny / edit the correction, then rewrite "
+        "references.bib and recompile. Implies --check-references. Needs a "
+        "terminal (skipped when stdin is not a TTY).",
+    ),
 ) -> None:
     """Convert DOCX_PATH into a journal-ready LaTeX project under output/<journal>/."""
     if combine_supplement and supplement is None:
@@ -125,6 +139,8 @@ def convert(
     if supplement_onecolumn and supplement is None:
         typer.echo("error: --supplement-onecolumn requires --supplement", err=True)
         raise typer.Exit(code=1)
+    # --review turns on the online check it reviews.
+    check_references = check_references or review
     try:
         journal_obj = load(journal)
         result = emit_project(
@@ -161,6 +177,13 @@ def convert(
     if result.supplement is not None:
         for warning in result.supplement.warnings:
             typer.echo(f"warning: {warning.message}")
+
+    # Interactive reference review (--review): step through the online check's
+    # flagged references, apply the author's accepted corrections to
+    # references.bib, and let the compile step below build the corrected PDF.
+    # Runs BEFORE compilation so there is exactly one (correct) compile.
+    if review:
+        _run_interactive_review(result)
 
     # Compile step (item 16: CLI wiring for --pdf flag; item 21 compiles the
     # supplement too when one was emitted).
@@ -230,6 +253,43 @@ def convert(
 
     if exit_code != 0:
         raise typer.Exit(code=exit_code)
+
+
+def _run_interactive_review(result: EmitResult) -> None:
+    """Drive the console reference review and apply accepted fixes to the .bib.
+
+    No-ops (with a short note) when the online check found nothing to review or
+    when stdin is not a terminal -- the review needs interactive input, so a
+    piped/CI invocation of ``--review`` degrades to "check ran, report written"
+    rather than blocking on a prompt that can never be answered.
+    """
+    validation = result.validation
+    if validation is None or validation.flagged_count == 0:
+        if validation is not None:
+            typer.echo("reference check: nothing flagged -- no review needed.")
+        return
+    if not sys.stdin.isatty():
+        typer.echo(
+            f"warning: --review needs a terminal; {validation.flagged_count} flagged "
+            "reference(s) left unchanged (see report.md).",
+            err=True,
+        )
+        return
+
+    decisions = review_corrections(
+        list(result.entries), validation, prompt=input, echo=typer.echo
+    )
+    applied = [d for d in decisions if d.action in ("approve", "edit")]
+    if not applied:
+        typer.echo("no corrections applied.")
+        return
+
+    corrected = apply_corrections(list(result.entries), validation, decisions)
+    result.bib_path.write_text(entries_to_bib(corrected), encoding="utf-8")
+    typer.echo(
+        f"applied {len(applied)} correction(s) to {result.bib_path.name} "
+        "(recompiling with the fixes if --pdf was given)."
+    )
 
 
 # --------------------------------------------------------------------------- #

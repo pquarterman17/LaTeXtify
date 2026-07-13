@@ -1021,3 +1021,111 @@ def test_batch_with_unknown_journal_exits_1_with_error(tmp_path):
     assert result.exit_code == 1
     assert "no-such-journal" in result.output or "error" in result.output.lower()
 
+
+
+# --------------------------------------------------------------------------- #
+# Interactive reference review (--review) glue: _run_interactive_review
+# --------------------------------------------------------------------------- #
+
+
+def _review_fixture(tmp_path, *, flagged=True):
+    """An EmitResult + on-disk references.bib for review-glue tests."""
+    from latextify.citations.bib import entries_to_bib
+    from latextify.model.emit import EmitResult
+    from latextify.model.refs import Name, RefEntry
+    from latextify.model.validate import (
+        FieldCheck,
+        ValidationRecord,
+        ValidationReport,
+    )
+
+    entry = RefEntry(
+        key="smith2019", entry_type="article", title="A Study of Widgets",
+        authors=(Name(family="Smith", given="Jane"),), year="2019",
+        container_title="Journal of Widgets", volume="12", pages="45", doi="10.1/abc",
+    )
+    canonical = RefEntry(
+        key="smith2019", entry_type="article", title="A Study of Widgets",
+        authors=(Name(family="Smith", given="Jane"),), year="2020",
+        container_title="Journal of Widgets", volume="12", pages="45", doi="10.1/abc",
+    )
+    records = (
+        ValidationRecord(
+            key="smith2019", status="mismatch", doi="10.1/abc",
+            checks=(FieldCheck(field="year", ours="2019", canonical="2020", ok=False),),
+            canonical_entry=canonical,
+        ),
+    ) if flagged else (
+        ValidationRecord(key="smith2019", status="verified", doi="10.1/abc"),
+    )
+    bib_path = tmp_path / "references.bib"
+    bib_path.write_text(entries_to_bib([entry]), encoding="utf-8")
+
+    result = EmitResult(
+        output_dir=tmp_path, journal_name="revtex4-2",
+        main_tex_path=tmp_path / "main.tex", main_tex_written=True,
+        preamble_tex_path=tmp_path / "preamble.tex",
+        metadata_tex_path=tmp_path / "metadata.tex",
+        body_tex_path=tmp_path / "body.tex", bib_path=bib_path,
+        figures_dir=tmp_path / "figures", figure_count=0, citation_count=1,
+        validation=ValidationReport(records=records), entries=(entry,),
+    )
+    return result, bib_path
+
+
+def test_review_applies_approved_correction_to_bib(tmp_path, monkeypatch):
+    import builtins
+
+    from latextify.cli import _run_interactive_review
+
+    result, bib_path = _review_fixture(tmp_path)
+    monkeypatch.setattr("latextify.cli.sys.stdin.isatty", lambda: True)
+    monkeypatch.setattr(builtins, "input", lambda _msg="": "a")  # approve
+
+    _run_interactive_review(result)
+
+    corrected = bib_path.read_text(encoding="utf-8")
+    # The year FIELD is corrected to 2020 (the cite key still contains "2019").
+    assert "year = {2020}" in corrected
+    assert "year = {2019}" not in corrected
+
+
+def test_review_deny_leaves_bib_untouched(tmp_path, monkeypatch):
+    import builtins
+
+    from latextify.cli import _run_interactive_review
+
+    result, bib_path = _review_fixture(tmp_path)
+    before = bib_path.read_text(encoding="utf-8")
+    monkeypatch.setattr("latextify.cli.sys.stdin.isatty", lambda: True)
+    monkeypatch.setattr(builtins, "input", lambda _msg="": "d")  # deny
+
+    _run_interactive_review(result)
+
+    assert bib_path.read_text(encoding="utf-8") == before
+
+
+def test_review_non_tty_skips_with_warning(tmp_path, monkeypatch, capsys):
+    from latextify.cli import _run_interactive_review
+
+    result, bib_path = _review_fixture(tmp_path)
+    before = bib_path.read_text(encoding="utf-8")
+    monkeypatch.setattr("latextify.cli.sys.stdin.isatty", lambda: False)
+
+    _run_interactive_review(result)
+
+    assert bib_path.read_text(encoding="utf-8") == before
+    assert "needs a terminal" in capsys.readouterr().err
+
+
+def test_review_nothing_flagged_is_noop(tmp_path, monkeypatch):
+    from latextify.cli import _run_interactive_review
+
+    result, bib_path = _review_fixture(tmp_path, flagged=False)
+    before = bib_path.read_text(encoding="utf-8")
+    # isatty should not even be consulted, but stub it defensively.
+    monkeypatch.setattr("latextify.cli.sys.stdin.isatty", lambda: True)
+
+    _run_interactive_review(result)
+
+    assert bib_path.read_text(encoding="utf-8") == before

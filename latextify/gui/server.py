@@ -52,9 +52,13 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 from latextify.audit.equations import write_equation_audit
+from latextify.citations.bib import entries_to_bib
+from latextify.citations.corrections import apply_corrections, entry_from_dict, entry_to_dict
 from latextify.compile.pdf import staple_pdfs
 from latextify.compile.tectonic import compile_document, ensure_tectonic
 from latextify.emit.project import emit_project
+from latextify.model.refs import RefEntry
+from latextify.model.validate import CorrectionDecision, ValidationReport
 from latextify.report.render import write_report
 from latextify.templates import loader as templates_loader
 from latextify.templates.loader import ManifestError
@@ -115,6 +119,9 @@ class ConvertMultiResponse(BaseModel):
     #: ``POST /api/export`` (the preview-then-export flow). None only if the
     #: session store is somehow unavailable.
     export_token: str | None = None
+    #: Structured online reference-validation results (None unless the run was
+    #: asked to check references). Drives the interactive review panel.
+    validation: ValidationOut | None = None
 
 
 class PickFolderResponse(BaseModel):
@@ -145,6 +152,68 @@ class ExportResponse(BaseModel):
     warnings: list[str] = []
 
 
+class FieldProblemOut(BaseModel):
+    """One field of a flagged reference that disagrees with Crossref."""
+
+    field: str
+    ours: str
+    canonical: str
+
+
+class ValidationRecordOut(BaseModel):
+    """One flagged reference, with the data the review UI needs to act on."""
+
+    key: str
+    status: str
+    doi: str | None = None
+    suggested_doi: str | None = None
+    problems: list[FieldProblemOut] = []
+    #: The current reference as flat editable fields (title, authors, ...).
+    entry: dict[str, str]
+    #: Crossref's version as the same flat fields (``None`` when there is no
+    #: canonical record, i.e. a dead DOI or an unverifiable reference).
+    canonical: dict[str, str] | None = None
+
+
+class ValidationOut(BaseModel):
+    """Structured reference-validation results for the review panel."""
+
+    total: int
+    flagged: int
+    counts: dict[str, int]
+    records: list[ValidationRecordOut] = []  # flagged references only
+
+
+class CorrectionDecisionIn(BaseModel):
+    """One author decision posted to ``/api/apply-corrections``.
+
+    ``action`` is ``approve`` | ``deny`` | ``edit``. ``entry`` (the flat edited
+    fields) is required only for ``edit``.
+    """
+
+    key: str
+    action: str
+    entry: dict[str, str] | None = None
+
+
+class ApplyCorrectionsRequest(BaseModel):
+    """Body of ``POST /api/apply-corrections``."""
+
+    export_token: str
+    decisions: list[CorrectionDecisionIn] = []
+
+
+class ApplyCorrectionsResponse(BaseModel):
+    """Body of ``POST /api/apply-corrections``."""
+
+    applied: int
+    success: bool
+    pdf_url: str | None = None
+    supplement_pdf_url: str | None = None
+    combined_pdf_url: str | None = None
+    warnings: list[str] = []
+
+
 def _safe_filename(name: str | None) -> str:
     """Strip any directory components from a client-supplied filename.
 
@@ -166,6 +235,46 @@ def _issue_token(tokens: dict[str, Path], path: Path) -> str:
     token = uuid.uuid4().hex
     tokens[token] = path
     return token
+
+
+_VALIDATION_STATUS_ORDER = (
+    "verified", "mismatch", "dead_doi", "doi_suggested", "unverifiable", "unchecked",
+)
+
+
+def _build_validation_out(
+    report: ValidationReport, entries: tuple[RefEntry, ...]
+) -> ValidationOut:
+    """Shape a ValidationReport + entries into the review panel's JSON.
+
+    Only flagged references become records (the panel reviews those); each
+    carries the current entry and Crossref's version as flat editable fields so
+    the UI can render approve/deny and prefill the whole-entry editor.
+    """
+    entries_by_key = {e.key: e for e in entries}
+    counts = {s: report.count(s) for s in _VALIDATION_STATUS_ORDER if report.count(s)}
+    records: list[ValidationRecordOut] = []
+    for rec in report.records:
+        entry = entries_by_key.get(rec.key)
+        if not rec.flagged or entry is None:
+            continue
+        records.append(
+            ValidationRecordOut(
+                key=rec.key,
+                status=rec.status,
+                doi=rec.doi,
+                suggested_doi=rec.suggested_doi,
+                problems=[
+                    FieldProblemOut(field=c.field, ours=c.ours, canonical=c.canonical)
+                    for c in rec.problems
+                ],
+                entry=entry_to_dict(entry),
+                canonical=entry_to_dict(rec.canonical_entry) if rec.canonical_entry else None,
+            )
+        )
+    return ValidationOut(
+        total=report.total, flagged=report.flagged_count, counts=counts, records=records
+    )
 
 
 # Artifact types the Export panel can copy to a chosen folder. Keys are the
@@ -609,17 +718,34 @@ def create_app(*, workdir: Path | None = None) -> FastAPI:
                 ) from exc
 
         # Register this run's artifacts so the UI can export them later without
-        # recompiling (preview-then-export). The inline export above stays for
-        # one-shot/programmatic callers.
+        # recompiling (preview-then-export). Also carry the entry set + validation
+        # + compile context so /api/apply-corrections can rewrite references.bib
+        # and recompile the SAME project without a re-conversion.
         export_token = uuid.uuid4().hex
         app.state.export_sessions[export_token] = {
             "output_dir": result.output_dir,
             "produced": produced,
+            "entries": result.entries,
+            "validation": result.validation,
+            "bib_path": result.bib_path,
+            "main_tex_path": result.main_tex_path,
+            "supplement_tex_path": (
+                result.supplement.supplement_tex_path if result.supplement else None
+            ),
+            "journal": journal,
+            "compiled": pdf,
+            "combine": combine,
         }
 
         report_md = ""
         if result.report_path is not None and result.report_path.is_file():
             report_md = result.report_path.read_text(encoding="utf-8")
+
+        validation_out = (
+            _build_validation_out(result.validation, result.entries)
+            if result.validation is not None
+            else None
+        )
 
         return ConvertMultiResponse(
             output_dir=str(result.output_dir),
@@ -634,6 +760,7 @@ def create_app(*, workdir: Path | None = None) -> FastAPI:
             exported_to=exported_to,
             exported=exported,
             export_token=export_token,
+            validation=validation_out,
         )
 
     @app.get("/api/pdf/{token}", include_in_schema=False)
@@ -686,5 +813,109 @@ def create_app(*, workdir: Path | None = None) -> FastAPI:
                 status_code=400, detail=f"could not export to {req.export_dir!r}: {exc}"
             ) from exc
         return ExportResponse(exported_to=dest, exported=exported, warnings=warnings)
+
+    @app.post("/api/apply-corrections", response_model=ApplyCorrectionsResponse)
+    def apply_corrections_endpoint(req: ApplyCorrectionsRequest) -> ApplyCorrectionsResponse:
+        """Apply reviewed reference corrections to a prior run and recompile.
+
+        Rewrites the session's ``references.bib`` with the author's accepted
+        approve/deny/edit decisions, then -- if that run compiled a PDF --
+        rebuilds the PDF (and supplement/combined) so the download reflects the
+        fixes. Idempotent-friendly: the session's entry set is updated in place,
+        so a second apply builds on the corrected bibliography.
+        """
+        session = app.state.export_sessions.get(req.export_token)
+        if session is None:
+            raise HTTPException(
+                status_code=404,
+                detail="unknown or expired token -- preview the conversion again",
+            )
+        report = session.get("validation")
+        if not isinstance(report, ValidationReport):
+            raise HTTPException(
+                status_code=400,
+                detail="this conversion has no reference check to correct",
+            )
+
+        entries: list[RefEntry] = list(session["entries"])  # type: ignore[arg-type]
+        entries_by_key = {e.key: e for e in entries}
+        decisions: list[CorrectionDecision] = []
+        for item in req.decisions:
+            if item.action == "edit":
+                base = entries_by_key.get(item.key)
+                if base is None:
+                    continue
+                decisions.append(
+                    CorrectionDecision(
+                        key=item.key,
+                        action="edit",
+                        edited_entry=entry_from_dict(item.entry or {}, base=base),
+                    )
+                )
+            else:
+                decisions.append(CorrectionDecision(key=item.key, action=item.action))
+
+        applied = sum(1 for d in decisions if d.action in ("approve", "edit"))
+        corrected = apply_corrections(entries, report, decisions)
+        session["bib_path"].write_text(  # type: ignore[union-attr]
+            entries_to_bib(corrected), encoding="utf-8"
+        )
+        session["entries"] = tuple(corrected)  # subsequent applies build on this
+
+        pdf_url: str | None = None
+        supplement_pdf_url: str | None = None
+        combined_pdf_url: str | None = None
+        success = True
+        warnings: list[str] = []
+        if applied and session.get("compiled"):
+            try:
+                journal_obj = templates_loader.load(session["journal"])  # type: ignore[arg-type]
+                tectonic = ensure_tectonic()
+                vendor_dir = journal_obj.root / "vendor" if journal_obj.vendor else None
+                produced: dict[str, Path] = session["produced"]  # type: ignore[assignment]
+
+                main_compile = compile_document(
+                    session["main_tex_path"], tectonic_path=tectonic, vendor_dir=vendor_dir
+                )
+                success = main_compile.success
+                if main_compile.success and main_compile.pdf_path is not None:
+                    token = _issue_token(app.state.pdf_tokens, main_compile.pdf_path)
+                    pdf_url = f"/api/pdf/{token}"
+                    produced["main_pdf"] = main_compile.pdf_path
+
+                supplement_compile = None
+                if session.get("supplement_tex_path"):
+                    supplement_compile = compile_document(
+                        session["supplement_tex_path"],
+                        tectonic_path=tectonic,
+                        vendor_dir=vendor_dir,
+                    )
+                    if supplement_compile.success and supplement_compile.pdf_path is not None:
+                        token = _issue_token(app.state.pdf_tokens, supplement_compile.pdf_path)
+                        supplement_pdf_url = f"/api/pdf/{token}"
+
+                if (
+                    session.get("combine")
+                    and main_compile.success
+                    and supplement_compile is not None
+                    and supplement_compile.success
+                ):
+                    combined = session["output_dir"] / "combined.pdf"  # type: ignore[operator]
+                    staple_pdfs([main_compile.pdf_path, supplement_compile.pdf_path], combined)
+                    combined_pdf_url = f"/api/pdf/{_issue_token(app.state.pdf_tokens, combined)}"
+                    produced["combined_pdf"] = combined
+            except Exception as exc:
+                raise HTTPException(
+                    status_code=500, detail=f"recompilation after corrections failed: {exc}"
+                ) from exc
+
+        return ApplyCorrectionsResponse(
+            applied=applied,
+            success=success,
+            pdf_url=pdf_url,
+            supplement_pdf_url=supplement_pdf_url,
+            combined_pdf_url=combined_pdf_url,
+            warnings=warnings,
+        )
 
     return app

@@ -244,7 +244,13 @@ def validate_entry(
             )
         checks = compare_entry_to_candidate(entry, canonical)
         status = "verified" if all(c.ok for c in checks) else "mismatch"
-        return ValidationRecord(key=entry.key, status=status, doi=entry.doi, checks=checks)
+        return ValidationRecord(
+            key=entry.key,
+            status=status,
+            doi=entry.doi,
+            checks=checks,
+            canonical_entry=canonical.to_refentry(),
+        )
 
     candidates = client.query_bibliographic(_query_text(entry))
     candidate, score = best_candidate(_query_text(entry), candidates)
@@ -256,6 +262,7 @@ def validate_entry(
             suggested_doi=candidate.doi,
             checks=checks,
             note="no DOI in reference; Crossref match found",
+            canonical_entry=candidate.to_refentry(),
         )
     return ValidationRecord(
         key=entry.key, status="unverifiable", note="no DOI and no confident Crossref match"

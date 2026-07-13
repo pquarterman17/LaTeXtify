@@ -62,8 +62,17 @@ def test_index_wires_the_multifile_ui(tmp_path):
     assert "multiple" in html  # multi-file input
     assert 'id="filelist"' in html  # per-file role table
     assert 'id="crossref-email"' in html
-    for toggle in ("opt-pdf", "opt-combine", "opt-zip", "opt-audit", "opt-si1col"):
+    for toggle in ("opt-pdf", "opt-combine", "opt-zip", "opt-audit", "opt-si1col", "opt-checkrefs"):
         assert f'id="{toggle}"' in html, toggle
+
+
+def test_index_wires_the_review_panel(tmp_path):
+    """The static page carries the reference-review panel + apply wiring."""
+    html = _client(tmp_path).get("/").text
+    assert 'id="review-panel"' in html
+    assert 'id="review-cards"' in html
+    assert 'id="apply-btn"' in html
+    assert "/api/apply-corrections" in html
 
 
 def test_index_wires_the_export_panel(tmp_path):
@@ -642,3 +651,191 @@ def test_gui_command_help_documents_flags():
     assert "--port" in plain
     assert "--no-browser" in plain
     assert "--workdir" in plain
+
+
+# --------------------------------------------------------------------------- #
+# Reference review + /api/apply-corrections
+# --------------------------------------------------------------------------- #
+
+ZOTERO_DOCX = FIXTURES / "zotero_cited.docx"
+
+
+def _flag_first_year(monkeypatch, *, canonical_year="1999"):
+    """Monkeypatch the validator so the first reference is flagged (year mismatch).
+
+    Avoids real network: emit_project's validate_references is replaced with a
+    stub that flags entries[0] with a year correction (canonical_entry carries
+    the new year) and marks the rest verified.
+    """
+    from dataclasses import replace
+
+    from latextify.emit import project as project_mod
+    from latextify.model.validate import FieldCheck, ValidationRecord, ValidationReport
+
+    def fake_validate(entries, client, **kwargs):
+        first = entries[0]
+        canonical = replace(first, year=canonical_year)
+        flagged = ValidationRecord(
+            key=first.key, status="mismatch", doi=first.doi or "10.1/x",
+            checks=(FieldCheck(field="year", ours=first.year or "?",
+                               canonical=canonical_year, ok=False),),
+            canonical_entry=canonical,
+        )
+        rest = tuple(
+            ValidationRecord(key=e.key, status="verified", doi=e.doi) for e in entries[1:]
+        )
+        return ValidationReport(records=(flagged, *rest))
+
+    monkeypatch.setattr(project_mod, "validate_references", fake_validate)
+
+
+def _convert_with_check(client):
+    with ZOTERO_DOCX.open("rb") as fh:
+        return client.post(
+            "/api/convert-multi",
+            files={"main": ("zotero_cited.docx", fh, "application/octet-stream")},
+            data={"journal": "revtex4-2", "pdf": "false", "check_references": "true"},
+        )
+
+
+def test_convert_multi_returns_structured_validation(tmp_path, monkeypatch):
+    _flag_first_year(monkeypatch)
+    resp = _convert_with_check(_client(tmp_path))
+    assert resp.status_code == 200, resp.text
+    val = resp.json()["validation"]
+    assert val is not None
+    assert val["flagged"] == 1
+    rec = val["records"][0]
+    assert rec["status"] == "mismatch"
+    assert rec["entry"]["year"]  # current entry exposed for editing
+    assert rec["canonical"]["year"] == "1999"  # crossref version exposed
+    assert any(p["field"] == "year" for p in rec["problems"])
+
+
+def test_convert_multi_no_check_has_null_validation(tmp_path):
+    with ZOTERO_DOCX.open("rb") as fh:
+        resp = _client(tmp_path).post(
+            "/api/convert-multi",
+            files={"main": ("zotero_cited.docx", fh, "application/octet-stream")},
+            data={"journal": "revtex4-2", "pdf": "false"},
+        )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["validation"] is None
+
+
+def test_apply_corrections_approve_rewrites_bib(tmp_path, monkeypatch):
+    _flag_first_year(monkeypatch)
+    client = _client(tmp_path)
+    body = _convert_with_check(client).json()
+    key = body["validation"]["records"][0]["key"]
+
+    resp = client.post(
+        "/api/apply-corrections",
+        json={"export_token": body["export_token"],
+              "decisions": [{"key": key, "action": "approve"}]},
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["applied"] == 1
+
+    bibs = list((tmp_path / "gui-workdir").rglob("references.bib"))
+    assert bibs, "references.bib not found under workdir"
+    assert "year = {1999}" in bibs[0].read_text(encoding="utf-8")
+
+
+def test_apply_corrections_edit_uses_posted_fields(tmp_path, monkeypatch):
+    _flag_first_year(monkeypatch)
+    client = _client(tmp_path)
+    body = _convert_with_check(client).json()
+    rec = body["validation"]["records"][0]
+    edited = dict(rec["entry"])
+    edited["year"] = "2042"
+    edited["title"] = "Manually Corrected Title"
+
+    resp = client.post(
+        "/api/apply-corrections",
+        json={"export_token": body["export_token"],
+              "decisions": [{"key": rec["key"], "action": "edit", "entry": edited}]},
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["applied"] == 1
+
+    bibs = list((tmp_path / "gui-workdir").rglob("references.bib"))
+    text = bibs[0].read_text(encoding="utf-8")
+    assert "year = {2042}" in text
+    assert "Manually Corrected Title" in text
+
+
+def test_apply_corrections_deny_changes_nothing(tmp_path, monkeypatch):
+    _flag_first_year(monkeypatch)
+    client = _client(tmp_path)
+    body = _convert_with_check(client).json()
+    key = body["validation"]["records"][0]["key"]
+    bibs = list((tmp_path / "gui-workdir").rglob("references.bib"))
+    before = bibs[0].read_text(encoding="utf-8")
+
+    resp = client.post(
+        "/api/apply-corrections",
+        json={"export_token": body["export_token"],
+              "decisions": [{"key": key, "action": "deny"}]},
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["applied"] == 0
+    assert bibs[0].read_text(encoding="utf-8") == before
+
+
+def test_apply_corrections_unknown_token_404(tmp_path):
+    resp = _client(tmp_path).post(
+        "/api/apply-corrections",
+        json={"export_token": "deadbeef", "decisions": []},
+    )
+    assert resp.status_code == 404
+
+
+def test_apply_corrections_without_check_is_400(tmp_path):
+    # A conversion run WITHOUT --check-references has no validation to correct.
+    client = _client(tmp_path)
+    with ZOTERO_DOCX.open("rb") as fh:
+        body = client.post(
+            "/api/convert-multi",
+            files={"main": ("zotero_cited.docx", fh, "application/octet-stream")},
+            data={"journal": "revtex4-2", "pdf": "false"},
+        ).json()
+    resp = client.post(
+        "/api/apply-corrections",
+        json={"export_token": body["export_token"], "decisions": []},
+    )
+    assert resp.status_code == 400
+
+
+@pytest.mark.tectonic
+@pytest.mark.skipif(
+    not _tectonic_available(),
+    reason="no tectonic binary on PATH/cache and none could be downloaded",
+)
+def test_apply_corrections_recompiles_pdf(tmp_path, monkeypatch):
+    # A run that compiled a PDF must, after applying a correction, return a fresh
+    # (recompiled) PDF token reflecting the corrected references.bib.
+    _flag_first_year(monkeypatch)
+    client = _client(tmp_path)
+    with ZOTERO_DOCX.open("rb") as fh:
+        body = client.post(
+            "/api/convert-multi",
+            files={"main": ("zotero_cited.docx", fh, "application/octet-stream")},
+            data={"journal": "revtex4-2", "pdf": "true", "check_references": "true"},
+        ).json()
+    key = body["validation"]["records"][0]["key"]
+
+    resp = client.post(
+        "/api/apply-corrections",
+        json={"export_token": body["export_token"],
+              "decisions": [{"key": key, "action": "approve"}]},
+    )
+    assert resp.status_code == 200, resp.text
+    payload = resp.json()
+    assert payload["applied"] == 1
+    assert payload["success"] is True
+    assert payload["pdf_url"] is not None
+    # The freshly-issued token streams a real PDF.
+    pdf = client.get(payload["pdf_url"])
+    assert pdf.status_code == 200
+    assert pdf.content[:4] == b"%PDF"

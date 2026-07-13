@@ -14,6 +14,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from latextify.model.figure import Figure
+from latextify.model.refs import RefEntry
 from latextify.model.validate import ValidationReport
 
 
@@ -82,6 +83,10 @@ class EmitResult:
     ``validation`` is ``None`` unless ``emit_project`` was called with
     ``check_references=True`` (the opt-in online Crossref check); when present
     it carries the per-reference validation outcomes for the report.
+    ``entries`` is the final, keyed bibliography (main + any merged supplement
+    references) that was written to ``references.bib`` -- exposed so the
+    interactive correction review can apply accepted fixes to the exact entries
+    and rewrite the ``.bib`` without re-parsing it.
     """
 
     output_dir: Path
@@ -100,3 +105,4 @@ class EmitResult:
     report_path: Path | None = None
     supplement: SupplementResult | None = None
     validation: ValidationReport | None = None
+    entries: tuple[RefEntry, ...] = field(default_factory=tuple)

@@ -15,6 +15,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+from latextify.model.refs import RefEntry
+
 #: A reference's validation outcome.
 #:   verified      -- had a DOI, it resolved, every compared field matched
 #:   mismatch      -- had a DOI, it resolved, but a compared field differs
@@ -47,7 +49,16 @@ class FieldCheck:
 
 @dataclass(frozen=True)
 class ValidationRecord:
-    """The validation outcome for a single reference."""
+    """The validation outcome for a single reference.
+
+    ``canonical_entry`` is Crossref's authoritative version of this reference as
+    a keyless :class:`~latextify.model.refs.RefEntry` (present whenever a DOI
+    resolved or a DOI was suggested; ``None`` for a dead DOI or an unverifiable
+    reference). It carries the *structured* canonical fields -- notably the full
+    author list -- so the interactive review can apply an accepted correction
+    field-by-field, which the display-only :class:`FieldCheck` strings (truncated
+    "Smith, Jones, +3") cannot support.
+    """
 
     key: str
     status: str
@@ -55,6 +66,7 @@ class ValidationRecord:
     suggested_doi: str | None = None
     checks: tuple[FieldCheck, ...] = ()
     note: str = ""
+    canonical_entry: RefEntry | None = None
 
     @property
     def flagged(self) -> bool:
@@ -64,6 +76,28 @@ class ValidationRecord:
     def problems(self) -> tuple[FieldCheck, ...]:
         """The compared fields that did not match."""
         return tuple(c for c in self.checks if not c.ok)
+
+
+#: The three things an author can decide about one flagged reference in review.
+DECISION_ACTIONS = ("approve", "deny", "edit")
+
+
+@dataclass(frozen=True)
+class CorrectionDecision:
+    """One author decision from the interactive correction review.
+
+    ``action`` is one of :data:`DECISION_ACTIONS`:
+      approve -- adopt Crossref's canonical values for every flagged field
+                 (and the suggested DOI, if any);
+      deny    -- leave the reference exactly as it is;
+      edit    -- replace the reference with ``edited_entry`` verbatim (the
+                 author's own final version of the whole entry).
+    ``edited_entry`` is required for -- and only used by -- ``edit``.
+    """
+
+    key: str
+    action: str
+    edited_entry: RefEntry | None = None
 
 
 @dataclass(frozen=True)

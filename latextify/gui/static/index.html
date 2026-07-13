@@ -124,6 +124,35 @@
     color: var(--accent); text-decoration: none; font-size: 0.9rem; background: var(--panel);
   }
   .pdf-frame { width: 100%; height: 640px; border: 1px solid var(--border); border-radius: 8px; }
+
+  .review-summary { font-size: 0.88rem; color: var(--muted); margin-bottom: 0.85rem; }
+  .review-clean { color: var(--ok); font-weight: 600; font-size: 0.92rem; }
+  .review-card {
+    border: 1px solid var(--border); border-radius: 8px; padding: 0.8rem 0.9rem;
+    margin-bottom: 0.8rem; background: var(--panel);
+  }
+  .review-card.resolved { opacity: 0.6; }
+  .review-head { display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; margin-bottom: 0.5rem; }
+  .review-head code {
+    background: var(--bg); border: 1px solid var(--border); border-radius: 5px;
+    padding: 0.1rem 0.4rem; font-size: 0.85rem;
+  }
+  .review-tag {
+    font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.03em; font-weight: 600;
+    padding: 0.12rem 0.45rem; border-radius: 999px;
+    background: var(--warn-bg); border: 1px solid var(--warn-border); color: var(--text);
+  }
+  .review-diffs { margin: 0.2rem 0 0.5rem; padding-left: 1.1rem; font-size: 0.85rem; }
+  .review-diffs li { margin-bottom: 0.2rem; }
+  .review-note { font-size: 0.84rem; color: var(--muted); margin: 0.1rem 0 0.5rem; }
+  .review-actions { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+  .review-actions button { padding: 0.35rem 0.75rem; font-size: 0.85rem; background: var(--panel); color: var(--accent); }
+  .review-actions button.chosen { background: var(--accent); color: var(--accent-contrast); }
+  .review-actions button:disabled { opacity: 0.4; }
+  .edit-form { margin-top: 0.7rem; display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem 0.8rem; }
+  .edit-form .field label { font-size: 0.76rem; }
+  .edit-form input { padding: 0.35rem 0.45rem; font-size: 0.85rem; }
+  .edit-form .field.wide { grid-column: 1 / -1; }
   @media (prefers-color-scheme: dark) {
     :root {
       color-scheme: dark; --bg: #14161b; --panel: #1b1e25; --border: #2c313a; --text: #e6e9ef;
@@ -224,6 +253,18 @@
     <ul id="warnings-list" class="warnings-list"></ul>
   </section>
 
+  <section id="review-panel" class="panel hidden">
+    <h2>Reference review</h2>
+    <p class="hint">The online check flagged these references. For each one, approve Crossref's fix,
+      keep yours, or edit the whole entry — then Apply to update references.bib and recompile.</p>
+    <div id="review-summary" class="review-summary"></div>
+    <div id="review-cards"></div>
+    <div class="actions">
+      <button id="apply-btn" type="button">Apply corrections &amp; recompile</button>
+    </div>
+    <div id="review-status" class="status"></div>
+  </section>
+
   <section id="downloads-panel" class="panel hidden">
     <h2>Downloads</h2>
     <div id="downloads" class="downloads"></div>
@@ -288,6 +329,29 @@
   const pdfEmbed = el("pdf-embed");
   const reportPanel = el("report-panel");
   const reportText = el("report-text");
+  const reviewPanel = el("review-panel");
+  const reviewSummary = el("review-summary");
+  const reviewCards = el("review-cards");
+  const reviewStatus = el("review-status");
+  const applyBtn = el("apply-btn");
+
+  // key -> {action:"approve"|"edit", entry?} for references the author chose to
+  // change. "Keep mine" (deny) records nothing, so Apply with no interaction is
+  // a safe no-op. Rebuilt on every preview.
+  let reviewDecisions = {};
+
+  // Editable reference fields shown in the whole-entry editor (server contract:
+  // these keys round-trip through entry_to_dict / entry_from_dict).
+  const REVIEW_FIELDS = [
+    ["title", "Title", true], ["authors", "Authors (Family, Given; …)", true],
+    ["year", "Year", false], ["journal", "Journal", true],
+    ["volume", "Volume", false], ["issue", "Issue", false],
+    ["pages", "Pages", false], ["doi", "DOI", true],
+  ];
+  const REVIEW_STATUS_LABELS = {
+    mismatch: "field mismatch", dead_doi: "dead DOI",
+    doi_suggested: "missing DOI", unverifiable: "unverifiable",
+  };
 
   // Each entry: {file, role, number}. `number` only meaningful for figures.
   let entries = [];
@@ -416,6 +480,10 @@
   function invalidatePreview() {
     lastExportToken = null;
     updateExportButton();
+    // The review panel acts on the previewed session's token; once that is void
+    // (inputs changed), hide the now-stale corrections UI.
+    reviewPanel.classList.add("hidden");
+    reviewCards.innerHTML = ""; reviewDecisions = {}; reviewStatus.textContent = "";
   }
 
   // -- dropzone + input wiring --
@@ -545,9 +613,12 @@
     downloadsPanel.classList.add("hidden"); downloads.innerHTML = "";
     reportPanel.classList.add("hidden"); reportText.textContent = "";
     pdfPanel.classList.add("hidden"); pdfTabs.innerHTML = ""; pdfEmbed.removeAttribute("src");
+    reviewPanel.classList.add("hidden"); reviewCards.innerHTML = "";
+    reviewSummary.textContent = ""; reviewStatus.textContent = ""; reviewDecisions = {};
   }
 
   function renderPdfTabs(body) {
+    pdfTabs.innerHTML = "";  // rebuildable: also called to refresh after a recompile
     const views = [
       ["Main", body.pdf_url],
       ["Supplement", body.supplement_pdf_url],
@@ -585,6 +656,157 @@
     });
     downloadsPanel.classList.remove("hidden");
   }
+
+  // -- reference review --
+  function makeField(field, label, wide, value) {
+    const wrap = document.createElement("div");
+    wrap.className = "field" + (wide ? " wide" : "");
+    const lab = document.createElement("label");
+    lab.textContent = label;
+    const input = document.createElement("input");
+    input.type = "text"; input.value = value || ""; input.dataset.field = field;
+    wrap.appendChild(lab); wrap.appendChild(input);
+    return { wrap, input };
+  }
+
+  function buildCard(rec) {
+    const card = document.createElement("div");
+    card.className = "review-card";
+
+    const head = document.createElement("div");
+    head.className = "review-head";
+    const key = document.createElement("code"); key.textContent = rec.key;
+    const tag = document.createElement("span");
+    tag.className = "review-tag";
+    tag.textContent = REVIEW_STATUS_LABELS[rec.status] || rec.status;
+    head.appendChild(key); head.appendChild(tag);
+    card.appendChild(head);
+
+    (rec.problems || []).forEach((p) => {
+      const div = document.createElement("div");
+      div.className = "review-diffs";
+      const li = document.createElement("li");
+      li.style.listStyle = "none";
+      li.textContent = p.field + ": yours “" + p.ours + "” → Crossref “" + p.canonical + "”";
+      div.appendChild(li); card.appendChild(div);
+    });
+    if (rec.status === "dead_doi" && rec.doi) {
+      const n = document.createElement("p"); n.className = "review-note";
+      n.textContent = "Current DOI does not resolve: " + rec.doi;
+      card.appendChild(n);
+    }
+    if (rec.status === "doi_suggested" && rec.suggested_doi) {
+      const n = document.createElement("p"); n.className = "review-note";
+      n.textContent = "Suggested DOI: " + rec.suggested_doi;
+      card.appendChild(n);
+    }
+
+    // Whole-entry editor (hidden until "Edit" is chosen), prefilled with our entry.
+    const form = document.createElement("div");
+    form.className = "edit-form hidden";
+    const inputs = {};
+    REVIEW_FIELDS.forEach(([field, label, wide]) => {
+      const f = makeField(field, label, wide, (rec.entry || {})[field]);
+      inputs[field] = f.input; form.appendChild(f.wrap);
+    });
+    function readForm() {
+      const entry = {};
+      Object.keys(inputs).forEach((k) => { entry[k] = inputs[k].value; });
+      return entry;
+    }
+    Object.values(inputs).forEach((inp) =>
+      inp.addEventListener("input", () => {
+        if (reviewDecisions[rec.key] && reviewDecisions[rec.key].action === "edit") {
+          reviewDecisions[rec.key].entry = readForm();
+        }
+      })
+    );
+
+    // Decision buttons. Default = "Keep mine" (no decision recorded).
+    const actions = document.createElement("div");
+    actions.className = "review-actions";
+    const hasFix = !!rec.canonical || !!rec.suggested_doi;
+    const approveBtn = document.createElement("button");
+    approveBtn.type = "button"; approveBtn.textContent = "Approve fix";
+    approveBtn.disabled = !hasFix;
+    const keepBtn = document.createElement("button");
+    keepBtn.type = "button"; keepBtn.textContent = "Keep mine";
+    const editBtn = document.createElement("button");
+    editBtn.type = "button"; editBtn.textContent = "Edit…";
+    const all = [approveBtn, keepBtn, editBtn];
+    function choose(btn) { all.forEach((b) => b.classList.toggle("chosen", b === btn)); }
+    approveBtn.addEventListener("click", () => {
+      reviewDecisions[rec.key] = { action: "approve" };
+      form.classList.add("hidden"); choose(approveBtn);
+    });
+    keepBtn.addEventListener("click", () => {
+      delete reviewDecisions[rec.key];
+      form.classList.add("hidden"); choose(keepBtn);
+    });
+    editBtn.addEventListener("click", () => {
+      reviewDecisions[rec.key] = { action: "edit", entry: readForm() };
+      form.classList.remove("hidden"); choose(editBtn);
+    });
+    actions.appendChild(approveBtn); actions.appendChild(keepBtn); actions.appendChild(editBtn);
+    choose(keepBtn);
+    card.appendChild(actions);
+    card.appendChild(form);
+    return card;
+  }
+
+  function renderReview(validation) {
+    reviewDecisions = {};
+    reviewCards.innerHTML = ""; reviewSummary.textContent = ""; reviewStatus.textContent = "";
+    if (!validation) { reviewPanel.classList.add("hidden"); return; }
+    const counts = validation.counts || {};
+    const parts = Object.keys(counts).map((k) => counts[k] + " " + k.replace(/_/g, " "));
+    reviewSummary.textContent =
+      "Checked " + validation.total + " reference(s): " + parts.join(", ") + ".";
+    const records = validation.records || [];
+    if (!records.length) {
+      const p = document.createElement("p");
+      p.className = "review-clean";
+      p.textContent = "All references verified cleanly. ✓";
+      reviewCards.appendChild(p);
+      applyBtn.classList.add("hidden");
+    } else {
+      applyBtn.classList.remove("hidden"); applyBtn.disabled = false;
+      records.forEach((rec) => reviewCards.appendChild(buildCard(rec)));
+    }
+    reviewPanel.classList.remove("hidden");
+  }
+
+  async function runApply() {
+    if (!lastExportToken) {
+      reviewStatus.textContent = "Preview again before applying (the session expired).";
+      return;
+    }
+    const decisions = Object.keys(reviewDecisions).map((key) =>
+      Object.assign({ key: key }, reviewDecisions[key]));
+    if (!decisions.length) {
+      reviewStatus.textContent = "Nothing to apply — choose “Approve fix” or “Edit…” on at least one reference.";
+      return;
+    }
+    applyBtn.disabled = true;
+    reviewStatus.textContent = "Applying corrections and recompiling…";
+    try {
+      const resp = await fetch("/api/apply-corrections", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ export_token: lastExportToken, decisions: decisions }),
+      });
+      const body = await resp.json();
+      if (!resp.ok) throw new Error(body.detail || "apply failed (" + resp.status + ")");
+      let msg = "Applied " + body.applied + " correction(s). references.bib updated";
+      msg += body.pdf_url ? " and recompiled." : ".";
+      if (body.pdf_url && !body.success) msg += " (compile reported errors — see report.md)";
+      reviewStatus.textContent = msg;
+      if (body.pdf_url || body.supplement_pdf_url || body.combined_pdf_url) renderPdfTabs(body);
+    } catch (err) {
+      reviewStatus.textContent = "Error: " + err.message;
+      applyBtn.disabled = false;
+    }
+  }
+  applyBtn.addEventListener("click", runApply);
 
   function buildFormData() {
     const fd = new FormData();
@@ -661,6 +883,7 @@
       }
       renderPdfTabs(body);
       renderDownloads(body);
+      renderReview(body.validation);
       if (body.report_md) {
         reportText.textContent = body.report_md;
         reportPanel.classList.remove("hidden");

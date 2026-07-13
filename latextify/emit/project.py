@@ -481,6 +481,7 @@ def emit_project(
         report_path=report_path,
         supplement=supplement_result,
         validation=validation,
+        entries=tuple(entries),
     )
 
     # Rewrite report with emit_result included (now that we have the full result).

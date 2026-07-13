@@ -26,12 +26,16 @@ latextify convert paper.docx --journal revtex4-2 --pdf
   emits `references.bib` with DOIs, and links in-text citations to real
   `\cite{}` commands. Citation style (numeric ↔ author-year) switches per
   journal support.
-- **Reference checking** *(opt-in, needs internet)* — `--check-references`
-  validates every reference against Crossref: it resolves each DOI and compares
-  the stored title, authors, year, journal, volume, and pages against the
-  canonical record, flags dead DOIs, and suggests DOIs for references that lack
-  one. Findings land in `report.md`; a dropped connection marks references
-  *unchecked* rather than failing the run. On by default in the GUI.
+- **Reference checking + review** *(opt-in, needs internet)* —
+  `--check-references` validates every reference against Crossref: it resolves
+  each DOI and compares the stored title, authors, year, journal, volume, and
+  pages against the canonical record, flags dead DOIs, and suggests DOIs for
+  references that lack one. Findings land in `report.md`; a dropped connection
+  marks references *unchecked* rather than failing the run. Add `--review` (or
+  the GUI's review panel) to step through each flagged reference one by one —
+  **approve** Crossref's fix, **keep** yours, or **edit** the whole entry — then
+  the accepted corrections are written into `references.bib` and the PDF is
+  recompiled. On by default in the GUI.
 - **Figures** — extracts embedded images, or swap in your own
   vector/high-res files by dropping `figures/fig1.pdf` beside the docx (or
   an explicit `figures.yaml`). SVG converts to PDF automatically.
@@ -122,6 +126,9 @@ uv run latextify convert paper.docx --journal revtex4-2 --supplement si.docx --p
 
 # Validate references online against Crossref (DOIs, titles, authors, years...)
 uv run latextify convert paper.docx --journal revtex4-2 --check-references
+
+# ...and interactively approve/deny/edit each correction, then rewrite + recompile
+uv run latextify convert paper.docx --journal revtex4-2 --pdf --review
 
 # A folder of manuscripts at once (continue-on-error + summary)
 uv run latextify batch drafts/ --journal revtex4-2 --pdf
