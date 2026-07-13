@@ -39,8 +39,8 @@ sections below; a passing implementation box alone does not close an item.
 
 - [x] **1 — DOCX/ZIP limits: implementation complete**
 - [x] **1 — DOCX/ZIP limits: acceptance tests pass**
-- [ ] **2 — Tectonic bootstrap integrity: implementation complete**
-- [ ] **2 — Tectonic bootstrap integrity: acceptance tests pass**
+- [x] **2 — Tectonic bootstrap integrity: implementation complete**
+- [x] **2 — Tectonic bootstrap integrity: acceptance tests pass**
 - [x] **3 — GUI session expiry/cleanup: implementation complete**
 - [x] **3 — GUI session expiry/cleanup: acceptance tests pass**
 - [x] **4 — Local GUI request protection: implementation complete**
@@ -103,6 +103,17 @@ memory or disk before Pandoc runs.
 ---
 
 ## 2. Make Tectonic bootstrap verifiable and extraction-safe
+
+**Complete (2026-07-12).** Pinned Tectonic 0.16.9; every target asset carries a
+recorded SHA-256 (`_TECTONIC_ASSETS`), verified while streaming the download to
+a temp file under a size cap; only the single root-level `tectonic`/`.exe`
+member is extracted (no `extractall`; missing/duplicate/link/dir/traversal
+members fail closed) and atomically `os.replace`d into the cache. Downloading by
+the pinned tag's direct asset URL also drops the rate-limited releases API (and
+its token dependency). Verified end-to-end against the real 0.16.9 release.
+**Deliberately skipped:** the redirect-host allowlist — SHA-256 verification
+already makes the transport path untrusted-safe (a hostile redirect cannot yield
+a hash-matching binary), so a host allowlist adds maintenance without security.
 
 ### Problem
 

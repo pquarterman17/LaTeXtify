@@ -1,8 +1,11 @@
 """Tectonic binary detection/download/cache and compile invocation.
 
 Detection order: `tectonic` on PATH, then the platformdirs cache used by
-`download_tectonic`. If neither is present, `ensure_tectonic()` downloads
-the latest GitHub release for the current platform into the cache.
+`download_tectonic`. If neither is present, `ensure_tectonic()` downloads a
+**pinned, checksum-verified** Tectonic release for the current platform into
+the cache -- never "whatever the latest release happens to be". See the trust
+note on the pin constants below: a PATH binary is trusted as user-managed;
+a downloaded binary is version- and SHA-256-managed by LaTeXtify.
 
 Compilation runs `tectonic -X compile <main.tex>` with the document's own
 directory as the working directory (Tectonic writes the PDF alongside the
@@ -14,13 +17,14 @@ directory before compiling, since Tectonic only sees files under its cwd
 
 from __future__ import annotations
 
-import io
+import hashlib
 import os
 import platform
 import shutil
 import stat
 import subprocess
 import tarfile
+import tempfile
 import zipfile
 from pathlib import Path
 
@@ -30,9 +34,42 @@ import platformdirs
 from latextify.compile.logs import parse_log
 from latextify.model.compile import CompileResult
 
-GITHUB_LATEST_RELEASE_API = (
-    "https://api.github.com/repos/tectonic-typesetting/tectonic/releases/latest"
+# A downloaded Tectonic binary is executed, so it is pinned to a reviewed
+# version and every release asset is verified against a recorded SHA-256 before
+# extraction -- LaTeXtify never runs "whatever GitHub's latest release happens
+# to be". Downloading by the pinned tag's direct asset URL (below) also avoids
+# the rate-limited releases API entirely, so no GitHub token is needed.
+#
+# To bump the version: change PINNED_TECTONIC_VERSION, then regenerate every
+# asset filename + SHA-256 in _TECTONIC_ASSETS (download each release asset and
+# sha256 it). A missing target or a checksum mismatch fails closed.
+PINNED_TECTONIC_VERSION = "0.16.9"
+_RELEASE_DOWNLOAD_BASE = (
+    "https://github.com/tectonic-typesetting/tectonic/releases/download/"
+    f"tectonic@{PINNED_TECTONIC_VERSION}"
 )
+#: target triple -> (release asset filename, expected SHA-256 of that asset).
+_TECTONIC_ASSETS: dict[str, tuple[str, str]] = {
+    "x86_64-unknown-linux-gnu": (
+        "tectonic-0.16.9-x86_64-unknown-linux-gnu.tar.gz",
+        "f3c825128095dc3399ea11c08c18035b33050a216930c295c79e8eb11bd21de4",
+    ),
+    "x86_64-pc-windows-msvc": (
+        "tectonic-0.16.9-x86_64-pc-windows-msvc.zip",
+        "131a24604785a9600989a3d91225f597df52ac06f00aeffe86fd529f99ee5cdd",
+    ),
+    "x86_64-apple-darwin": (
+        "tectonic-0.16.9-x86_64-apple-darwin.tar.gz",
+        "79d8839fa3594bfea9b2bf2ac0a0455bcc4d0de956a5e5c403107e9a72f79e86",
+    ),
+    "aarch64-apple-darwin": (
+        "tectonic-0.16.9-aarch64-apple-darwin.tar.gz",
+        "edb67c61aba768289f6da441c9e6f523cfaff4f8b2a5708523ef29c543f8e88e",
+    ),
+}
+#: Refuse a download/archive larger than this; the biggest real asset is ~22 MB.
+_MAX_ARCHIVE_BYTES = 128 * 1024 * 1024
+_DOWNLOAD_CHUNK = 1 << 20  # 1 MiB
 _CACHE_APP_NAME = "latextify"
 _CACHE_APP_AUTHOR = "latextify"
 _USER_AGENT = "latextify (+https://github.com/latextify)"
@@ -81,42 +118,139 @@ def _target_triple() -> str:
     raise TectonicNotAvailableError(f"Unsupported platform for Tectonic download: {system}")
 
 
-def _pick_asset(assets: list[dict], triple: str) -> dict:
-    for asset in assets:
-        name = asset.get("name", "")
-        if triple in name and (name.endswith(".zip") or name.endswith(".tar.gz")):
-            return asset
-    raise TectonicNotAvailableError(
-        f"No Tectonic release asset found for platform target '{triple}'"
-    )
+def _asset_for_triple(triple: str) -> tuple[str, str]:
+    """Return the pinned ``(asset_filename, sha256)`` for a target, or fail closed."""
+    asset = _TECTONIC_ASSETS.get(triple)
+    if asset is None:
+        raise TectonicNotAvailableError(
+            f"No pinned Tectonic {PINNED_TECTONIC_VERSION} asset for target '{triple}'. "
+            f"Put a 'tectonic' binary on PATH, or add the target to _TECTONIC_ASSETS."
+        )
+    return asset
 
 
-def _extract_tectonic_binary(
-    archive_bytes: bytes, archive_name: str, dest_dir: Path, binary_name: str
+def _download_verified_archive(
+    url: str,
+    expected_sha256: str,
+    dest_path: Path,
+    *,
+    client: httpx.Client,
+    max_bytes: int = _MAX_ARCHIVE_BYTES,
+) -> None:
+    """Stream ``url`` to ``dest_path``, enforcing a size cap and SHA-256.
+
+    Streams in bounded chunks (never holds the whole archive in memory), aborts
+    if the response exceeds ``max_bytes``, and raises before the caller extracts
+    anything if the computed digest does not match ``expected_sha256``.
+    """
+    digest = hashlib.sha256()
+    total = 0
+    try:
+        with client.stream("GET", url, headers={"User-Agent": _USER_AGENT}) as resp:
+            resp.raise_for_status()
+            with dest_path.open("wb") as out:
+                for chunk in resp.iter_bytes(_DOWNLOAD_CHUNK):
+                    total += len(chunk)
+                    if total > max_bytes:
+                        raise TectonicNotAvailableError(
+                            f"Tectonic download from {url} exceeded {max_bytes} bytes; refusing."
+                        )
+                    digest.update(chunk)
+                    out.write(chunk)
+    except httpx.HTTPError as exc:
+        raise TectonicNotAvailableError(
+            f"Could not download Tectonic from {url}: {exc}"
+        ) from exc
+    actual = digest.hexdigest()
+    if actual != expected_sha256:
+        raise TectonicNotAvailableError(
+            f"Tectonic archive checksum mismatch for {url}: "
+            f"expected {expected_sha256}, got {actual}"
+        )
+
+
+def _is_root_binary(member_name: str, binary_name: str) -> bool:
+    """True only for a root-level member named exactly ``binary_name``.
+
+    An optional leading ``./`` is tolerated; anything with a real path segment
+    (``dir/tectonic``, ``../tectonic``) is rejected, so a nested or
+    parent-traversing member never matches.
+    """
+    normalized = member_name[2:] if member_name.startswith("./") else member_name
+    return normalized == binary_name
+
+
+def _single_binary_member(matches: list, binary_name: str, archive_name: str):
+    """Return the sole matching member, or fail closed on none/duplicates."""
+    if not matches:
+        raise TectonicNotAvailableError(
+            f"Tectonic archive '{archive_name}' has no root-level {binary_name} member"
+        )
+    if len(matches) > 1:
+        raise TectonicNotAvailableError(
+            f"Tectonic archive '{archive_name}' has multiple {binary_name} members"
+        )
+    return matches[0]
+
+
+def _read_zip_binary(archive_path: Path, binary_name: str, archive_name: str) -> bytes:
+    with zipfile.ZipFile(archive_path) as zf:
+        matches = [i for i in zf.infolist() if _is_root_binary(i.filename, binary_name)]
+        info = _single_binary_member(matches, binary_name, archive_name)
+        if info.is_dir():
+            raise TectonicNotAvailableError(
+                f"Tectonic archive member '{info.filename}' is a directory, not a file"
+            )
+        # A zip symlink stores its Unix mode in the high 16 bits of external_attr.
+        if stat.S_ISLNK(info.external_attr >> 16):
+            raise TectonicNotAvailableError(
+                f"Tectonic archive member '{info.filename}' is a symlink"
+            )
+        return zf.read(info)
+
+
+def _read_tar_binary(archive_path: Path, binary_name: str, archive_name: str) -> bytes:
+    with tarfile.open(archive_path, mode="r:gz") as tf:
+        matches = [m for m in tf.getmembers() if _is_root_binary(m.name, binary_name)]
+        member = _single_binary_member(matches, binary_name, archive_name)
+        # isfile() is True only for a regular file -- rejects symlink, hardlink,
+        # directory, device, and fifo members in one check.
+        if not member.isfile():
+            raise TectonicNotAvailableError(
+                f"Tectonic archive member '{member.name}' is not a regular file"
+            )
+        extracted = tf.extractfile(member)
+        if extracted is None:
+            raise TectonicNotAvailableError(
+                f"Could not read '{member.name}' from Tectonic archive '{archive_name}'"
+            )
+        return extracted.read()
+
+
+def _safe_extract_binary(
+    archive_path: Path, archive_name: str, dest_dir: Path, binary_name: str
 ) -> Path:
-    """Extract ``binary_name`` from a downloaded Tectonic archive into ``dest_dir``.
+    """Extract ONLY the one expected root-level binary member into ``dest_dir``.
 
-    Tectonic release archives carry the binary at their root, so a plain
-    ``extractall`` lands ``tectonic``/``tectonic.exe`` directly in ``dest_dir``.
-    A POSIX target binary is made executable (harmless/irrelevant for a Windows
-    ``.exe``, which is identified by the name, not the build host).
+    Never uses ``extractall``: it reads exactly the ``binary_name`` member
+    (rejecting missing/duplicate/link/directory/traversal members), writes it to
+    a temp sibling, sets the exec bit on POSIX targets, then atomically replaces
+    the cache entry -- so an interrupted extract can never leave a runnable
+    partial binary or clobber a good cached one until the new binary is complete.
     """
     dest_dir.mkdir(parents=True, exist_ok=True)
     if archive_name.endswith(".zip"):
-        with zipfile.ZipFile(io.BytesIO(archive_bytes)) as zf:
-            zf.extractall(dest_dir)
+        data = _read_zip_binary(archive_path, binary_name, archive_name)
     else:
-        with tarfile.open(fileobj=io.BytesIO(archive_bytes), mode="r:gz") as tf:
-            tf.extractall(dest_dir)
+        data = _read_tar_binary(archive_path, binary_name, archive_name)
 
-    dest = dest_dir / binary_name
-    if not dest.is_file():
-        raise TectonicNotAvailableError(
-            f"Downloaded Tectonic archive '{archive_name}' did not contain {binary_name}"
-        )
+    partial = dest_dir / f".{binary_name}.partial"
+    partial.write_bytes(data)
     if not binary_name.endswith(".exe"):
-        mode = dest.stat().st_mode
-        dest.chmod(mode | stat.S_IEXEC | stat.S_IXGRP | stat.S_IXOTH)
+        mode = partial.stat().st_mode
+        partial.chmod(mode | stat.S_IEXEC | stat.S_IXGRP | stat.S_IXOTH)
+    dest = dest_dir / binary_name
+    os.replace(partial, dest)  # atomic swap of the cache entry
     return dest
 
 
@@ -127,42 +261,31 @@ def download_tectonic_release(
     *,
     client: httpx.Client | None = None,
 ) -> Path:
-    """Download the latest Tectonic release binary for an EXPLICIT target.
+    """Download the PINNED Tectonic release binary for an EXPLICIT target.
 
-    ``triple`` selects the release asset (e.g. ``x86_64-unknown-linux-gnu``)
+    ``triple`` selects the pinned release asset (e.g. ``x86_64-unknown-linux-gnu``)
     and ``binary_name`` is the extracted executable's name for that target
-    (``tectonic`` or ``tectonic.exe``); the binary lands in ``dest_dir``. This
-    is the cross-platform primitive the offline-kit builder uses to fetch a
-    binary for a target that is NOT the build host; :func:`download_tectonic`
-    is the current-platform, cache-directed wrapper around it. Always hits the
-    network (no idempotence check -- the caller owns the destination policy).
+    (``tectonic`` or ``tectonic.exe``); the verified binary lands in
+    ``dest_dir``. This is the cross-platform primitive the offline-kit builder
+    uses to fetch a binary for a target that is NOT the build host;
+    :func:`download_tectonic` is the current-platform, cache-directed wrapper.
+
+    The asset is downloaded by its direct pinned-tag URL into a private temp
+    file, its SHA-256 is verified against :data:`_TECTONIC_ASSETS`, and only the
+    single expected binary member is extracted -- so a substituted or corrupted
+    download fails closed without writing outside the temp dir or replacing a
+    valid cached binary. Always hits the network (no idempotence check -- the
+    caller owns the destination policy).
     """
+    asset_name, expected_sha = _asset_for_triple(triple)
+    url = f"{_RELEASE_DOWNLOAD_BASE}/{asset_name}"
     owns_client = client is None
     http_client = client or httpx.Client(follow_redirects=True, timeout=120.0)
     try:
-        headers = {"User-Agent": _USER_AGENT}
-        # Anonymous GitHub API calls are aggressively rate-limited from shared
-        # IPs (CI runners). Use a token when the environment provides one.
-        token = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN")
-        if token:
-            headers["Authorization"] = f"Bearer {token}"
-        try:
-            resp = http_client.get(GITHUB_LATEST_RELEASE_API, headers=headers)
-            resp.raise_for_status()
-        except httpx.HTTPError as exc:
-            raise TectonicNotAvailableError(
-                f"Could not query the Tectonic release API: {exc}"
-            ) from exc
-        release = resp.json()
-
-        asset = _pick_asset(release.get("assets", []), triple)
-        archive_resp = http_client.get(
-            asset["browser_download_url"], headers={"User-Agent": _USER_AGENT}
-        )
-        archive_resp.raise_for_status()
-        return _extract_tectonic_binary(
-            archive_resp.content, asset["name"], dest_dir, binary_name
-        )
+        with tempfile.TemporaryDirectory(prefix="latextify-tectonic-") as tmp:
+            archive_path = Path(tmp) / asset_name
+            _download_verified_archive(url, expected_sha, archive_path, client=http_client)
+            return _safe_extract_binary(archive_path, asset_name, dest_dir, binary_name)
     finally:
         if owns_client:
             http_client.close()
