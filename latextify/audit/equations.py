@@ -38,8 +38,8 @@ import pypandoc
 from lxml import etree
 
 from latextify.citations.bib import escape_latex
-from latextify.ingest.archive_guard import validate_docx_archive
 from latextify.compile.tectonic import compile_document
+from latextify.ingest.archive_guard import validate_docx_archive
 from latextify.model.equations import (
     EquationAuditResult,
     EquationCompileStatus,

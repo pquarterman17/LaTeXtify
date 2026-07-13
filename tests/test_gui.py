@@ -490,7 +490,7 @@ def test_export_endpoint_blank_folder_is_400(tmp_path):
 
 def test_pick_folder_returns_the_chosen_path(tmp_path, monkeypatch):
     monkeypatch.setattr(
-        "latextify.gui.server._pick_folder_native", lambda *a, **k: "/home/user/papers"
+        "latextify.gui.server.pick_folder_native", lambda *a, **k: "/home/user/papers"
     )
     client = _client(tmp_path)
     response = client.post("/api/pick-folder")
@@ -501,7 +501,7 @@ def test_pick_folder_returns_the_chosen_path(tmp_path, monkeypatch):
 
 def test_pick_folder_returns_empty_when_cancelled_or_headless(tmp_path, monkeypatch):
     # Simulate a cancel / headless host: the picker returns "".
-    monkeypatch.setattr("latextify.gui.server._pick_folder_native", lambda *a, **k: "")
+    monkeypatch.setattr("latextify.gui.server.pick_folder_native", lambda *a, **k: "")
     client = _client(tmp_path)
     response = client.post("/api/pick-folder")
 
@@ -1199,3 +1199,67 @@ def test_artifact_and_list_gets_need_no_secret(tmp_path):
     # mutation secret; a loopback GET without it still works.
     client = _raw_client(tmp_path)  # no secret header
     assert client.get("/api/journals").status_code == 200
+
+
+# --------------------------------------------------------------------------- #
+# Tech-debt fixes: single-convert session lifecycle + stale-zip invalidation
+# --------------------------------------------------------------------------- #
+
+
+def test_single_convert_registers_bounded_session(tmp_path):
+    # /api/convert must register its session so it is TTL/LRU-prunable, rather
+    # than leaking its dir + pdf token forever (finding 3).
+    app = create_app(workdir=tmp_path / "wd", gui_secret=_TEST_SECRET)
+    client = _client_for(app)
+    with FIGURES_DOCX.open("rb") as fh:
+        resp = client.post(
+            "/api/convert",
+            files={"file": ("figures.docx", fh, "application/octet-stream")},
+            data={"journal": "revtex4-2", "pdf": "false"},
+        )
+    assert resp.status_code == 200, resp.text
+    assert len(app.state.export_sessions) == 1  # registered -> prunable, not leaked
+
+
+def test_failed_single_convert_leaves_no_session_dir(tmp_path):
+    # A failed /api/convert must not leave the uploaded manuscript behind (finding 3).
+    wd = tmp_path / "wd"
+    client = _client_for(create_app(workdir=wd, gui_secret=_TEST_SECRET))
+    resp = client.post(
+        "/api/convert",
+        files={"file": ("bogus.docx", b"not a real docx", "application/octet-stream")},
+        data={"journal": "revtex4-2", "pdf": "false"},
+    )
+    assert resp.status_code == 400
+    assert [p for p in wd.iterdir() if p.is_dir()] == []
+
+
+def test_apply_corrections_invalidates_stale_zip(tmp_path, monkeypatch):
+    # After corrections rewrite references.bib, the project .zip snapshot built
+    # at convert time is stale; it must be dropped so export rebuilds a fresh
+    # archive from the corrected output_dir (finding 2).
+    _flag_first_year(monkeypatch)
+    app = create_app(workdir=tmp_path / "wd", gui_secret=_TEST_SECRET)
+    client = _client_for(app)
+    with ZOTERO_DOCX.open("rb") as fh:
+        body = client.post(
+            "/api/convert-multi",
+            files={"main": ("zotero_cited.docx", fh, "application/octet-stream")},
+            data={
+                "journal": "revtex4-2",
+                "pdf": "false",
+                "check_references": "true",
+                "want_zip": "true",
+            },
+        ).json()
+    token = body["export_token"]
+    produced = app.state.export_sessions[token]["produced"]
+    assert "zip" in produced  # convert built a snapshot
+
+    key = body["validation"]["records"][0]["key"]
+    resp = client.post(
+        "/api/apply-corrections",
+        json={"export_token": token, "decisions": [{"key": key, "action": "approve"}]},
+    )
+    assert resp.status_code == 200, resp.text
+    assert "zip" not in produced  # stale snapshot invalidated -> export rebuilds fresh

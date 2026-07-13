@@ -41,8 +41,6 @@ and every upload is written under a fresh per-session subdirectory of
 from __future__ import annotations
 
 import shutil
-import subprocess
-import sys
 import tempfile
 import time
 import uuid
@@ -59,6 +57,7 @@ from latextify.citations.corrections import apply_corrections, entry_from_dict, 
 from latextify.compile.pdf import staple_pdfs
 from latextify.compile.tectonic import compile_document, ensure_tectonic
 from latextify.emit.project import emit_project
+from latextify.gui.folder_picker import pick_folder_native
 from latextify.gui.guard import inject_gui_secret, new_gui_secret, require_gui_auth
 from latextify.model.refs import RefEntry
 from latextify.model.validate import CorrectionDecision, ValidationReport
@@ -358,37 +357,6 @@ def _lower_ext(name: str | None) -> str:
     """Lowercase extension without the dot ("Paper.DOCX" -> "docx"); "" if none."""
     return Path(name or "").suffix.lstrip(".").lower()
 
-_PICK_FOLDER_SCRIPT = (
-    "import tkinter, tkinter.filedialog as fd, sys\n"
-    "r = tkinter.Tk(); r.withdraw()\n"
-    "try: r.attributes('-topmost', True)\n"
-    "except Exception: pass\n"
-    "p = fd.askdirectory(title='Choose an export folder') or ''\n"
-    "r.destroy()\n"
-    "sys.stdout.write(p)\n"
-)
-
-
-def _pick_folder_native(timeout: float = 300.0) -> str:
-    """Open a native folder picker on the server host; return the chosen path or "".
-
-    Runs tkinter's ``askdirectory`` in a SEPARATE process: a GUI dialog cannot
-    run on uvicorn's worker thread on every platform (macOS requires the main
-    thread), and a subprocess also contains a crash/hang. Returns "" when the
-    user cancels or no GUI/tkinter is available (a headless server), so the
-    caller falls back to manual path entry -- never raises.
-    """
-    try:
-        proc = subprocess.run(
-            [sys.executable, "-c", _PICK_FOLDER_SCRIPT],
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-        )
-    except (subprocess.SubprocessError, OSError):
-        return ""
-    return proc.stdout.strip() if proc.returncode == 0 else ""
-
 
 def _export_artifacts(
     export_dir: str, types: set[str], *, output_dir: Path, produced: dict[str, Path]
@@ -558,9 +526,9 @@ def create_app(*, workdir: Path | None = None, gui_secret: str | None = None) ->
         upload_dir = session_dir / "upload"
         upload_dir.mkdir(parents=True, exist_ok=True)
         docx_path = upload_dir / _safe_filename(file.filename)
-        await _stream_upload(file, docx_path)
 
         try:
+            await _stream_upload(file, docx_path)
             result = emit_project(
                 docx_path,
                 journal,
@@ -573,7 +541,11 @@ def create_app(*, workdir: Path | None = None, gui_secret: str | None = None) ->
             # citation style (ManifestError is itself a ValueError subclass)
             # -- see latextify.cli's `convert` command for the identical
             # contract. Never let one surface as a raw 500 traceback.
+            _rmtree(session_dir)  # a failed run must not leave the upload behind
             raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except Exception:
+            _rmtree(session_dir)
+            raise
 
         warnings = [w.message for w in result.warnings]
         pdf_url: str | None = None
@@ -592,6 +564,7 @@ def create_app(*, workdir: Path | None = None, gui_secret: str | None = None) ->
                 # compile raises subprocess.TimeoutExpired, a present-but-
                 # broken tectonic binary raises OSError. Never a raw 500
                 # traceback for either.
+                _rmtree(session_dir)
                 raise HTTPException(
                     status_code=500, detail=f"compilation failed: {exc}"
                 ) from exc
@@ -613,6 +586,17 @@ def create_app(*, workdir: Path | None = None, gui_secret: str | None = None) ->
         report_md = ""
         if result.report_path is not None and result.report_path.is_file():
             report_md = result.report_path.read_text(encoding="utf-8")
+
+        # Bound this run's footprint under the same TTL/LRU pruning as
+        # convert-multi (audit item 3); the single-file endpoint otherwise
+        # leaked its session dir + pdf token forever (tech-debt finding 3).
+        _register_session(
+            app,
+            uuid.uuid4().hex,
+            {"output_dir": result.output_dir, "produced": {}},
+            session_dir=session_dir,
+            now=time.time(),
+        )
 
         return ConvertResponse(
             output_dir=str(result.output_dir),
@@ -965,7 +949,7 @@ def create_app(*, workdir: Path | None = None, gui_secret: str | None = None) ->
         # Opens a native folder dialog on the machine hosting the server (the
         # user's own machine -- this is a localhost tool). Returns "" when
         # cancelled or unavailable; the UI then falls back to manual entry.
-        return PickFolderResponse(path=_pick_folder_native())
+        return PickFolderResponse(path=pick_folder_native())
 
     @app.post(
         "/api/export",
@@ -1052,6 +1036,15 @@ def create_app(*, workdir: Path | None = None, gui_secret: str | None = None) ->
             entries_to_bib(corrected), encoding="utf-8"
         )
         session["entries"] = tuple(corrected)  # subsequent applies build on this
+
+        if applied:
+            # The project .zip snapshot built at convert time now predates these
+            # corrections (stale references.bib + PDFs). Drop it so /api/export
+            # rebuilds a fresh archive from the corrected output_dir on demand
+            # instead of exporting the pre-correction copy (tech-debt finding 2).
+            session_produced = session.get("produced")
+            if isinstance(session_produced, dict):
+                session_produced.pop("zip", None)
 
         pdf_url: str | None = None
         supplement_pdf_url: str | None = None
