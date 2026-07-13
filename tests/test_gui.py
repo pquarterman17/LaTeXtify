@@ -18,6 +18,7 @@ from typer.testing import CliRunner
 
 from latextify.cli import app
 from latextify.compile.tectonic import find_tectonic
+from latextify.gui.guard import SECRET_HEADER
 from latextify.gui.server import create_app
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -31,10 +32,23 @@ _SAMPLE_BIB = (
 
 runner = CliRunner()
 
+# Deterministic secret + loopback Host/secret header so mutating /api/* requests
+# pass the audit-item-4 guard (require_gui_auth) under TestClient, which
+# otherwise sends Host: testserver and no secret.
+_TEST_SECRET = "test-gui-secret"
+
+
+def _client_for(application) -> TestClient:
+    return TestClient(
+        application,
+        base_url="http://127.0.0.1",
+        headers={SECRET_HEADER: _TEST_SECRET},
+    )
+
 
 def _client(tmp_path: Path) -> TestClient:
-    application = create_app(workdir=tmp_path / "gui-workdir")
-    return TestClient(application)
+    application = create_app(workdir=tmp_path / "gui-workdir", gui_secret=_TEST_SECRET)
+    return _client_for(application)
 
 
 # --------------------------------------------------------------------------- #
@@ -1010,8 +1024,8 @@ def test_expired_session_is_pruned_and_tokens_404(tmp_path):
     from latextify.gui import server as srv
     from latextify.gui.server import create_app
 
-    app = create_app(workdir=tmp_path / "wd")
-    client = TestClient(app)
+    app = create_app(workdir=tmp_path / "wd", gui_secret=_TEST_SECRET)
+    client = _client_for(app)
     with FIGURES_DOCX.open("rb") as fh:
         body = client.post(
             "/api/convert-multi",
@@ -1057,7 +1071,7 @@ def test_failed_conversion_leaves_no_session_dir(tmp_path):
     from latextify.gui.server import create_app
 
     wd = tmp_path / "wd"
-    client = TestClient(create_app(workdir=wd))
+    client = _client_for(create_app(workdir=wd, gui_secret=_TEST_SECRET))
     resp = client.post(
         "/api/convert-multi",
         files={"main": ("bogus.docx", b"not a real docx", "application/octet-stream")},
@@ -1108,3 +1122,80 @@ def test_shutdown_preserves_caller_workdir(tmp_path):
     with TestClient(app):
         pass
     assert wd.is_dir()  # a caller-supplied workdir is never deleted
+
+
+# --------------------------------------------------------------------------- #
+# Mutating-endpoint request protection (audit item 4)
+# --------------------------------------------------------------------------- #
+
+
+def _raw_client(tmp_path: Path, *, base_url: str = "http://127.0.0.1", headers=None) -> TestClient:
+    """A client with explicit Host/headers so guard behavior can be exercised."""
+    application = create_app(workdir=tmp_path / "wd", gui_secret=_TEST_SECRET)
+    return TestClient(application, base_url=base_url, headers=headers or {})
+
+
+def _multi_post(client: TestClient):
+    with FIGURES_DOCX.open("rb") as fh:
+        return client.post(
+            "/api/convert-multi",
+            files={"main": ("figures.docx", fh, "application/octet-stream")},
+            data={"journal": "revtex4-2", "pdf": "false"},
+        )
+
+
+def test_mutating_request_without_secret_is_forbidden(tmp_path):
+    # Loopback Host but no secret header -> rejected before the upload is used.
+    assert _multi_post(_raw_client(tmp_path)).status_code == 403
+
+
+def test_mutating_request_with_wrong_secret_is_forbidden(tmp_path):
+    client = _raw_client(tmp_path, headers={SECRET_HEADER: "nope"})
+    assert _multi_post(client).status_code == 403
+
+
+def test_mutating_request_with_secret_is_allowed(tmp_path):
+    client = _raw_client(tmp_path, headers={SECRET_HEADER: _TEST_SECRET})
+    assert _multi_post(client).status_code == 200  # guard passed, body ran
+
+
+def test_non_loopback_host_is_forbidden(tmp_path):
+    # Correct secret but a non-loopback Host (a DNS-rebinding attempt).
+    client = _raw_client(
+        tmp_path, base_url="http://evil.example", headers={SECRET_HEADER: _TEST_SECRET}
+    )
+    assert _multi_post(client).status_code == 403
+
+
+def test_cross_origin_is_forbidden(tmp_path):
+    client = _raw_client(
+        tmp_path, headers={SECRET_HEADER: _TEST_SECRET, "Origin": "http://evil.com"}
+    )
+    assert _multi_post(client).status_code == 403
+
+
+def test_loopback_origin_is_allowed(tmp_path):
+    client = _raw_client(
+        tmp_path, headers={SECRET_HEADER: _TEST_SECRET, "Origin": "http://127.0.0.1:8000"}
+    )
+    assert _multi_post(client).status_code == 200
+
+
+def test_index_injects_secret_into_served_page(tmp_path):
+    html = _client(tmp_path).get("/").text
+    assert SECRET_HEADER in html
+    assert _TEST_SECRET in html
+    assert "window.fetch" in html
+
+
+def test_static_index_file_carries_no_secret():
+    from latextify.gui.server import _INDEX_HTML
+
+    assert _TEST_SECRET not in _INDEX_HTML.read_text(encoding="utf-8")
+
+
+def test_artifact_and_list_gets_need_no_secret(tmp_path):
+    # GET endpoints are loopback/bearer capabilities, not guarded by the
+    # mutation secret; a loopback GET without it still works.
+    client = _raw_client(tmp_path)  # no secret header
+    assert client.get("/api/journals").status_code == 200

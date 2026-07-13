@@ -43,8 +43,8 @@ sections below; a passing implementation box alone does not close an item.
 - [ ] **2 — Tectonic bootstrap integrity: acceptance tests pass**
 - [x] **3 — GUI session expiry/cleanup: implementation complete**
 - [x] **3 — GUI session expiry/cleanup: acceptance tests pass**
-- [ ] **4 — Local GUI request protection: implementation complete**
-- [ ] **4 — Local GUI request protection: acceptance tests pass**
+- [x] **4 — Local GUI request protection: implementation complete**
+- [x] **4 — Local GUI request protection: acceptance tests pass**
 - [x] **5 — Upload naming/validation: implementation complete**
 - [x] **5 — Upload naming/validation: acceptance tests pass**
 - [x] **6 — Supplement export/status: implementation complete**

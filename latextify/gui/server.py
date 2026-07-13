@@ -49,8 +49,8 @@ import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
-from fastapi.responses import FileResponse
+from fastapi import Depends, FastAPI, File, Form, HTTPException, UploadFile
+from fastapi.responses import FileResponse, HTMLResponse
 from pydantic import BaseModel
 
 from latextify.audit.equations import write_equation_audit
@@ -59,6 +59,7 @@ from latextify.citations.corrections import apply_corrections, entry_from_dict, 
 from latextify.compile.pdf import staple_pdfs
 from latextify.compile.tectonic import compile_document, ensure_tectonic
 from latextify.emit.project import emit_project
+from latextify.gui.guard import inject_gui_secret, new_gui_secret, require_gui_auth
 from latextify.model.refs import RefEntry
 from latextify.model.validate import CorrectionDecision, ValidationReport
 from latextify.report.render import write_report
@@ -456,7 +457,7 @@ async def _stream_upload(
             out.write(chunk)
 
 
-def create_app(*, workdir: Path | None = None) -> FastAPI:
+def create_app(*, workdir: Path | None = None, gui_secret: str | None = None) -> FastAPI:
     """Build the GUI FastAPI app.
 
     Args:
@@ -465,6 +466,10 @@ def create_app(*, workdir: Path | None = None) -> FastAPI:
             fresh ``tempfile.mkdtemp`` when not given -- pass a fixed
             directory (e.g. the CLI's ``--workdir``) to keep converted
             output around across server restarts.
+        gui_secret: the per-process secret mutating ``/api/*`` requests must
+            carry (see :mod:`latextify.gui.guard`). Defaults to a fresh random
+            token; tests inject a deterministic value without weakening the
+            production default.
     """
     root = (
         Path(workdir) if workdir is not None else Path(tempfile.mkdtemp(prefix="latextify-gui-"))
@@ -499,10 +504,17 @@ def create_app(*, workdir: Path | None = None) -> FastAPI:
     # result's artifacts out later (the preview-then-export flow) without
     # recompiling. Same lifetime/growth characteristics as the token dicts above.
     app.state.export_sessions: dict[str, dict[str, object]] = {}
+    # Per-process secret required on mutating /api/* requests (audit item 4).
+    # Only the served page learns it (index() injects it); a cross-origin
+    # attacker page can't read it under the same-origin policy.
+    app.state.gui_secret = gui_secret if gui_secret is not None else new_gui_secret()
 
     @app.get("/", include_in_schema=False)
-    def index() -> FileResponse:
-        return FileResponse(_INDEX_HTML)
+    def index() -> HTMLResponse:
+        # Serve the static page with the per-process secret injected so the
+        # page's own fetches carry it; the raw file on disk never contains it.
+        html = _INDEX_HTML.read_text(encoding="utf-8")
+        return HTMLResponse(inject_gui_secret(html, app.state.gui_secret))
 
     @app.get("/api/journals", response_model=list[JournalInfo])
     def list_journals() -> list[JournalInfo]:
@@ -526,7 +538,11 @@ def create_app(*, workdir: Path | None = None) -> FastAPI:
         infos.sort(key=lambda info: info.display_name.lower())
         return infos
 
-    @app.post("/api/convert", response_model=ConvertResponse)
+    @app.post(
+        "/api/convert",
+        response_model=ConvertResponse,
+        dependencies=[Depends(require_gui_auth)],
+    )
     async def convert(
         file: UploadFile = File(...),
         journal: str = Form(...),
@@ -606,7 +622,11 @@ def create_app(*, workdir: Path | None = None) -> FastAPI:
             pdf_url=pdf_url,
         )
 
-    @app.post("/api/convert-multi", response_model=ConvertMultiResponse)
+    @app.post(
+        "/api/convert-multi",
+        response_model=ConvertMultiResponse,
+        dependencies=[Depends(require_gui_auth)],
+    )
     async def convert_multi(
         main: UploadFile = File(...),
         journal: str = Form(...),
@@ -936,14 +956,22 @@ def create_app(*, workdir: Path | None = None) -> FastAPI:
             zip_path, media_type="application/zip", filename="latextify-project.zip"
         )
 
-    @app.post("/api/pick-folder", response_model=PickFolderResponse)
+    @app.post(
+        "/api/pick-folder",
+        response_model=PickFolderResponse,
+        dependencies=[Depends(require_gui_auth)],
+    )
     def pick_folder() -> PickFolderResponse:
         # Opens a native folder dialog on the machine hosting the server (the
         # user's own machine -- this is a localhost tool). Returns "" when
         # cancelled or unavailable; the UI then falls back to manual entry.
         return PickFolderResponse(path=_pick_folder_native())
 
-    @app.post("/api/export", response_model=ExportResponse)
+    @app.post(
+        "/api/export",
+        response_model=ExportResponse,
+        dependencies=[Depends(require_gui_auth)],
+    )
     def export(req: ExportRequest) -> ExportResponse:
         # Copy a previously-previewed conversion's artifacts to a chosen folder.
         # The token maps to that run's produced paths; an unknown/expired token
@@ -972,7 +1000,11 @@ def create_app(*, workdir: Path | None = None) -> FastAPI:
             ) from exc
         return ExportResponse(exported_to=dest, exported=exported, warnings=warnings)
 
-    @app.post("/api/apply-corrections", response_model=ApplyCorrectionsResponse)
+    @app.post(
+        "/api/apply-corrections",
+        response_model=ApplyCorrectionsResponse,
+        dependencies=[Depends(require_gui_auth)],
+    )
     def apply_corrections_endpoint(req: ApplyCorrectionsRequest) -> ApplyCorrectionsResponse:
         """Apply reviewed reference corrections to a prior run and recompile.
 
