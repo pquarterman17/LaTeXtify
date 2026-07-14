@@ -10,7 +10,7 @@ safely.
 
 **Status:** Active
 **Created:** 2026-07-13
-**Updated:** 2026-07-13
+**Updated:** 2026-07-13 — Tier 1 complete (items 1, 2 shipped)
 
 ---
 
@@ -82,15 +82,7 @@ docx ─pandoc─> AST ─filters─> LaTeX ─> journal project ─tectonic─>
 
 ---
 
-## Tier 1 — High Impact
-
-2. **Fix the Word image-crop privacy/fidelity leak** — apply `a:srcRect` crops
-   so hidden regions of cropped images never reach `figures/` or the PDF.
-   - [ ] Read each drawing's `srcRect` (EMU/fractional offsets) during figure
-     extraction
-   - [ ] Crop the raster with Pillow at convert time (vector/PDF: warn if a crop
-     is present but can't be applied)
-   - [ ] Test with a docx containing a cropped image (rendered pixels only)
+_Tier 1 is complete — see `## Completed`._
 
 ## Tier 2 — Medium Impact
 
@@ -135,6 +127,21 @@ docx ─pandoc─> AST ─filters─> LaTeX ─> journal project ─tectonic─>
 
 ## Completed
 
+- ~~**#2 Fix the Word image-crop privacy/fidelity leak**~~ (2026-07-13) — Word
+  crops images for display via `a:srcRect` but keeps the full original pixels,
+  and nothing applied the crop, so hidden regions shipped into `figures/` and
+  the PDF. New `latextify/figures/crop.py` reads each main-flow picture's
+  `srcRect` from `word/document.xml` (thousandths-of-a-percent insets, negatives
+  clamped, degenerate rejected), binds it to the right `Figure` by document
+  order cross-checked against the media basename (unique-basename fallback; never
+  a wrong crop), and applies it with Pillow at convert time; vector/PDF crops
+  degrade to a warning. `CropRect` IR on `Figure`; guarded to the EMBEDDED source
+  (an override is not cropped). 22 tests + a `cropped_figure.docx` fixture
+  (4-quadrant image → 50×50 all-red after crop). To satisfy the size ratchet,
+  extracted `emit/anchors.py` (anchor resolution out of `project.py`, pin
+  1176→1000), `cli_batch.py` (batch command out of `cli.py`, pin 713→517), and
+  grouped GUI option bindings; also closed the Exclude Figures merge's ratchet
+  debt on `project.py`/`cli.py`/`index.html`.
 - ~~**#1 Exclude Figures toggle**~~ (2026-07-13) — `emit_project(exclude_figures=)`
   strips both figure-anchor shapes (`_strip_figure_anchors`) and skips figure
   extraction/copy for the main document AND the supplement; prunes this

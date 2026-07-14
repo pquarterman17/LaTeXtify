@@ -27,6 +27,35 @@ from pathlib import Path
 from ._compat import StrEnum
 
 
+@dataclass(frozen=True)
+class CropRect:
+    """A DrawingML ``a:srcRect`` image crop, as fractional insets per edge.
+
+    Word crops an image for *display* via ``a:srcRect`` but keeps the full
+    original pixels embedded in ``word/media/``; nothing downstream applies the
+    crop, so the hidden regions otherwise leak into the extracted figure and the
+    compiled PDF. Each attribute is the fraction (0.0-1.0) of the image's width
+    (``left``/``right``) or height (``top``/``bottom``) hidden from that edge --
+    e.g. ``right=0.25`` hides the rightmost quarter. All default to 0.0 (no crop
+    on that edge). Negative ``srcRect`` values (an *outset*/padding, where the
+    whole image is intended to show) are clamped to 0.0 by the parser, so a
+    ``CropRect`` never asks to reveal more than the original.
+
+    Applied to the extracted raster at emit time (``latextify.figures.convert``);
+    a crop on a vector/PDF figure is surfaced as a warning instead, since those
+    are not raster-cropped.
+    """
+
+    left: float = 0.0
+    top: float = 0.0
+    right: float = 0.0
+    bottom: float = 0.0
+
+    def is_effective(self) -> bool:
+        """True when at least one edge actually hides pixels (any inset > 0)."""
+        return any(inset > 0.0 for inset in (self.left, self.top, self.right, self.bottom))
+
+
 class FigureSource(StrEnum):
     """Which override tier the winning figure file came from.
 
@@ -86,6 +115,14 @@ class Figure:
             be measured (e.g. a PDF figure), and always ``False`` for an
             in-table figure. Harmless on single-column journals, where
             ``figure*`` and ``figure`` render identically.
+        crop: the Word display crop (``a:srcRect``) read from the source docx
+            for this figure's embedded image, or ``None`` when the image was
+            not cropped. Applied to the raster at emit time
+            (``latextify.figures.convert``) so the cropped-out regions never
+            reach the output tree or the PDF -- a privacy and fidelity fix.
+            Only meaningful for the EMBEDDED source: an OVERRIDE/MANIFEST file
+            is a deliberate replacement authored against no ``srcRect``, so the
+            emitter does not apply this crop to it.
     """
 
     number: int
@@ -96,6 +133,7 @@ class Figure:
     conversion_note: str | None = None
     in_table: bool = False
     wide: bool = False
+    crop: CropRect | None = None
 
     @property
     def resolved_path(self) -> Path:

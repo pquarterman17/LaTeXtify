@@ -65,8 +65,11 @@ from __future__ import annotations
 
 import shutil
 import subprocess
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
+
+from latextify.figures.crop import CROP_NOTE, apply_crop, uncroppable_message, wants_crop
+from latextify.model.figure import CropRect
 
 #: Extensions always converted to PDF before inclusion.
 SVG_EXTENSIONS = frozenset({".svg"})
@@ -116,7 +119,7 @@ class ConversionOutcome:
 
 
 def convert_for_latex(
-    src: Path, dest_dir: Path, number: int, *, prefix: str = ""
+    src: Path, dest_dir: Path, number: int, *, prefix: str = "", crop: CropRect | None = None
 ) -> ConversionOutcome:
     """Prepare figure ``number``'s resolved file ``src`` for inclusion in ``dest_dir``.
 
@@ -132,21 +135,57 @@ def convert_for_latex(
     figures pass ``prefix="S"`` so they land as ``figS<number>.<ext>`` in the
     shared ``figures/`` directory, never colliding with the main document's
     ``fig<number>.<ext>``.
+
+    ``crop`` (FORMATS_AND_PRIVACY_PLAN item 2) is the Word display crop
+    (``a:srcRect``) for this image. When set and effective it is applied to the
+    raster on the way through -- for a passthrough PNG/JPEG and for the TIFF->PNG
+    path -- so the pixels Word cropped OUT never reach the output tree. A crop on
+    a vector (SVG/EPS) or PDF figure cannot be raster-applied, so it degrades to
+    a warning rather than silently leaving the hidden regions in place.
     """
     ext = src.suffix.lower()
     if ext in SVG_EXTENSIONS:
-        return _convert_svg(src, dest_dir, number, prefix=prefix)
+        return _note_uncroppable(_convert_svg(src, dest_dir, number, prefix=prefix), crop, "SVG")
     if ext in EPS_EXTENSIONS:
-        return _convert_eps(src, dest_dir, number, prefix=prefix)
+        return _note_uncroppable(_convert_eps(src, dest_dir, number, prefix=prefix), crop, "EPS")
     if ext in TIFF_EXTENSIONS:
-        return _convert_tiff(src, dest_dir, number, prefix=prefix)
+        return _convert_tiff(src, dest_dir, number, prefix=prefix, crop=crop)
     dest = dest_dir / f"fig{prefix}{number}{ext}"
     if ext in _RASTER_PASSTHROUGH_EXTENSIONS:
-        flattened = _flatten_passthrough_raster(src, dest)
-        if flattened is not None:
-            return flattened
+        prepared = _prepare_passthrough_raster(src, dest, crop)
+        if prepared is not None:
+            return prepared
     shutil.copy2(src, dest)
+    # A non-raster passthrough (PDF) that Word cropped: the copy carries the
+    # full page, so surface that the hidden region could not be trimmed.
+    if ext not in _RASTER_PASSTHROUGH_EXTENSIONS and wants_crop(crop):
+        return ConversionOutcome(dest_path=dest, warning=uncroppable_message("PDF", src.name))
     return ConversionOutcome(dest_path=dest)
+
+
+# --------------------------------------------------------------------------- #
+# Image cropping (a:srcRect) -- the geometry/reading lives in
+# latextify.figures.crop; this only folds an "uncroppable" caveat into a
+# ConversionOutcome (which is defined here, so it can't move to that module).
+# --------------------------------------------------------------------------- #
+
+
+def _note_uncroppable(
+    outcome: ConversionOutcome, crop: CropRect | None, kind: str
+) -> ConversionOutcome:
+    """Fold an "uncroppable vector/PDF" warning into a conversion outcome.
+
+    A vector conversion that otherwise succeeded (note set) is downgraded to a
+    warning -- an unapplied crop that may leak content is worth flagging over the
+    conversion note. An outcome that already failed keeps its warning, with the
+    crop caveat appended so neither signal is lost.
+    """
+    if not wants_crop(crop):
+        return outcome
+    message = uncroppable_message(kind, outcome.dest_path.name)
+    if outcome.warning:
+        return replace(outcome, warning=f"{outcome.warning} {message}")
+    return replace(outcome, warning=message, note=None)
 
 
 # --------------------------------------------------------------------------- #
@@ -188,29 +227,52 @@ def _flatten_alpha_onto_white(image):  # noqa: ANN001, ANN201 -- PIL types, lazy
     return Image.alpha_composite(background, rgba).convert("RGB")
 
 
-def _flatten_passthrough_raster(src: Path, dest: Path) -> ConversionOutcome | None:
-    """Flatten a transparent passthrough raster onto white, writing ``dest``.
+def _prepare_passthrough_raster(
+    src: Path, dest: Path, crop: CropRect | None
+) -> ConversionOutcome | None:
+    """Crop and/or alpha-flatten a passthrough raster, writing ``dest``.
 
-    Returns a :class:`ConversionOutcome` when the image carried alpha and was
-    flattened (and therefore re-encoded to ``dest``), or ``None`` to tell the
-    caller "nothing to do -- plain-copy the bytes" (the common case: no alpha,
-    or Pillow could not read the file). Never raises: an unreadable/exotic
-    raster falls back to a byte-for-byte copy rather than failing the emit.
+    Returns a :class:`ConversionOutcome` when the image was re-encoded (a crop
+    was applied and/or transparency flattened), or ``None`` to tell the caller
+    "nothing to do -- plain-copy the bytes" (no crop requested and no alpha).
+    Never raises: an unreadable/exotic raster falls back to a byte-for-byte copy
+    -- but if a crop was requested and could not be applied, that copy is
+    reported with a warning (the hidden region survives), never silently.
     """
     from PIL import Image
 
+    want_crop = wants_crop(crop)
     try:
         with Image.open(src) as image:
-            if not _has_alpha(image):
-                return None
-            _flatten_alpha_onto_white(image).save(dest)
+            has_alpha = _has_alpha(image)
+            if not want_crop and not has_alpha:
+                return None  # common fast path: nothing to change, caller copies
+            prepared = apply_crop(image, crop) if want_crop else image
+            note = CROP_NOTE if want_crop else None
+            flattened = _flatten_alpha_onto_white(prepared)
+            if flattened is not prepared:  # alpha was present and composited
+                note = (
+                    f"{note} Flattened image transparency onto a white background."
+                    if note
+                    else "Flattened image transparency onto a white background."
+                )
+            flattened.save(dest)
     except Exception:
-        dest.unlink(missing_ok=True)  # discard any partial write; caller copies
-        return None
-    return ConversionOutcome(
-        dest_path=dest,
-        note="Flattened image transparency onto a white background.",
-    )
+        dest.unlink(missing_ok=True)  # discard any partial write
+        if want_crop:
+            # A crop was asked for but Pillow couldn't process the image; still
+            # produce the figure (copy) but say the hidden region wasn't removed.
+            shutil.copy2(src, dest)
+            return ConversionOutcome(
+                dest_path=dest,
+                warning=(
+                    f"could not crop {src.name} to its visible region (Pillow could not "
+                    "process it); it was included uncropped, so any content Word cropped "
+                    "out is still present."
+                ),
+            )
+        return None  # no crop wanted: caller plain-copies the bytes
+    return ConversionOutcome(dest_path=dest, note=note)
 
 
 # --------------------------------------------------------------------------- #
@@ -351,7 +413,7 @@ def _convert_eps(src: Path, dest_dir: Path, number: int, *, prefix: str = "") ->
 # --------------------------------------------------------------------------- #
 
 
-def _pillow_convert(src: Path, dest: Path) -> None:
+def _pillow_convert(src: Path, dest: Path, crop: CropRect | None = None) -> None:
     """Thin wrapper around Pillow's TIFF->PNG conversion -- its own call
     point for the same monkeypatch-testability reason as ``_cairosvg_convert``
     / ``_ghostscript_convert``."""
@@ -363,9 +425,11 @@ def _pillow_convert(src: Path, dest: Path) -> None:
         # normalize to RGB/RGBA so the PNG write never fails on mode alone.
         if image.mode not in ("RGB", "RGBA", "L", "LA", "P"):
             image = image.convert("RGBA" if "A" in image.getbands() else "RGB")
-        # Flatten any transparency onto white for the same reason as the
-        # passthrough path -- a transparent PNG composites against nothing in
-        # the PDF, leaving edge/halo artifacts. No-op for an opaque TIFF.
+        # Trim Word's display crop first so the hidden region is gone before the
+        # PNG is written (privacy/fidelity), then flatten any transparency onto
+        # white for the same reason as the passthrough path.
+        if wants_crop(crop):
+            image = apply_crop(image, crop)
         image = _flatten_alpha_onto_white(image)
         image.save(dest, format="PNG")
 
@@ -376,7 +440,9 @@ _TIFF_UNSUPPORTED_NOTE = (
 )
 
 
-def _convert_tiff(src: Path, dest_dir: Path, number: int, *, prefix: str = "") -> ConversionOutcome:
+def _convert_tiff(
+    src: Path, dest_dir: Path, number: int, *, prefix: str = "", crop: CropRect | None = None
+) -> ConversionOutcome:
     """Convert ``src`` (a .tif/.tiff) to PNG via Pillow.
 
     Unlike :func:`_convert_svg`/:func:`_convert_eps`, a failed conversion does
@@ -386,10 +452,13 @@ def _convert_tiff(src: Path, dest_dir: Path, number: int, *, prefix: str = "") -
     file and the fix. Never raises: Pillow surfaces a corrupt/unreadable TIFF
     through several exception types (``OSError``, ``UnidentifiedImageError``
     -- a subclass of ``OSError`` -- ``ValueError``), all caught here.
+
+    ``crop`` (when effective) is applied during the conversion so the TIFF's
+    Word-cropped region never survives into the emitted PNG.
     """
     dest = dest_dir / f"fig{prefix}{number}.png"
     try:
-        _pillow_convert(src, dest)
+        _pillow_convert(src, dest, crop)
     except Exception as exc:  # Pillow's failure modes vary; never crash the emit
         dest.unlink(missing_ok=True)  # clean up any partial/truncated write
         return ConversionOutcome(
@@ -401,4 +470,7 @@ def _convert_tiff(src: Path, dest_dir: Path, number: int, *, prefix: str = "") -
                 "figures.yaml or a folder override."
             ),
         )
-    return ConversionOutcome(dest_path=dest, note="TIFF converted to PNG via Pillow.")
+    note = "TIFF converted to PNG via Pillow."
+    if wants_crop(crop):
+        note += " " + CROP_NOTE
+    return ConversionOutcome(dest_path=dest, note=note)

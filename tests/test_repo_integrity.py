@@ -31,11 +31,11 @@ SLACK = 50
 #: 2026-07-12 when the ratchet was added. These are standing tech debt; the
 #: pins cap further growth. Lower a pin whenever you shrink its file.
 PY_PINS = {
-    "latextify/emit/project.py": 1176,
+    "latextify/emit/project.py": 1000,
     "latextify/gui/server.py": 1120,
     "latextify/ingest/filters.py": 1061,
     "latextify/ingest/metadata_guess.py": 919,
-    "latextify/cli.py": 713,
+    "latextify/cli.py": 517,
     "latextify/citations/plaintext.py": 637,
     "latextify/templates/loader.py": 539,
 }

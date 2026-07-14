@@ -30,7 +30,7 @@ from latextify.model.equations import (
     EquationRecord,
     EquationWriteResult,
 )
-from latextify.model.figure import Figure, FigureSource
+from latextify.model.figure import CropRect, Figure, FigureSource
 from latextify.model.meta import Affiliation, Author, Meta
 from latextify.model.preflight import (
     Location,
@@ -49,6 +49,7 @@ __all__ = [
     "Citation",
     "CompileDiagnostic",
     "CompileResult",
+    "CropRect",
     "DiagnosticSeverity",
     "EmitResult",
     "EmitWarning",

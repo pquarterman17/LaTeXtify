@@ -105,6 +105,7 @@ select = ["E", "F", "I", "UP", "B"]
 # typer's Argument()/Option() calls as parameter defaults are the documented
 # way to declare CLI options -- not the mutable-default footgun B008 flags.
 "latextify/cli.py" = ["B008"]
+"latextify/cli_batch.py" = ["B008"]
 # Same pattern, FastAPI's side: File()/Form() calls as parameter defaults are
 # the documented way to declare request-body fields.
 "latextify/gui/server.py" = ["B008"]

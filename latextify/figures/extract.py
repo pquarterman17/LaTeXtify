@@ -64,6 +64,7 @@ from xml.etree import ElementTree as ET
 import panflute as pf
 import pypandoc
 
+from latextify.figures.crop import attach_crops, image_crops
 from latextify.model import Figure
 
 # A figure caption label: an optional "Supplemental/Supplementary" prefix, then
@@ -149,7 +150,10 @@ def extract_figures(docx_path: Path | str, media_dir: Path | str) -> tuple[Figur
     # anywhere in the tree is visited, including one nested inside a table
     # cell.
     doc.walk(collect)
-    return tuple(figures)
+    # Attach Word display crops (a:srcRect) so the emitter can trim each
+    # cropped image to its visible region -- otherwise the full original
+    # pixels (everything the author cropped OUT) leak into the output.
+    return attach_crops(tuple(figures), image_crops(docx_path))
 
 
 def looks_like_figure_caption(text: str) -> bool:
