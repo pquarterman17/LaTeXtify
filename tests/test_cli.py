@@ -40,6 +40,26 @@ def test_convert_writes_output_tree_and_reports_path(tmp_path):
     assert (output / "revtex4-2" / "main.tex").is_file()
 
 
+def test_convert_exclude_figures_emits_text_only_project(tmp_path):
+    docx = tmp_path / "figures.docx"
+    shutil.copy(FIGURES_DOCX, docx)
+    output = tmp_path / "output"
+
+    result = runner.invoke(
+        app,
+        ["convert", str(docx), "--journal", "revtex4-2", "--output", str(output),
+         "--exclude-figures"],
+    )
+
+    assert result.exit_code == 0, result.output
+    body = (output / "revtex4-2" / "generated" / "body.tex").read_text(encoding="utf-8")
+    assert "\\includegraphics" not in body
+    assert "%%FIGURE:" not in body
+    # No images were copied into the tree.
+    figures_dir = output / "revtex4-2" / "figures"
+    assert not any(p.name.startswith("fig") for p in figures_dir.iterdir())
+
+
 def test_convert_second_run_reports_main_tex_left_untouched(tmp_path):
     docx = tmp_path / "figures.docx"
     shutil.copy(FIGURES_DOCX, docx)

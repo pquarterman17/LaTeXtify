@@ -245,6 +245,23 @@ def test_convert_multi_main_only_succeeds_without_pdf(tmp_path):
     assert (Path(body["output_dir"]) / "main.tex").is_file()
 
 
+def test_convert_multi_exclude_figures_emits_text_only(tmp_path):
+    client = _client(tmp_path)
+    with FIGURES_DOCX.open("rb") as fh:
+        response = client.post(
+            "/api/convert-multi",
+            files={"main": ("figures.docx", fh, "application/octet-stream")},
+            data={"journal": "revtex4-2", "pdf": "false", "exclude_figures": "true"},
+        )
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["success"] is True
+    body_tex = (Path(body["output_dir"]) / "generated" / "body.tex").read_text(encoding="utf-8")
+    assert "\\includegraphics" not in body_tex
+    assert "%%FIGURE:" not in body_tex
+
+
 def test_convert_multi_accepts_a_references_bib(tmp_path):
     client = _client(tmp_path)
     with FIGURES_DOCX.open("rb") as fh:

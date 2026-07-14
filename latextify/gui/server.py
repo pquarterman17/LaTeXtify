@@ -622,6 +622,7 @@ def create_app(*, workdir: Path | None = None, gui_secret: str | None = None) ->
         crossref_mailto: str | None = Form(None),
         combine: bool = Form(False),
         supplement_onecolumn: bool = Form(False),
+        exclude_figures: bool = Form(False),
         equation_audit: bool = Form(False),
         check_references: bool = Form(False),
         want_zip: bool = Form(False),
@@ -732,6 +733,7 @@ def create_app(*, workdir: Path | None = None, gui_secret: str | None = None) ->
                 supplement_docx_path=supplement_path,
                 references_bib_path=references_path,
                 supplement_onecolumn=supplement_onecolumn,
+                exclude_figures=exclude_figures,
                 check_references=check_references,
             )
         except ValueError as exc:

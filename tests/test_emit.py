@@ -268,6 +268,76 @@ def test_unresolved_figure_anchor_degrades_to_comment_and_warning(tmp_path, monk
 
 
 # --------------------------------------------------------------------------- #
+# Text-only emit (exclude_figures / --exclude-figures)
+# --------------------------------------------------------------------------- #
+
+
+def test_exclude_figures_drops_all_figures(tmp_path):
+    docx = _copy_fixture(tmp_path, FIGURES_DOCX)
+
+    # Sanity: the default run DOES embed figures, so the exclusion assertions
+    # below are meaningful (figures.docx carries fig1/fig2/fig3).
+    included = emit_project(docx, "revtex4-2", tmp_path / "with-figs")
+    assert "\\includegraphics" in included.body_tex_path.read_text(encoding="utf-8")
+
+    result = emit_project(docx, "revtex4-2", tmp_path / "no-figs", exclude_figures=True)
+    body = result.body_tex_path.read_text(encoding="utf-8")
+
+    # No image, no leftover anchor, no unresolved placeholder, no float.
+    assert "\\includegraphics" not in body
+    assert "%%FIGURE:" not in body
+    assert "UNRESOLVED FIGURE" not in body
+    assert "\\begin{figure}" not in body
+    # Nothing copied into figures/, and the result reports zero figures.
+    assert not any(p.name.startswith("fig") for p in result.figures_dir.iterdir())
+    assert result.figure_count == 0
+    assert result.figures == ()
+    # Exclusion is a requested mode, not a degradation -- it emits no figure warning.
+    assert not any("figure" in w.message.lower() for w in result.warnings)
+
+
+def test_exclude_figures_clears_images_from_a_prior_included_run(tmp_path):
+    # Privacy contract: toggling exclude ON for an existing tree must not leave
+    # the previous run's images behind (they would also ride into a .zip export).
+    docx = _copy_fixture(tmp_path, FIGURES_DOCX)
+    output = tmp_path / "output"
+
+    first = emit_project(docx, "revtex4-2", output)
+    assert any(p.name.startswith("fig") for p in first.figures_dir.iterdir())
+
+    second = emit_project(docx, "revtex4-2", output, exclude_figures=True)
+    assert not any(p.name.startswith("fig") for p in second.figures_dir.iterdir())
+
+
+def test_exclude_figures_strips_even_an_unmatched_anchor(tmp_path, monkeypatch):
+    # The included-mode sibling above turns a stray %%FIGURE:99%% into a loud
+    # UNRESOLVED placeholder + warning; under exclude it must vanish silently.
+    import latextify.emit.project as project_mod
+    from latextify.ingest.pandoc import convert_docx_to_body as real_convert
+
+    docx = _copy_fixture(tmp_path, FIGURES_DOCX)
+
+    def fake_convert(docx_path, media_dir, **kwargs):
+        real = real_convert(docx_path, media_dir, **kwargs)
+        return BodyConversionResult(
+            tex=real.tex + "\n\nSee also %%FIGURE:99%% here.\n",
+            media_dir=real.media_dir,
+            figure_count=real.figure_count,
+            citation_count=real.citation_count,
+            findings=real.findings,
+        )
+
+    monkeypatch.setattr(project_mod, "convert_docx_to_body", fake_convert)
+
+    result = emit_project(docx, "revtex4-2", tmp_path / "output", exclude_figures=True)
+    body = result.body_tex_path.read_text(encoding="utf-8")
+
+    assert "%%FIGURE:99%%" not in body
+    assert "UNRESOLVED FIGURE" not in body
+    assert not any("figure 99" in w.message for w in result.warnings)
+
+
+# --------------------------------------------------------------------------- #
 # Anchor resolution: citations
 # --------------------------------------------------------------------------- #
 #

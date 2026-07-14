@@ -243,6 +243,7 @@ def emit_project(
     journals_dir: Path | None = None,
     crossref_mailto: str | None = None,
     report: bool = True,
+    exclude_figures: bool = False,
     supplement_docx_path: Path | str | None = None,
     references_bib_path: Path | str | None = None,
     supplement_onecolumn: bool = False,
@@ -272,6 +273,12 @@ def emit_project(
             field codes). Defaults to the ``LATEXTIFY_CROSSREF_MAILTO`` env var
             or a documented placeholder; override it with a real address.
         report: if True (default), generate report.md; if False, skip it.
+        exclude_figures: when True, emit a text-only project -- every figure
+            float is dropped (no ``\\includegraphics``, no leftover caption)
+            and no image is copied into ``figures/``. Citations, tables, and
+            equations are unaffected. Applied to the supplement too, so a
+            two-document conversion stays consistently text-only. Defaults to
+            ``False`` (figures included).
         check_references: when True, every assembled reference is validated
             online against Crossref (opt-in; needs a network connection). A
             reference with a DOI is resolved and its stored fields compared
@@ -340,8 +347,20 @@ def emit_project(
         # by the journal metadata template, so remove it from the body to
         # avoid it appearing twice in the PDF (gap 4).
         body_result = convert_docx_to_body(docx_path, media_dir, strip_front_matter=True)
-        figures = resolve_overrides(extract_figures(docx_path, media_dir), docx_path)
-        figure_files, figures, conversion_warnings = _copy_figures(figures, figures_dir)
+        if exclude_figures:
+            # Text-only emit (--exclude-figures): skip figure extraction and
+            # copy entirely; the anchors left in the body are stripped below.
+            figures: tuple[Figure, ...] = ()
+            figure_files: dict[int, str] = {}
+            conversion_warnings: tuple[EmitWarning, ...] = ()
+            # Re-running with figures now excluded into an existing tree would
+            # otherwise leave a prior run's images behind (and in any .zip
+            # export) -- clear this document's owned figures so "exclude" truly
+            # ships no images.
+            _prune_stale_figures(figures_dir, "", set())
+        else:
+            figures = resolve_overrides(extract_figures(docx_path, media_dir), docx_path)
+            figure_files, figures, conversion_warnings = _copy_figures(figures, figures_dir)
 
     citation_result = extract_field_citations(docx_path)
 
@@ -349,7 +368,12 @@ def emit_project(
     # literal "\n" boundaries, so normalize before resolving anchors.
     raw_tex = body_result.tex.replace("\r\n", "\n").replace("\r", "\n")
     resolved_tex, anchor_warnings = _resolve_anchors(
-        raw_tex, figures, figure_files, citation_result.citations, journal.figure_env
+        raw_tex,
+        figures,
+        figure_files,
+        citation_result.citations,
+        journal.figure_env,
+        exclude_figures=exclude_figures,
     )
     # body_result.findings (heading clamps, table-normalization degradations --
     # item 25) previously never left convert_docx_to_body's own return value;
@@ -436,6 +460,7 @@ def emit_project(
             main_entries=entries,
             bib_entries=bib_entries,
             onecolumn=supplement_onecolumn,
+            exclude_figures=exclude_figures,
         )
         # references.bib is shared by main.tex and supplement.tex; rewrite it
         # with the merged set now that any new SI-only references were
@@ -766,6 +791,20 @@ def _resolve_figure_anchors(
     return tex, warnings
 
 
+def _strip_figure_anchors(tex: str) -> str:
+    """Delete every figure float/anchor for a text-only (``exclude_figures``) emit.
+
+    Both anchor shapes the emitter otherwise resolves -- case 1 (pandoc-wrapped
+    ``\\begin{figure}...\\end{figure}``) and case 2 (a bare anchor plus any
+    leftover "Figure N:" caption paragraph) -- are removed wholesale, so neither
+    an ``\\includegraphics`` nor an orphan caption survives. Citation anchors are
+    left untouched: ``--exclude-figures`` drops figures only.
+    """
+    tex = _WRAPPED_FIGURE_RE.sub("", tex)
+    tex = _BARE_FIGURE_RE.sub("", tex)
+    return tex
+
+
 def _resolve_citation_anchors(
     tex: str, citations: tuple[Citation, ...]
 ) -> tuple[str, list[EmitWarning]]:
@@ -818,9 +857,21 @@ def _resolve_anchors(
     figure_files: dict[int, str],
     citations: tuple[Citation, ...],
     figure_env: FigureEnv,
+    *,
+    exclude_figures: bool = False,
 ) -> tuple[str, tuple[EmitWarning, ...]]:
-    figures_by_number = {figure.number: figure for figure in figures}
-    tex, figure_warnings = _resolve_figure_anchors(tex, figures_by_number, figure_files, figure_env)
+    if exclude_figures:
+        # Text-only emit: figures were never extracted/copied, so there is
+        # nothing to resolve -- just remove their anchors. No figure warnings
+        # can arise (an unresolved-anchor warning only makes sense when we were
+        # trying to place a figure).
+        tex = _strip_figure_anchors(tex)
+        figure_warnings: list[EmitWarning] = []
+    else:
+        figures_by_number = {figure.number: figure for figure in figures}
+        tex, figure_warnings = _resolve_figure_anchors(
+            tex, figures_by_number, figure_files, figure_env
+        )
     tex, citation_warnings = _resolve_citation_anchors(tex, citations)
     tex, sentinel_warnings = _resolve_citation_sentinels(tex, citations)
     return tex, tuple(figure_warnings + citation_warnings + sentinel_warnings)
@@ -1006,6 +1057,7 @@ def _emit_supplement(
     main_entries: list[RefEntry],
     bib_entries: list[RefEntry] | None = None,
     onecolumn: bool = False,
+    exclude_figures: bool = False,
 ) -> tuple[SupplementResult, list[RefEntry]]:
     """Emit the supplementary-material project (plan item 21).
 
@@ -1049,14 +1101,22 @@ def _emit_supplement(
     with tempfile.TemporaryDirectory(prefix="latextify-si-media-") as tmp:
         si_media_dir = Path(tmp)
         si_body_result = convert_docx_to_body(supplement_docx_path, si_media_dir)
-        si_figures = resolve_overrides(
-            extract_figures(supplement_docx_path, si_media_dir),
-            supplement_docx_path,
-            prefix="S",
-        )
-        si_figure_files, si_figures, si_conversion_warnings = _copy_figures(
-            si_figures, figures_dir, prefix="S"
-        )
+        if exclude_figures:
+            # Text-only emit: keep the SI consistent with the main document.
+            si_figures: tuple[Figure, ...] = ()
+            si_figure_files: dict[int, str] = {}
+            si_conversion_warnings: tuple[EmitWarning, ...] = ()
+            # Clear any S-prefixed images a prior (figure-including) run left.
+            _prune_stale_figures(figures_dir, "S", set())
+        else:
+            si_figures = resolve_overrides(
+                extract_figures(supplement_docx_path, si_media_dir),
+                supplement_docx_path,
+                prefix="S",
+            )
+            si_figure_files, si_figures, si_conversion_warnings = _copy_figures(
+                si_figures, figures_dir, prefix="S"
+            )
 
     si_raw_tex = si_body_result.tex.replace("\r\n", "\n").replace("\r", "\n")
     warnings.extend(
@@ -1098,7 +1158,12 @@ def _emit_supplement(
     # resolve to the ordinary single-column environment.
     si_figure_env = _ONECOLUMN_FIGURE_ENV if onecolumn else journal.figure_env
     si_resolved_tex, si_anchor_warnings = _resolve_anchors(
-        si_raw_tex, si_figures, si_figure_files, si_citations, si_figure_env
+        si_raw_tex,
+        si_figures,
+        si_figure_files,
+        si_citations,
+        si_figure_env,
+        exclude_figures=exclude_figures,
     )
     warnings.extend(
         EmitWarning(message=f"supplement: {w.message}") for w in si_anchor_warnings

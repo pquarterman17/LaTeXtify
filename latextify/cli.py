@@ -4,6 +4,7 @@ Current surface (plan items 5, 16, 18, 19, 20, 21, 23):
 
     latextify convert paper.docx --journal revtex4-2 [--output output] \\
         [--citation-style numeric|authoryear] [--pdf] [--report/--no-report] \\
+        [--exclude-figures] \\  # text-only project (no figures)
         [--supplement si.docx] [--combine-supplement] \\  # Supplementary Material (item 21)
         [--check-references] [--review]  # online Crossref check + interactive review
     latextify batch folder --journal J [--citation-style S] [--pdf] \\
@@ -78,6 +79,13 @@ def convert(
         "--report/--no-report",
         help="Generate report.md (default: on).",
     ),
+    exclude_figures: bool = typer.Option(
+        False,
+        "--exclude-figures",
+        help="Emit a text-only project: drop every figure (no \\includegraphics, "
+        "no captions) and copy no images. Tables, equations, and citations are "
+        "kept. Applies to the supplement too. Off by default.",
+    ),
     supplement: Path = typer.Option(
         None,
         "--supplement",
@@ -150,6 +158,7 @@ def convert(
             citation_style=citation_style,
             crossref_mailto=crossref_mailto,
             report=report,
+            exclude_figures=exclude_figures,
             supplement_docx_path=supplement,
             references_bib_path=references,
             supplement_onecolumn=supplement_onecolumn,
