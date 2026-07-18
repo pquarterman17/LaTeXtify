@@ -39,6 +39,7 @@ from lxml import etree
 
 from latextify.citations.bib import escape_latex
 from latextify.compile.tectonic import compile_document
+from latextify.ingest._xml import hardened_xml_parser
 from latextify.ingest.archive_guard import validate_docx_archive
 from latextify.model.equations import (
     EquationAuditResult,
@@ -90,7 +91,7 @@ def _read_document_root(docx_path: Path | str) -> etree._Element:
             raise ValueError(f"{docx_path}: not a valid .docx (missing word/document.xml)")
         with archive.open("word/document.xml") as fh:
             try:
-                return etree.parse(fh).getroot()
+                return etree.parse(fh, parser=hardened_xml_parser()).getroot()
             except etree.XMLSyntaxError as exc:
                 raise ValueError(
                     f"{docx_path}: not a valid .docx "

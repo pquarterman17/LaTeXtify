@@ -45,6 +45,7 @@ from pathlib import Path
 import yaml
 from lxml import etree
 
+from latextify.ingest._xml import hardened_xml_parser
 from latextify.model.meta import Affiliation, Author, Meta
 
 # IR convention (model/meta.py): Author.affiliations are 0-based indices into
@@ -123,7 +124,7 @@ def _read_document_root(docx_path: Path):
             raise ValueError(f"{docx_path}: not a valid .docx (missing word/document.xml)")
         with archive.open("word/document.xml") as fh:
             try:
-                return etree.parse(fh).getroot()
+                return etree.parse(fh, parser=hardened_xml_parser()).getroot()
             except etree.XMLSyntaxError as exc:
                 raise ValueError(
                     f"{docx_path}: not a valid .docx "

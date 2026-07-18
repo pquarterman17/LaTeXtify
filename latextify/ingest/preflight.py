@@ -28,6 +28,7 @@ from pathlib import Path
 from lxml import etree
 
 from latextify.figures.extract import looks_like_figure_caption
+from latextify.ingest._xml import hardened_xml_parser
 from latextify.ingest.archive_guard import validate_docx_archive
 from latextify.ingest.formats import is_alt_manuscript_format
 from latextify.model.preflight import (
@@ -66,7 +67,7 @@ def _read_member_xml(docx_path: str | Path, member: str) -> etree._Element | Non
             return None
         with archive.open(member) as fh:
             try:
-                return etree.parse(fh).getroot()
+                return etree.parse(fh, parser=hardened_xml_parser()).getroot()
             except etree.XMLSyntaxError as exc:
                 raise ValueError(
                     f"{docx_path}: not a valid .docx (malformed XML in {member}: {exc})"
