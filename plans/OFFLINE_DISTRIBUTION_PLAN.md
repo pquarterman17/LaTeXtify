@@ -10,7 +10,7 @@ distribution channels.
 
 **Status:** Active
 **Created:** 2026-07-12
-**Updated:** 2026-07-12
+**Updated:** 2026-07-18
 
 ---
 
@@ -96,10 +96,6 @@ latextify make-kit --target win-x64          →    copy folder via USB
    - [ ] Confirm emit-only (docx → LaTeX) works with no network
    - [ ] Confirm `--pdf` works (Tectonic + warmed cache) with no network
 
-2. **Correct the advertised Python floor** — README badge says `3.11+` but the
-   package is `>=3.10` and proven on 3.10.
-   - [ ] Change the badge to `3.10+`
-
 3. **Document the executable-lockdown reality + emit-only fallback** in
    `README-OFFLINE.md` — be honest that pandoc is always required and Tectonic is
    required for `--pdf`, and give the emit-only path when a binary is blocked.
@@ -148,6 +144,9 @@ latextify make-kit --target win-x64          →    copy folder via USB
 
 ## Completed
 
+- ~~**#2 Correct the advertised Python floor**~~ (2026-07-17) — README badge
+  changed to `3.10+` in commit dbf94fd (matches `requires-python` and the CI
+  matrix). Closed retroactively 2026-07-18 during a reconciliation pass.
 - ~~**3.10 floor validated**~~ (2026-07-12) — full offline suite (966 tests)
   passes under Python 3.10; no 3.11+ features in the codebase. Recorded here as
   the evidence behind the "floor at 3.10" decision; the remaining 3.10 work is
