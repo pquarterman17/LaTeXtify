@@ -75,6 +75,14 @@ outputs, online checks); per-document settings live on the file rows.
   — Tier 3 with its own gate.)
 - Sequencing: **frontend split + UX first** (round 1), pipeline work second;
   plan lives in tracked `plans/` (this file).
+- Override confirm (item 4) is an **inline confirm row** under the dropdown
+  (⚠ "<journal>'s standard is <default> — use <choice> anyway? Confirm /
+  Revert"), with conversion blocked until resolved; no browser dialogs.
+  Journal change resets to the new journal's default and clears the state.
+- Option explanations are **hover-only tooltips on every option** (panel
+  stays compact); no permanently visible hint lines.
+- Default citation mode is **numeric for all three multi-mode journals**
+  (elsarticle, sn-jnl, wiley); single-mode journals default to their mode.
 
 ### Direction backlog (owner priorities, 2026-07-18 — NOT booked here)
 
