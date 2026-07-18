@@ -43,6 +43,7 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 import yaml
+from lxml import etree
 
 from latextify.model.meta import Affiliation, Author, Meta
 
@@ -113,8 +114,6 @@ def _qn(tag: str) -> str:
 
 
 def _read_document_root(docx_path: Path):
-    from lxml import etree
-
     try:
         archive = zipfile.ZipFile(docx_path)
     except (zipfile.BadZipFile, OSError) as exc:
@@ -912,7 +911,8 @@ def load_or_create_meta(docx_path: Path | str, sidecar_path: Path | str | None =
     if target.exists():
         return load_meta(target)
 
-    guess = guess_meta(docx_path)
+    from .metadata_guess_nondocx import guess_meta_dispatch
+    guess = guess_meta_dispatch(docx_path)
     text = render_paper_yaml(guess.meta, guess.checks)
     if not target.exists():  # re-check right before writing: write-once, never clobber
         target.write_text(text, encoding="utf-8")

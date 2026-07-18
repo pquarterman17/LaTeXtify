@@ -13,6 +13,7 @@
   };
   const IMAGE_EXTS = ["png", "jpg", "jpeg", "tif", "tiff", "gif", "bmp", "webp", "eps", "svg", "pdf"];
   const REF_EXTS = ["bib", "ris", "json", "xml", "nbib"];
+  const MANUSCRIPT_EXTS = ["docx", "odt", "rtf", "md"];
   const CITATION_MODE_LABELS = { numeric: "numeric — [1], [2]", authoryear: "author–year — (Doe, 2020)" };
   const el = (id) => document.getElementById(id);
   const dropzone = el("dropzone");
@@ -33,12 +34,14 @@
   // uses, and keep the file picker's filter in sync (one source of truth —
   // the server's upload allowlists mirror these).
   el("dropzone-text").innerHTML =
-    "Drag &amp; drop files here — manuscript <strong>.docx</strong>, figures (<strong>." +
-    IMAGE_EXTS.join(" .") + "</strong>), references (<strong>." + REF_EXTS.join(" .") +
-    "</strong>) — or click to choose";
+    "Drag &amp; drop files here — manuscript (<strong>." + MANUSCRIPT_EXTS.join(" .") +
+    "</strong>), figures (<strong>." + IMAGE_EXTS.join(" .") + "</strong>), references (<strong>." +
+    REF_EXTS.join(" .") + "</strong>) — or click to choose";
   fileInput.setAttribute(
     "accept",
-    [".docx"].concat(IMAGE_EXTS.map((e) => "." + e), REF_EXTS.map((e) => "." + e)).join(",")
+    MANUSCRIPT_EXTS.map((e) => "." + e)
+      .concat(IMAGE_EXTS.map((e) => "." + e), REF_EXTS.map((e) => "." + e))
+      .join(",")
   );
 
   // Each entry: {file, role, number}. `number` only meaningful for figures.
@@ -61,7 +64,7 @@
 
   function detectRole(file) {
     const e = ext(file.name);
-    if (e === "docx") {
+    if (MANUSCRIPT_EXTS.includes(e)) {
       const hasMain = entries.some((x) => x.role === "main");
       const looksSupp = /supp|_si|\bsi\b|supporting|supplement/i.test(file.name);
       return hasMain || looksSupp ? "supplement" : "main";

@@ -29,6 +29,7 @@ from lxml import etree
 
 from latextify.figures.extract import looks_like_figure_caption
 from latextify.ingest.archive_guard import validate_docx_archive
+from latextify.ingest.formats import is_alt_manuscript_format
 from latextify.model.preflight import (
     Location,
     PreflightFinding,
@@ -316,7 +317,23 @@ def build_style_inventory(
 
 
 def run_preflight(docx_path: str | Path) -> PreflightReport:
-    """Open `docx_path` and run every detector, returning the full report."""
+    """Open `docx_path` and run every detector, returning the full report.
+
+    Every detector here reads ``word/document.xml``/``word/styles.xml``
+    directly -- .odt/.rtf/.md have no OOXML equivalent to inspect, so one of
+    those degrades to an empty report (no findings, no style inventory)
+    rather than crashing; the emitter notes this in report.md so the gap is
+    visible, not silent. Anything else (an unrecognized extension, a bogus or
+    corrupt file) still falls through to the normal docx validation below,
+    which correctly rejects it.
+    """
+    if is_alt_manuscript_format(docx_path):
+        return PreflightReport(
+            findings=(),
+            styles=StyleInventory(
+                heading_levels_used=frozenset(), title_style_used=False, caption_style_used=False
+            ),
+        )
     # Bound archive resource use before decompressing any member (see
     # latextify.ingest.archive_guard). This is the earliest ingest boundary for
     # both the main document and the supplement, which each call run_preflight.

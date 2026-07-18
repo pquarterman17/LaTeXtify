@@ -40,9 +40,14 @@ from pathlib import Path
 
 from lxml import etree
 
+from ..ingest.formats import is_docx
 from ..model.reconcile import ReconcileRecord, ReconciliationReport
 from ..model.refs import RefEntry
 from . import crossref, reconcile
+from .authoryear_index import (  # noqa: F401 -- _raw_leading_surname re-exported for tests
+    _raw_leading_surname,
+    build_author_year_index,
+)
 from .fields import read_document_xml
 from .reconcile import ReferenceItem
 
@@ -135,8 +140,13 @@ def segment_reference_list(docx_path: Path | str) -> ReferenceList:
     Returns every subsequent non-empty paragraph as a :class:`ReferenceItem`
     (leading list numbers parsed into ``number``), to the end of the body.
     References are conventionally the last section; content after them is out of
-    scope and would be collected too.
+    scope and would be collected too. A non-.docx manuscript (no
+    ``word/document.xml`` to read) dispatches to
+    :mod:`latextify.citations.reflist_nondocx` instead.
     """
+    if not is_docx(docx_path):
+        from .reflist_nondocx import segment_reference_list_from_manuscript
+        return segment_reference_list_from_manuscript(Path(docx_path))
     root = etree.fromstring(read_document_xml(docx_path))
     paragraphs = list(root.iter(_q("p")))
 
@@ -201,47 +211,6 @@ class PlaintextResult:
         return ReconciliationReport(records=self.records)
 
 
-# Leading initials of a Western author name at a raw citation's start, e.g.
-# "J. E. " in "J. E. Davies, O. Hellwig, ...", so the surname after them can be
-# picked out.
-_RAW_INITIALS_RE = re.compile(r"^(?:[A-Z]\.[\s]*)+")
-
-
-def _raw_leading_surname(title: str) -> str | None:
-    """Leading author surname parsed from a raw-text reference's title.
-
-    A Crossref-unmatched entry keeps the whole typed citation in its ``.title``
-    ("J. E. Davies, O. Hellwig, ... (2004).") with no structured author, so the
-    author-year index would otherwise never point at it. Pull the first author's
-    surname ("davies") after any leading initials. Returns ``None`` when the head
-    (text before the first comma) does not look like an author name -- e.g. a
-    "See Supplemental Material ..." note -- so junk is not indexed.
-    """
-    head = title.split(",", 1)[0].strip()
-    head = _RAW_INITIALS_RE.sub("", head).strip()
-    if not head:
-        return None
-    first = head.split()[0].strip(".'`-").lower()
-    return first if first.isalpha() and len(first) >= 2 else None
-
-
-def _build_author_year_index(entries: list[RefEntry]) -> dict[tuple[str, str], list[str]]:
-    index: dict[tuple[str, str], list[str]] = {}
-    for entry in entries:
-        if not entry.year:
-            continue
-        if entry.authors:
-            first = entry.authors[0]
-            surname = (first.family or first.literal).strip().lower()
-        else:
-            # Raw-text (Crossref-unmatched) entry: surname lives in the title.
-            surname = _raw_leading_surname(entry.title or "") or ""
-        if not surname:
-            continue
-        index.setdefault((surname, entry.year), []).append(entry.key)
-    return index
-
-
 def reconstruct_citations(
     docx_path: Path | str,
     *,
@@ -284,7 +253,7 @@ def reconstruct_citations(
         entries=outcome.entries,
         records=outcome.records,
         keys_by_number=keys_by_number,
-        author_year_keys=_build_author_year_index(outcome.entries),
+        author_year_keys=build_author_year_index(outcome.entries),
         heading=reflist.heading,
         has_reference_list=True,
     )

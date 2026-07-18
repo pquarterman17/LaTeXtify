@@ -116,6 +116,8 @@ from latextify.emit.submission import (
 from latextify.figures.convert import convert_for_latex
 from latextify.figures.extract import extract_figures
 from latextify.figures.override import resolve_overrides
+from latextify.ingest.formats import non_docx_warnings
+from latextify.ingest.metadata_guess import sidecar_path_for
 from latextify.ingest.pandoc import convert_docx_to_body
 from latextify.ingest.preflight import run_preflight
 from latextify.model.emit import EmitResult, EmitWarning, SupplementResult
@@ -306,6 +308,7 @@ def emit_project(
     preflight_report = run_preflight(docx_path)
 
     journal = templates_loader.load(journal_name, journals_dir=journals_dir)
+    sidecar_existed = sidecar_path_for(docx_path).exists()  # before load_meta may write it
     meta = load_meta(docx_path)
     if anonymize:
         # After load_meta so the (write-once) paper.yaml sidecar keeps the real
@@ -353,6 +356,7 @@ def emit_project(
     # like every other stage's findings do.
     body_warnings = [EmitWarning(message=finding.message) for finding in body_result.findings]
     warnings = body_warnings + list(conversion_warnings) + list(anchor_warnings)
+    warnings.extend(EmitWarning(message=m) for m in non_docx_warnings(docx_path, sidecar_existed))
 
     reconciliation: ReconciliationReport | None = None
     if citation_result.citations:

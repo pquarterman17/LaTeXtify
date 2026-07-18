@@ -233,6 +233,7 @@ _ALLOWED_FIGURE_EXTS = frozenset(
     {"png", "jpg", "jpeg", "tif", "tiff", "gif", "bmp", "webp", "eps", "svg", "pdf"}
 )
 _ALLOWED_REFERENCE_EXTS = frozenset({"bib", "ris", "json", "xml", "nbib"})
+_ALLOWED_MANUSCRIPT_EXTS = frozenset({"docx", "odt", "rtf", "md"})
 
 
 def _lower_ext(name: str | None) -> str:
@@ -536,10 +537,18 @@ def create_app(
         # Pandoc runs. Extensions are a fast first gate; the archive CONTENTS are
         # still validated downstream (emit_project raises ValueError -> 400 for a
         # non-DOCX/corrupt file), so this never *replaces* content checking.
-        if _lower_ext(main.filename) != "docx":
-            raise HTTPException(status_code=400, detail="main manuscript must be a .docx file")
-        if supplement is not None and _lower_ext(supplement.filename) != "docx":
-            raise HTTPException(status_code=400, detail="supplement must be a .docx file")
+        allowed_manuscripts = ", ".join("." + e for e in sorted(_ALLOWED_MANUSCRIPT_EXTS))
+        if _lower_ext(main.filename) not in _ALLOWED_MANUSCRIPT_EXTS:
+            raise HTTPException(
+                status_code=400, detail=f"main manuscript must be one of: {allowed_manuscripts}"
+            )
+        if (
+            supplement is not None
+            and _lower_ext(supplement.filename) not in _ALLOWED_MANUSCRIPT_EXTS
+        ):
+            raise HTTPException(
+                status_code=400, detail=f"supplement must be one of: {allowed_manuscripts}"
+            )
         if references is not None:
             if _lower_ext(references.filename) not in _ALLOWED_REFERENCE_EXTS:
                 raise HTTPException(
@@ -572,18 +581,17 @@ def create_app(
         upload_dir = session_dir / "upload"
         upload_dir.mkdir(parents=True, exist_ok=True)
 
-        # Server-selected names, never client basenames: a main and a references
-        # upload can no longer collide (main.docx vs references.bib), and no
-        # attacker-controlled name reaches the filesystem. The DOCX's own content
-        # -- not its filename -- carries the manuscript metadata.
+        # Server-selected names, never client basenames -- but the ON-DISK
+        # EXTENSION must survive: ingest.formats routes pandoc purely off it,
+        # so a widened-format upload forced to ".docx" would misread as corrupt.
         supplement_path: Path | None = None
         references_path: Path | None = None
         try:
-            main_path = upload_dir / "main.docx"
+            main_path = upload_dir / f"main.{_lower_ext(main.filename)}"
             await _stream_upload(main, main_path, max_bytes=max_upload_bytes)
 
             if supplement is not None:
-                supplement_path = upload_dir / "supplement.docx"
+                supplement_path = upload_dir / f"supplement.{_lower_ext(supplement.filename)}"
                 await _stream_upload(supplement, supplement_path, max_bytes=max_upload_bytes)
 
             if references is not None:

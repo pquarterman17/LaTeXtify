@@ -65,6 +65,7 @@ import panflute as pf
 import pypandoc
 
 from latextify.figures.crop import attach_crops, image_crops
+from latextify.ingest.formats import pandoc_format_for
 from latextify.model import Figure
 
 # A figure caption label: an optional "Supplemental/Supplementary" prefix, then
@@ -100,11 +101,24 @@ def extract_figures(docx_path: Path | str, media_dir: Path | str) -> tuple[Figur
     media_dir = Path(media_dir)
     media_dir.mkdir(parents=True, exist_ok=True)
 
+    # Format routing (GUI_OPTIONS_FORMATS_PLAN item 9): pandoc reads
+    # .odt/.rtf/.md natively, and this whole function's Image-node walk is
+    # already format-agnostic -- only _textbox_captions below is docx-
+    # specific, and it already degrades to {} for any non-docx file (a bad/
+    # foreign zip, or a valid zip with no word/document.xml member). A
+    # format pandoc's own reader can't extract images from (e.g. a bare RTF
+    # with no Image AST nodes) naturally yields zero figures here too --
+    # graceful, not a special case.
     ast_json = pypandoc.convert_file(
         str(docx_path),
         to="json",
-        format="docx",
-        extra_args=["--extract-media", str(media_dir)],
+        format=pandoc_format_for(docx_path),
+        # --resource-path: markdown's externally-referenced images (relative
+        # to the manuscript, not pandoc's own cwd) otherwise fail to resolve.
+        extra_args=[
+            "--extract-media", str(media_dir),
+            "--resource-path", str(docx_path.parent),
+        ],
     )
     doc = pf.load(io.StringIO(ast_json))
     textbox_captions = _textbox_captions(docx_path)

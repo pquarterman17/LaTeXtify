@@ -24,6 +24,7 @@ from dataclasses import dataclass, field
 
 from lxml import etree
 
+from ..ingest.formats import is_docx
 from ..model.refs import Citation, RefEntry
 from . import endnote, mendeley, wordnative, zotero
 from .bib import assign_keys
@@ -269,7 +270,14 @@ def extract_field_citations(docx_path) -> ExtractionResult:
     Walks fields in document order, parses each recognized citation field into
     RefEntry objects, de-duplicates references across the whole document,
     assigns collision-free BibTeX keys, and builds the ordered Citation list.
+
+    A non-.docx manuscript (.odt/.rtf/.md) has no Word field-code machinery to
+    walk at all -- degrades to an empty result rather than raising, so the
+    emitter's existing plain-text citation fallback
+    (:mod:`latextify.citations.plaintext`) takes over unconditionally.
     """
+    if not is_docx(docx_path):
+        return ExtractionResult()
     fields = flatten_fields(assemble_fields(read_document_xml(docx_path)))
     citation_fields = [(f, kind) for f in fields if (kind := classify_marker(f.instruction))]
 

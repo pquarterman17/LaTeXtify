@@ -105,6 +105,15 @@ def test_index_citation_styles_have_labels(tmp_path):
     assert "author–year — (Doe, 2020)" in html
 
 
+def test_index_advertises_manuscript_formats(tmp_path):
+    """Dropzone text + file-picker filter advertise .odt/.rtf/.md alongside
+    .docx (GUI_OPTIONS_FORMATS_PLAN item 9) -- generated from the same
+    MANUSCRIPT_EXTS list detectRole uses, one source of truth with the
+    server's widened accept-list."""
+    html = _ui_text(_client(tmp_path))
+    assert '"docx", "odt", "rtf", "md"' in html
+
+
 def test_split_static_assets_are_served(tmp_path):
     """The split page assets come back from /static with sane content types."""
     client = _client(tmp_path)
@@ -697,6 +706,58 @@ def test_convert_multi_invalid_journal_is_400(tmp_path):
         )
     assert 400 <= response.status_code < 500
     assert "no-such-journal" in response.json()["detail"]
+
+
+# --------------------------------------------------------------------------- #
+# POST /api/convert-multi -- widened manuscript accept-list (.odt/.rtf/.md)
+# --------------------------------------------------------------------------- #
+
+
+def test_convert_multi_rejects_unsupported_manuscript_extension(tmp_path):
+    client = _client(tmp_path)
+    response = client.post(
+        "/api/convert-multi",
+        files={"main": ("paper.txt", b"not a manuscript", "text/plain")},
+        data={"journal": "revtex4-2", "pdf": "false"},
+    )
+    assert response.status_code == 400
+    detail = response.json()["detail"].lower()
+    assert "main manuscript must be one of" in detail
+    for ext in (".docx", ".odt", ".rtf", ".md"):
+        assert ext in detail
+
+
+def test_convert_multi_accepts_a_markdown_main_manuscript(tmp_path):
+    client = _client(tmp_path)
+    md = (
+        b"# GUI Markdown Fixture\n\n"
+        b"A body paragraph for the widened-accept-list GUI test.\n"
+    )
+    response = client.post(
+        "/api/convert-multi",
+        files={"main": ("paper.md", md, "text/markdown")},
+        data={"journal": "revtex4-2", "pdf": "false"},
+    )
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["success"] is True
+    body_tex = (Path(body["output_dir"]) / "generated" / "body.tex").read_text(encoding="utf-8")
+    assert "widened-accept-list GUI test" in body_tex
+
+
+def test_convert_multi_rejects_unsupported_supplement_extension(tmp_path):
+    client = _client(tmp_path)
+    with FIGURES_DOCX.open("rb") as main_fh:
+        response = client.post(
+            "/api/convert-multi",
+            files={
+                "main": ("figures.docx", main_fh, "application/octet-stream"),
+                "supplement": ("si.txt", b"not a manuscript", "text/plain"),
+            },
+            data={"journal": "revtex4-2", "pdf": "false"},
+        )
+    assert response.status_code == 400
+    assert "supplement must be one of" in response.json()["detail"].lower()
 
 
 # --------------------------------------------------------------------------- #
