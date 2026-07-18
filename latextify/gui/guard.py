@@ -61,14 +61,18 @@ def _host_is_loopback(host_header: str | None) -> bool:
     return _bare_host(host_header) in _LOOPBACK_HOSTS
 
 
-def _origin_is_loopback(origin: str) -> bool:
-    """True if an ``Origin`` (``scheme://host[:port]``) is a loopback address."""
+def _origin_host(origin: str) -> str:
+    """Bare host of an ``Origin`` (``scheme://host[:port]``); "" when malformed."""
     scheme, sep, authority = origin.partition("://")
     if not sep or not authority:
-        return False
+        return ""
     # An Origin has no path, but guard against one anyway before host parsing.
-    authority = authority.split("/", 1)[0]
-    return _host_is_loopback(authority)
+    return _bare_host(authority.split("/", 1)[0])
+
+
+def _origin_is_loopback(origin: str) -> bool:
+    """True if an ``Origin`` (``scheme://host[:port]``) is a loopback address."""
+    return _origin_host(origin) in _LOOPBACK_HOSTS
 
 
 def require_gui_auth(request: Request) -> None:
@@ -78,13 +82,27 @@ def require_gui_auth(request: Request) -> None:
     loopback, any present Origin is loopback, and the per-process secret header
     matches. Attach with ``dependencies=[Depends(require_gui_auth)]`` so the
     endpoint signature is untouched.
-    """
-    if not _host_is_loopback(request.headers.get("host")):
-        raise HTTPException(status_code=403, detail="forbidden")
 
-    origin = request.headers.get("origin")
-    if origin is not None and not _origin_is_loopback(origin):
-        raise HTTPException(status_code=403, detail="forbidden")
+    Hosted-demo mode (``app.state.demo_mode``, see :mod:`latextify.gui.demo`)
+    is legitimately served from a public hostname, so the loopback layers are
+    replaced by a same-origin check: any present ``Origin`` must name the same
+    host the request was addressed to. The secret layer is unchanged -- a
+    cross-origin attacker page still cannot read the served page to learn it,
+    so the CSRF defence holds on the public deployment too.
+    """
+    if getattr(request.app.state, "demo_mode", False):
+        origin = request.headers.get("origin")
+        if origin is not None and _origin_host(origin) != _bare_host(
+            request.headers.get("host") or ""
+        ):
+            raise HTTPException(status_code=403, detail="forbidden")
+    else:
+        if not _host_is_loopback(request.headers.get("host")):
+            raise HTTPException(status_code=403, detail="forbidden")
+
+        origin = request.headers.get("origin")
+        if origin is not None and not _origin_is_loopback(origin):
+            raise HTTPException(status_code=403, detail="forbidden")
 
     expected = getattr(request.app.state, "gui_secret", None)
     provided = request.headers.get(SECRET_HEADER, "")

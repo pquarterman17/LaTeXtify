@@ -26,7 +26,10 @@ Security
 --------
 This module never chooses the bind address -- see :func:`latextify.cli.gui`,
 which binds ``127.0.0.1`` only (uploaded manuscripts are private; this is a
-local tool, not a hosted service).
+local tool, not a hosted service). The one sanctioned hosted deployment is the
+public *demo* (``create_app(demo=True)``, run by ``python -m
+latextify.gui.demo``), which trades the loopback assumptions for the explicit
+hardening in :mod:`latextify.gui.demo`.
 
 The PDF endpoint never treats a URL path segment as a filesystem path: a
 successful ``--pdf`` compile mints a random ``uuid4`` token mapped, server
@@ -49,7 +52,6 @@ from pathlib import Path
 
 from fastapi import Depends, FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse
-from pydantic import BaseModel
 
 from latextify.audit.equations import write_equation_audit
 from latextify.citations.bib import entries_to_bib
@@ -57,8 +59,27 @@ from latextify.citations.corrections import apply_corrections, entry_from_dict, 
 from latextify.compile.pdf import staple_pdfs
 from latextify.compile.tectonic import compile_document, ensure_tectonic
 from latextify.emit.project import emit_project
+from latextify.gui.demo import (
+    DEMO_MAX_UPLOAD_BYTES,
+    RateLimiter,
+    inject_demo_banner,
+    require_demo_rate_limit,
+)
 from latextify.gui.folder_picker import pick_folder_native
 from latextify.gui.guard import inject_gui_secret, new_gui_secret, require_gui_auth
+from latextify.gui.schemas import (
+    ApplyCorrectionsRequest,
+    ApplyCorrectionsResponse,
+    ConvertMultiResponse,
+    ConvertResponse,
+    ExportRequest,
+    ExportResponse,
+    FieldProblemOut,
+    JournalInfo,
+    PickFolderResponse,
+    ValidationOut,
+    ValidationRecordOut,
+)
 from latextify.model.refs import RefEntry
 from latextify.model.validate import CorrectionDecision, ValidationReport
 from latextify.report.render import write_report
@@ -76,151 +97,11 @@ _INDEX_HTML = _STATIC_DIR / "index.html"
 _UPLOAD_CHUNK = 1 << 20  # 1 MiB
 _MAX_UPLOAD_BYTES = 250 * 1024 * 1024  # 250 MB per file
 
-
-class JournalInfo(BaseModel):
-    """One entry of ``GET /api/journals``."""
-
-    name: str
-    display_name: str
-    modes: list[str]
-
-
-class ConvertResponse(BaseModel):
-    """Body of ``POST /api/convert``."""
-
-    output_dir: str
-    warnings: list[str]
-    report_md: str
-    success: bool
-    pdf_url: str | None = None
-
-
-class ConvertMultiResponse(BaseModel):
-    """Body of ``POST /api/convert-multi`` (the multi-file intake).
-
-    Every ``*_url`` is a server-issued download token or ``None`` when that
-    artifact was not produced (no supplement, combine off, audit off, zip off,
-    or a compile that failed). ``success`` is ``True`` only when EVERY requested
-    compilation succeeded -- a main-success-but-supplement-failure run reports
-    ``success=False`` (partial), never a misleading success. The per-document
-    ``main_compile_success`` / ``supplement_compile_success`` fields give the
-    breakdown (``None`` when that document was not compiled). ``success`` is
-    ``True`` when ``--pdf`` was off and emission succeeded.
-    """
-
-    output_dir: str
-    warnings: list[str]
-    report_md: str
-    success: bool
-    #: Per-document compile outcomes; None when that document was not compiled.
-    main_compile_success: bool | None = None
-    supplement_compile_success: bool | None = None
-    pdf_url: str | None = None
-    supplement_pdf_url: str | None = None
-    combined_pdf_url: str | None = None
-    audit_pdf_url: str | None = None
-    zip_url: str | None = None
-    #: Folder the selected artifacts were copied to (when an inline export was requested).
-    exported_to: str | None = None
-    #: Names of the artifacts copied to ``exported_to``.
-    exported: list[str] = []
-    #: Opaque handle to this conversion's produced artifacts, for a later
-    #: ``POST /api/export`` (the preview-then-export flow). None only if the
-    #: session store is somehow unavailable.
-    export_token: str | None = None
-    #: Structured online reference-validation results (None unless the run was
-    #: asked to check references). Drives the interactive review panel.
-    validation: ValidationOut | None = None
-
-
-class PickFolderResponse(BaseModel):
-    """Body of ``POST /api/pick-folder``. ``path`` is "" when cancelled/unavailable."""
-
-    path: str
-
-
-class ExportRequest(BaseModel):
-    """Body of ``POST /api/export`` -- copy a prior conversion's artifacts out.
-
-    ``export_token`` is the handle returned by ``/api/convert-multi``; it maps,
-    server side only, to that run's produced artifacts. This lets the UI preview
-    a conversion first and export the *same* result afterwards without
-    recompiling.
-    """
-
-    export_token: str
-    export_dir: str
-    export_types: list[str] = []
-
-
-class ExportResponse(BaseModel):
-    """Body of ``POST /api/export``."""
-
-    exported_to: str
-    exported: list[str]
-    warnings: list[str] = []
-
-
-class FieldProblemOut(BaseModel):
-    """One field of a flagged reference that disagrees with Crossref."""
-
-    field: str
-    ours: str
-    canonical: str
-
-
-class ValidationRecordOut(BaseModel):
-    """One flagged reference, with the data the review UI needs to act on."""
-
-    key: str
-    status: str
-    doi: str | None = None
-    suggested_doi: str | None = None
-    problems: list[FieldProblemOut] = []
-    #: The current reference as flat editable fields (title, authors, ...).
-    entry: dict[str, str]
-    #: Crossref's version as the same flat fields (``None`` when there is no
-    #: canonical record, i.e. a dead DOI or an unverifiable reference).
-    canonical: dict[str, str] | None = None
-
-
-class ValidationOut(BaseModel):
-    """Structured reference-validation results for the review panel."""
-
-    total: int
-    flagged: int
-    counts: dict[str, int]
-    records: list[ValidationRecordOut] = []  # flagged references only
-
-
-class CorrectionDecisionIn(BaseModel):
-    """One author decision posted to ``/api/apply-corrections``.
-
-    ``action`` is ``approve`` | ``deny`` | ``edit``. ``entry`` (the flat edited
-    fields) is required only for ``edit``.
-    """
-
-    key: str
-    action: str
-    entry: dict[str, str] | None = None
-
-
-class ApplyCorrectionsRequest(BaseModel):
-    """Body of ``POST /api/apply-corrections``."""
-
-    export_token: str
-    decisions: list[CorrectionDecisionIn] = []
-
-
-class ApplyCorrectionsResponse(BaseModel):
-    """Body of ``POST /api/apply-corrections``."""
-
-    applied: int
-    success: bool
-    pdf_url: str | None = None
-    supplement_pdf_url: str | None = None
-    combined_pdf_url: str | None = None
-    warnings: list[str] = []
+#: 403 detail for the server-filesystem endpoints when demo mode disables them.
+_DEMO_FS_DISABLED = (
+    "folder export is disabled in the hosted demo -- download the PDF or the "
+    "project .zip instead"
+)
 
 
 def _safe_filename(name: str | None) -> str:
@@ -425,7 +306,9 @@ async def _stream_upload(
             out.write(chunk)
 
 
-def create_app(*, workdir: Path | None = None, gui_secret: str | None = None) -> FastAPI:
+def create_app(
+    *, workdir: Path | None = None, gui_secret: str | None = None, demo: bool = False
+) -> FastAPI:
     """Build the GUI FastAPI app.
 
     Args:
@@ -438,6 +321,10 @@ def create_app(*, workdir: Path | None = None, gui_secret: str | None = None) ->
             carry (see :mod:`latextify.gui.guard`). Defaults to a fresh random
             token; tests inject a deterministic value without weakening the
             production default.
+        demo: hosted-demo hardening (see :mod:`latextify.gui.demo`): disables
+            the server-filesystem export endpoints, lowers the upload cap,
+            rate-limits conversions per client, and injects a privacy banner.
+            The default (off) is the unchanged local tool.
     """
     root = (
         Path(workdir) if workdir is not None else Path(tempfile.mkdtemp(prefix="latextify-gui-"))
@@ -476,12 +363,19 @@ def create_app(*, workdir: Path | None = None, gui_secret: str | None = None) ->
     # Only the served page learns it (index() injects it); a cross-origin
     # attacker page can't read it under the same-origin policy.
     app.state.gui_secret = gui_secret if gui_secret is not None else new_gui_secret()
+    # Hosted-demo hardening (see latextify.gui.demo). A None limiter makes the
+    # rate-limit dependency a no-op, so the local tool is untouched.
+    app.state.demo_mode = demo
+    app.state.rate_limiter = RateLimiter() if demo else None
+    max_upload_bytes = DEMO_MAX_UPLOAD_BYTES if demo else _MAX_UPLOAD_BYTES
 
     @app.get("/", include_in_schema=False)
     def index() -> HTMLResponse:
         # Serve the static page with the per-process secret injected so the
         # page's own fetches carry it; the raw file on disk never contains it.
         html = _INDEX_HTML.read_text(encoding="utf-8")
+        if demo:
+            html = inject_demo_banner(html)
         return HTMLResponse(inject_gui_secret(html, app.state.gui_secret))
 
     @app.get("/api/journals", response_model=list[JournalInfo])
@@ -509,7 +403,7 @@ def create_app(*, workdir: Path | None = None, gui_secret: str | None = None) ->
     @app.post(
         "/api/convert",
         response_model=ConvertResponse,
-        dependencies=[Depends(require_gui_auth)],
+        dependencies=[Depends(require_gui_auth), Depends(require_demo_rate_limit)],
     )
     async def convert(
         file: UploadFile = File(...),
@@ -528,7 +422,7 @@ def create_app(*, workdir: Path | None = None, gui_secret: str | None = None) ->
         docx_path = upload_dir / _safe_filename(file.filename)
 
         try:
-            await _stream_upload(file, docx_path)
+            await _stream_upload(file, docx_path, max_bytes=max_upload_bytes)
             result = emit_project(
                 docx_path,
                 journal,
@@ -609,7 +503,7 @@ def create_app(*, workdir: Path | None = None, gui_secret: str | None = None) ->
     @app.post(
         "/api/convert-multi",
         response_model=ConvertMultiResponse,
-        dependencies=[Depends(require_gui_auth)],
+        dependencies=[Depends(require_gui_auth), Depends(require_demo_rate_limit)],
     )
     async def convert_multi(
         main: UploadFile = File(...),
@@ -644,6 +538,10 @@ def create_app(*, workdir: Path | None = None, gui_secret: str | None = None) ->
             raise HTTPException(status_code=400, detail="combine requires a supplement file")
         if combine and not pdf:
             raise HTTPException(status_code=400, detail="combine requires pdf compilation")
+        # Demo: never write to a caller-chosen path on a shared host. Checked
+        # up front so the expensive conversion never runs just to be refused.
+        if demo and export_dir and export_dir.strip():
+            raise HTTPException(status_code=403, detail=_DEMO_FS_DISABLED)
         if len(figures) != len(figure_numbers):
             raise HTTPException(
                 status_code=400,
@@ -696,15 +594,15 @@ def create_app(*, workdir: Path | None = None, gui_secret: str | None = None) ->
         references_path: Path | None = None
         try:
             main_path = upload_dir / "main.docx"
-            await _stream_upload(main, main_path)
+            await _stream_upload(main, main_path, max_bytes=max_upload_bytes)
 
             if supplement is not None:
                 supplement_path = upload_dir / "supplement.docx"
-                await _stream_upload(supplement, supplement_path)
+                await _stream_upload(supplement, supplement_path, max_bytes=max_upload_bytes)
 
             if references is not None:
                 references_path = upload_dir / f"references.{_lower_ext(references.filename)}"
-                await _stream_upload(references, references_path)
+                await _stream_upload(references, references_path, max_bytes=max_upload_bytes)
 
             # Figure files land as figures/fig<N>.<ext> beside the main docx so the
             # existing folder-convention override picks them up. NB overrides REPLACE
@@ -718,7 +616,11 @@ def create_app(*, workdir: Path | None = None, gui_secret: str | None = None) ->
                     ext = _lower_ext(fig_upload.filename)
                     if ext == "jpeg":  # normalize deliberately so fig<N>.jpg is canonical
                         ext = "jpg"
-                    await _stream_upload(fig_upload, figures_override_dir / f"fig{number}.{ext}")
+                    await _stream_upload(
+                        fig_upload,
+                        figures_override_dir / f"fig{number}.{ext}",
+                        max_bytes=max_upload_bytes,
+                    )
         except Exception:  # an oversized/failed upload must not orphan the session dir
             _rmtree(session_dir)
             raise
@@ -951,6 +853,8 @@ def create_app(*, workdir: Path | None = None, gui_secret: str | None = None) ->
         # Opens a native folder dialog on the machine hosting the server (the
         # user's own machine -- this is a localhost tool). Returns "" when
         # cancelled or unavailable; the UI then falls back to manual entry.
+        if demo:  # a dialog on a shared host is meaningless; the UI hides this
+            raise HTTPException(status_code=403, detail=_DEMO_FS_DISABLED)
         return PickFolderResponse(path=pick_folder_native())
 
     @app.post(
@@ -964,6 +868,8 @@ def create_app(*, workdir: Path | None = None, gui_secret: str | None = None) ->
         # (e.g. server restarted, or inputs changed so the UI dropped it) is a
         # 404 telling the user to convert again -- never a path lookup from the
         # request.
+        if demo:  # never write to a caller-chosen path on a shared host
+            raise HTTPException(status_code=403, detail=_DEMO_FS_DISABLED)
         session = app.state.export_sessions.get(req.export_token)
         if session is None:
             raise HTTPException(
@@ -989,7 +895,7 @@ def create_app(*, workdir: Path | None = None, gui_secret: str | None = None) ->
     @app.post(
         "/api/apply-corrections",
         response_model=ApplyCorrectionsResponse,
-        dependencies=[Depends(require_gui_auth)],
+        dependencies=[Depends(require_gui_auth), Depends(require_demo_rate_limit)],
     )
     def apply_corrections_endpoint(req: ApplyCorrectionsRequest) -> ApplyCorrectionsResponse:
         """Apply reviewed reference corrections to a prior run and recompile.
