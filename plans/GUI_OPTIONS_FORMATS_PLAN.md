@@ -8,8 +8,8 @@ and figure input formats). Frontend-first: round one restructures and
 clarifies the page, round two adds the per-document emission and new intake
 paths behind it.
 
-**Status:** Active — Tiers 1 + 2 complete; only Tier 3 (external-converter
-gate + CLI parity) remains
+**Status:** Active — Tiers 1 + 2 complete; CLI parity (#13) shipped; only
+Tier 3 items 11–12 remain, both blocked on the external-converter owner gate
 **Created:** 2026-07-18
 **Updated:** 2026-07-18
 
@@ -119,14 +119,21 @@ recorded in the 2026-07-18 discussion have exactly one home.
 12. **`.doc` manuscripts** — LibreOffice-headless pre-conversion to docx as
     an optional, auto-detected dependency with an actionable error otherwise
 
-13. **CLI parity for submission options** — expose `--layout` / line numbers
-    / double spacing / `--anonymize` / `--figures-at-end` on `latextify
-    convert` (deferred from item 6, which shipped GUI-first; cli.py sits at
-    its ratchet pin and needs an offsetting extraction first)
+*(Items 11 and 12 remain blocked on the external-converter owner gate below.)*
 
 ---
 
 ## Completed
+
+- ~~**#13 CLI parity for submission options**~~ (2026-07-18) — `latextify
+  convert` now exposes `--columns`, `--line-numbers`, `--double-spacing`,
+  `--anonymize`, `--figures-at-end` plus the `--supplement-*` layout triplet,
+  all wired through `parse_layout_form` into the existing `emit_project`
+  kwargs (mirrors the GUI's convert-multi). Verified end-to-end: emits
+  `\documentclass[...,reprint,linenumbers,endfloats]{revtex4-2}` and
+  `\author{Anonymous Author(s)}`. To stay under the cli.py 517 ratchet pin,
+  extracted the `equations` command to `latextify/cli_equations.py` (cli.py
+  713→…→509); pin held. 7 CLI tests added.
 
 - ~~**#9 Manuscript inputs .odt / .rtf / .md**~~ (2026-07-18) — new
   `ingest/formats.py` routes pandoc's input format by extension; the five
