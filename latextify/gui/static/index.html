@@ -200,7 +200,7 @@
     <div class="controls">
       <div class="field">
         <label for="crossref-email">Crossref email (for plain-text citation matching)</label>
-        <input id="crossref-email" type="email" placeholder="you@example.org" />
+        <input id="crossref-email" type="email" placeholder="you@example.org" title="Optional. Sent only to Crossref as a contact address so reference lookups use their faster 'polite' server pool. Never published or stored in the output." />
       </div>
       <div class="field"></div>
     </div>
@@ -296,7 +296,7 @@
   };
   const IMAGE_EXTS = ["png", "jpg", "jpeg", "tif", "tiff", "gif", "bmp", "webp", "eps", "svg", "pdf"];
   const REF_EXTS = ["bib", "ris"];
-
+  const CITATION_MODE_LABELS = { numeric: "numeric — [1], [2]", authoryear: "author–year — (Doe, 2020)" };
   const el = (id) => document.getElementById(id);
   const dropzone = el("dropzone");
   const fileInput = el("file-input");
@@ -305,9 +305,8 @@
   const journalSelect = el("journal-select");
   const citationSelect = el("citation-select");
   const crossrefEmail = el("crossref-email");
-  const optPdf = el("opt-pdf"), optCombine = el("opt-combine"), optSi1col = el("opt-si1col");
-  const optZip = el("opt-zip"), optNoFigs = el("opt-nofigs"), optAudit = el("opt-audit");
-  const optCheckRefs = el("opt-checkrefs");
+  const optPdf = el("opt-pdf"), optCombine = el("opt-combine"), optSi1col = el("opt-si1col"),
+    optZip = el("opt-zip"), optNoFigs = el("opt-nofigs"), optAudit = el("opt-audit"), optCheckRefs = el("opt-checkrefs");
   const exportDir = el("export-dir");
   const browseBtn = el("browse-btn");
   const exportBtn = el("export-btn");
@@ -343,10 +342,8 @@
   // Editable reference fields shown in the whole-entry editor (server contract:
   // these keys round-trip through entry_to_dict / entry_from_dict).
   const REVIEW_FIELDS = [
-    ["title", "Title", true], ["authors", "Authors (Family, Given; …)", true],
-    ["year", "Year", false], ["journal", "Journal", true],
-    ["volume", "Volume", false], ["issue", "Issue", false],
-    ["pages", "Pages", false], ["doi", "DOI", true],
+    ["title", "Title", true], ["authors", "Authors (Family, Given; …)", true], ["year", "Year", false], ["journal", "Journal", true],
+    ["volume", "Volume", false], ["issue", "Issue", false], ["pages", "Pages", false], ["doi", "DOI", true],
   ];
   const REVIEW_STATUS_LABELS = {
     mismatch: "field mismatch", dead_doi: "dead DOI",
@@ -507,9 +504,12 @@
     if (!journal) return;
     journal.modes.forEach((mode) => {
       const opt = document.createElement("option");
-      opt.value = mode; opt.textContent = mode;
+      opt.value = mode;
+      opt.textContent = CITATION_MODE_LABELS[mode] || mode;
       citationSelect.appendChild(opt);
     });
+    citationSelect.disabled = journal.modes.length === 1;
+    citationSelect.title = journal.modes.length === 1 ? "This journal's class supports only this citation style." : "";
   }
 
   async function loadJournals() {

@@ -80,6 +80,12 @@ def test_index_wires_the_multifile_ui(tmp_path):
         assert f'id="{toggle}"' in html, toggle
 
 
+def test_index_citation_styles_have_labels(tmp_path):
+    """The static page labels citation styles with human-readable examples."""
+    html = _client(tmp_path).get("/").text
+    assert "author–year — (Doe, 2020)" in html
+
+
 def test_index_wires_the_review_panel(tmp_path):
     """The static page carries the reference-review panel + apply wiring."""
     html = _client(tmp_path).get("/").text
