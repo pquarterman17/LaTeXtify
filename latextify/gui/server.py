@@ -22,8 +22,15 @@ Endpoints
     GET  /api/zip/{token}     stream a project .zip (server-issued token only)
     POST /api/clean-docx      sanitize an uploaded .docx -> token + CleanReport
     GET  /api/clean/{token}   stream the sanitized .docx (server-issued token only)
+    POST /api/export-format   export an uploaded manuscript to HTML/Markdown -> token
+    GET  /api/alt/{token}     stream the exported HTML/Markdown (server-issued token only)
     POST /api/pick-folder     open a native folder dialog on the server host
     POST /api/export          copy a previewed conversion's artifacts to a folder
+
+The two single-upload processing routes (``/api/clean-docx``,
+``/api/export-format``) are registered by :mod:`latextify.gui.uploads_routes`
+rather than defined here -- moved out, with the token-gated GET downloads in
+:mod:`latextify.gui.downloads`, to keep this module under its size-ratchet pin.
 
 Security
 --------
@@ -86,7 +93,6 @@ from latextify.gui.guard import inject_gui_secret, new_gui_secret, require_gui_a
 from latextify.gui.schemas import (
     ApplyCorrectionsRequest,
     ApplyCorrectionsResponse,
-    CleanDocxResponse,
     ConvertMultiResponse,
     ConvertResponse,
     ExportRequest,
@@ -97,7 +103,16 @@ from latextify.gui.schemas import (
     ValidationOut,
     ValidationRecordOut,
 )
-from latextify.ingest.docx_clean import sanitize_docx
+from latextify.gui.upload_utils import (
+    _ALLOWED_FIGURE_EXTS,
+    _ALLOWED_MANUSCRIPT_EXTS,
+    _ALLOWED_REFERENCE_EXTS,
+    _MAX_UPLOAD_BYTES,
+    _lower_ext,
+    _safe_filename,
+    _stream_upload,
+)
+from latextify.gui.uploads_routes import register_upload_routes
 from latextify.model.refs import RefEntry
 from latextify.model.validate import CorrectionDecision, ValidationReport
 from latextify.report.render import write_report
@@ -107,35 +122,11 @@ from latextify.templates.loader import ManifestError
 _STATIC_DIR = Path(__file__).resolve().parent / "static"
 _INDEX_HTML = _STATIC_DIR / "index.html"
 
-# Upload streaming: never hold a whole payload in RAM. Starlette already spools
-# a large upload to a temp file, so the memory spike comes only from a single
-# ``.read()`` of the whole thing -- copying in 1 MiB chunks is the fix. The cap
-# is generous: real manuscripts embed multi-MB figures, and a figure file
-# dropped separately can be large too.
-_UPLOAD_CHUNK = 1 << 20  # 1 MiB
-_MAX_UPLOAD_BYTES = 250 * 1024 * 1024  # 250 MB per file
-
 #: 403 detail for the server-filesystem endpoints when demo mode disables them.
 _DEMO_FS_DISABLED = (
     "folder export is disabled in the hosted demo -- download the PDF or the "
     "project .zip instead"
 )
-
-
-def _safe_filename(name: str | None) -> str:
-    """Strip any directory components from a client-supplied filename.
-
-    ``UploadFile.filename`` is attacker-controlled. The file is always
-    written under a fresh per-session directory this module creates (never a
-    path built from the filename itself), so this is defense in depth rather
-    than the only guard -- but a bare basename keeps the on-disk name
-    predictable and stops something like ``"../../evil.docx"`` from ever
-    being interpreted as a relative path by anything downstream.
-    """
-    if not name:
-        return "upload.docx"
-    candidate = Path(name).name
-    return candidate or "upload.docx"
 
 
 _VALIDATION_STATUS_ORDER = (
@@ -176,49 +167,6 @@ def _build_validation_out(
     return ValidationOut(
         total=report.total, flagged=report.flagged_count, counts=counts, records=records
     )
-
-
-# Upload validation (audit item 5). Case-insensitive extension allowlists,
-# checked before anything touches disk or Pandoc. Figure extensions mirror the
-# formats the conversion pipeline already handles (raster + vector + PDF);
-# references accept every reference-manager export
-# latextify.citations.refs_import.parse_references_file recognizes.
-_ALLOWED_FIGURE_EXTS = frozenset(
-    {"png", "jpg", "jpeg", "tif", "tiff", "gif", "bmp", "webp", "eps", "svg", "pdf"}
-)
-_ALLOWED_REFERENCE_EXTS = frozenset({"bib", "ris", "json", "xml", "nbib"})
-_ALLOWED_MANUSCRIPT_EXTS = frozenset({"docx", "odt", "rtf", "md"})
-
-
-def _lower_ext(name: str | None) -> str:
-    """Lowercase extension without the dot ("Paper.DOCX" -> "docx"); "" if none."""
-    return Path(name or "").suffix.lstrip(".").lower()
-
-
-async def _stream_upload(
-    upload: UploadFile, dest: Path, *, max_bytes: int = _MAX_UPLOAD_BYTES
-) -> None:
-    """Copy ``upload`` to ``dest`` in chunks, never buffering the whole payload.
-
-    Enforces a generous per-file size cap: a payload past the cap raises HTTP
-    413 (and removes the partial file) rather than filling the disk. ``dest``'s
-    parent must already exist.
-    """
-    total = 0
-    with dest.open("wb") as out:
-        while chunk := await upload.read(_UPLOAD_CHUNK):
-            total += len(chunk)
-            if total > max_bytes:
-                out.close()
-                dest.unlink(missing_ok=True)
-                raise HTTPException(
-                    status_code=413,
-                    detail=(
-                        f"{upload.filename or 'upload'} exceeds the "
-                        f"{max_bytes // (1024 * 1024)} MB per-file limit"
-                    ),
-                )
-            out.write(chunk)
 
 
 def create_app(
@@ -273,6 +221,10 @@ def create_app(
     # served by GET /api/clean/{token}). Populated only by a successful
     # POST /api/clean-docx run.
     app.state.clean_tokens: dict[str, Path] = {}
+    # Opaque token -> exported .html/.md path (same pattern as clean_tokens;
+    # served by GET /api/alt/{token}). Populated only by a successful
+    # POST /api/export-format run.
+    app.state.alt_tokens: dict[str, Path] = {}
     # Opaque token -> {"output_dir": Path, "produced": dict[str, Path]} for a
     # completed convert-multi run, so POST /api/export can copy that exact
     # result's artifacts out later (the preview-then-export flow) without
@@ -784,53 +736,12 @@ def create_app(
             validation=validation_out,
         )
 
-    @app.post(
-        "/api/clean-docx",
-        response_model=CleanDocxResponse,
-        dependencies=[Depends(require_gui_auth), Depends(require_demo_rate_limit)],
-    )
-    async def clean_docx_endpoint(main: UploadFile = File(...)) -> CleanDocxResponse:
-        """Sanitize an uploaded .docx: accept tracked changes, drop comments and
-        hidden runs, strip docProps, scrub settings.xml rsids. Returns a download
-        token for the cleaned copy plus a summary of what was removed."""
-        if _lower_ext(main.filename) != "docx":
-            raise HTTPException(status_code=400, detail="file must be a .docx")
-
-        session_dir = root / uuid.uuid4().hex
-        upload_dir = session_dir / "upload"
-        upload_dir.mkdir(parents=True, exist_ok=True)
-        src_path = upload_dir / "main.docx"
-        dest_path = session_dir / "cleaned.docx"
-
-        try:
-            await _stream_upload(main, src_path, max_bytes=max_upload_bytes)
-            report = sanitize_docx(src_path, dest_path)
-        except ValueError as exc:
-            _rmtree(session_dir)  # a failed clean must not leave the upload behind
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
-        except Exception:
-            _rmtree(session_dir)
-            raise
-
-        _register_session(
-            app,
-            uuid.uuid4().hex,
-            {"output_dir": session_dir, "produced": {}},
-            session_dir=session_dir,
-            now=time.time(),
-        )
-        clean_url = f"/api/clean/{_issue_token(app.state.clean_tokens, dest_path)}"
-        return CleanDocxResponse(
-            clean_url=clean_url,
-            tracked_changes_accepted=report.tracked_changes_accepted,
-            comments_removed=report.comments_removed,
-            hidden_runs_removed=report.hidden_runs_removed,
-            docprops_stripped=report.docprops_stripped,
-            rsids_scrubbed=report.rsids_scrubbed,
-        )
-
-    # Token-gated artifact downloads (/api/pdf, /api/zip, /api/clean) live in
-    # latextify.gui.downloads to keep this module under its size-ratchet pin.
+    # Single-manuscript upload-processing routes (/api/clean-docx,
+    # /api/export-format) live in latextify.gui.uploads_routes, and their
+    # token-gated GET downloads (/api/pdf, /api/zip, /api/clean, /api/alt) in
+    # latextify.gui.downloads -- both extracted to keep this module under its
+    # size-ratchet pin.
+    register_upload_routes(app, root=root, max_upload_bytes=max_upload_bytes)
     register_download_routes(app)
 
     @app.post(

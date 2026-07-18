@@ -18,9 +18,10 @@ under its size-ratchet pin:
   unchanged.
 - :func:`register_download_routes`, which attaches the token-gated GET
   download endpoints (``/api/pdf/{token}``, ``/api/zip/{token}``,
-  ``/api/clean/{token}``) to an app. Each does a dict lookup by an opaque
-  server-issued token, never a filesystem path built from the URL -- see
-  ``server.py``'s module docstring Security section for the full rationale.
+  ``/api/clean/{token}``, ``/api/alt/{token}``) to an app. Each does a dict
+  lookup by an opaque server-issued token, never a filesystem path built from
+  the URL -- see ``server.py``'s module docstring Security section for the
+  full rationale.
 """
 
 from __future__ import annotations
@@ -54,8 +55,13 @@ def _issue_token(tokens: dict[str, Path], path: Path) -> str:
 
 
 def _prune_dead_tokens(app: FastAPI) -> None:
-    """Drop PDF/zip/clean tokens whose backing file is gone (its session was cleaned)."""
-    for store in (app.state.pdf_tokens, app.state.zip_tokens, app.state.clean_tokens):
+    """Drop PDF/zip/clean/alt tokens whose backing file is gone (its session was cleaned)."""
+    for store in (
+        app.state.pdf_tokens,
+        app.state.zip_tokens,
+        app.state.clean_tokens,
+        app.state.alt_tokens,
+    ):
         for token, path in list(store.items()):
             if not path.is_file():
                 store.pop(token, None)
@@ -124,3 +130,11 @@ def register_download_routes(app: FastAPI) -> None:
             ),
             filename="cleaned.docx",
         )
+
+    @app.get("/api/alt/{token}", include_in_schema=False)
+    def get_alt(token: str) -> FileResponse:
+        alt_path = app.state.alt_tokens.get(token)
+        if alt_path is None or not alt_path.is_file():
+            raise HTTPException(status_code=404, detail="unknown or expired export token")
+        media_type = "text/html" if alt_path.suffix == ".html" else "text/markdown"
+        return FileResponse(alt_path, media_type=media_type, filename=f"export{alt_path.suffix}")

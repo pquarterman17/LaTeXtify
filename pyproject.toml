@@ -112,6 +112,7 @@ select = ["E", "F", "I", "UP", "B"]
 # Same pattern, FastAPI's side: File()/Form() calls as parameter defaults are
 # the documented way to declare request-body fields.
 "latextify/gui/server.py" = ["B008"]
+"latextify/gui/uploads_routes.py" = ["B008"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
