@@ -38,8 +38,15 @@ latextify-startup.log
 .DS_Store
 Thumbs.db
 
-# Claude Code agent worktrees (live checkouts, never tracked)
+# Claude Code files (never tracked in this public repo: local agent config,
+# session worktrees, and any project-instruction files stay local-only)
 .claude/
+CLAUDE.md
+CLAUDE.local.md
+
+# Local-only working notes (hosting/ops docs, parked roadmaps -- not for the
+# public repo; see the owner's notes/ directory)
+notes/
 
 # Offline kit build output (latextify make-kit)
 /build/
