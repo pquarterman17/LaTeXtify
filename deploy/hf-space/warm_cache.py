@@ -14,6 +14,7 @@ demo visitor's report, with no build log to point at).
 
 from __future__ import annotations
 
+import subprocess
 import tempfile
 from pathlib import Path
 
@@ -24,6 +25,26 @@ from latextify.compile.tectonic import compile_document, ensure_tectonic
 _CLASSES = ("article", "revtex4-2")
 
 _TEX = "\\documentclass{%s}\n\\begin{document}\nCache warm-up.\n\\end{document}\n"
+
+
+def _print_missing_libs(binary: Path) -> None:
+    """On a loader failure, list EVERY missing shared library via ``ldd``.
+
+    The loader itself reports only the first missing library per exec, which
+    turns an incomplete apt line into one failed build per library. ldd shows
+    the whole dependency table, so a single build log names the complete fix.
+    """
+    try:
+        proc = subprocess.run(
+            ["ldd", str(binary)], capture_output=True, text=True, timeout=30
+        )
+    except (OSError, subprocess.SubprocessError):
+        return
+    missing = [line.strip() for line in proc.stdout.splitlines() if "not found" in line]
+    if missing:
+        print("missing shared libraries (full list via ldd):")
+        for line in missing:
+            print(f"  {line}")
 
 
 def main() -> int:
@@ -45,6 +66,9 @@ def main() -> int:
             else:
                 tail = "\n".join(result.raw_log.strip().splitlines()[-10:])
                 print(f"warming {cls} failed (returncode {result.returncode}):\n{tail}")
+                if "error while loading shared libraries" in result.raw_log:
+                    _print_missing_libs(tectonic)
+                    break  # every class fails identically; one report is enough
     if warmed == 0:
         print(
             "FATAL: no document class compiled -- Tectonic cannot run in this "
