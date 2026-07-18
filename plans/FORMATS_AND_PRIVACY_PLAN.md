@@ -10,7 +10,8 @@ safely.
 
 **Status:** Active
 **Created:** 2026-07-13
-**Updated:** 2026-07-18 — Tier 1 + item 3 shipped; HTML/Markdown (4, 5) next
+**Updated:** 2026-07-18 — Tier 1 + item 3 shipped; items 4/5 core+CLI shipped
+(GUI option deferred, see the items below)
 
 ---
 
@@ -65,9 +66,13 @@ docx ─pandoc─> AST ─filters─> LaTeX ─> journal project ─tectonic─>
   ipynb would only be a worse HTML.
 - **Equation handling** (the open worry when this was scoped): HTML uses
   **MathML** (native in modern browsers → works in a self-contained offline
-  page) with **MathJax** as an old-browser fallback; Markdown keeps math as
-  literal LaTeX `$...$` (renders on GitHub / pandoc viewers, raw source
-  elsewhere). This is acceptable and is the standard pandoc behavior.
+  page); Markdown keeps math as literal LaTeX `$...$` (renders on GitHub /
+  pandoc viewers, raw source elsewhere). This is the standard pandoc behavior.
+- **HTML offline strategy** (2026-07-18, was an owner gate): resolved as
+  fully self-contained/offline -- MathML only, no CDN MathJax fallback (the
+  old-browser-coverage tradeoff was judged not worth the network dependency
+  for an offline-distribution tool), plus `--standalone --embed-resources`
+  and every figure inlined as a base64 `data:` URI.
 - **Reverse `→ Word`**: deferred — recorded as a future note only, no committed
   approach. `LaTeX → Word` (pandoc, best-effort) is the tractable half;
   `PDF → Word` is a fundamentally harder layout-reconstruction problem and is
@@ -89,15 +94,30 @@ _Tier 1 is complete — see `## Completed`._
 *(Item 3 shipped — see Completed.)*
 
 4. **HTML export** — self-contained shareable page from the same AST.
-   - [ ] New export path: pandoc `to="html"`, `--embed-resources --standalone`
-   - [ ] MathML math with a MathJax fallback (offline-safe)
-   - [ ] Citation linker: reconciled markers → `<a>` + an HTML reference list
-     (the current `\cite{}` baking is LaTeX-only)
-   - [ ] `--html` CLI flag + GUI option
+   - [x] New export path: `latextify/emit/alt_formats.py::export_html`, pandoc
+     `to="html"` with `--mathml --standalone --embed-resources`, reusing the
+     AST-reading half of the body pipeline (new
+     `latextify.ingest.pandoc.convert_docx_to_ast`) and the SAME reconciled
+     figures/citations `emit_project` uses
+   - [x] MathML math (offline-safe); no MathJax fallback -- MathML alone
+     satisfies the resolved offline requirement, so the fallback was dropped
+     as unneeded complexity
+   - [x] Citation linker: reconciled markers → `<a href="#ref-N">` + an HTML
+     reference list -- field-coded citations (Zotero/Mendeley/EndNote/
+     Word-native) only; a manuscript with no citation field codes still gets
+     a numbered reference list but its in-text markers are left as typed
+     (`latextify.citations.plaintext`'s marker-linking regexes are LaTeX-text
+     specific -- porting them is a follow-up, not done here)
+   - [x] `latextify export DOCX --format html` CLI flag (new `cli_export.py`)
+   - [ ] GUI option -- deferred to a follow-up round (explicitly out of scope
+     this round to avoid conflicting with in-flight `gui/server.py` work)
 
 5. **Markdown export** — plain `.md` from the same AST (math as literal LaTeX).
-   - [ ] pandoc `to="markdown"`, figures + reference list included
-   - [ ] `--markdown` CLI flag + GUI option
+   - [x] `export_markdown`, pandoc `to="markdown"` (literal `$...$`/`$$...$$`
+     math), figures copied to `<stem>_files/` + referenced as
+     `![caption](path)`, reconciled reference list appended
+   - [x] `latextify export DOCX --format markdown` CLI flag
+   - [ ] GUI option -- deferred, same as item 4
 
 ## Tier 3 — Nice-to-Have
 
@@ -110,11 +130,7 @@ _Tier 1 is complete — see `## Completed`._
 
 ## Owner gates
 
-- **HTML offline strategy** (blocks item 4's math/asset choices): must the
-  exported HTML be fully self-contained and viewable with no internet? If yes,
-  MathML (not CDN MathJax) and `--embed-resources` are mandatory; if a CDN is
-  acceptable, MathJax gives wider old-browser coverage. Default assumption:
-  self-contained/offline (matches the tool's offline-distribution posture).
+_(none open)_
 
 ---
 

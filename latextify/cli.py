@@ -16,10 +16,11 @@ Current surface (plan items 3, 5, 16, 18, 19, 20, 21, 23):
     latextify journals              # list registered journal templates (item 18)
     latextify equations paper.docx [--output DIR] [--pdf]  # equation audit (item 23)
     latextify clean paper.docx clean.docx  # strip metadata/tracked changes/comments (item 3)
+    latextify export paper.docx --format html|markdown [--output FILE] \\
+        [--crossref-mailto EMAIL] [--references FILE]  # HTML/Markdown export (items 4-5)
     latextify gui [--port 8501] [--no-browser] [--workdir DIR]  # local web GUI (item 19)
 
 Planned (later items):
-
     latextify preflight paper.docx  # validation report only, no conversion
 """
 
@@ -36,6 +37,7 @@ from latextify.citations.corrections import apply_corrections
 from latextify.cli_batch import batch
 from latextify.cli_clean import clean
 from latextify.cli_equations import equations
+from latextify.cli_export import export
 from latextify.cli_review import review_corrections
 from latextify.compile.tectonic import compile_document, ensure_tectonic
 from latextify.emit.project import emit_project
@@ -365,10 +367,8 @@ def _run_interactive_review(result: EmitResult) -> None:
     )
 
 
-# --------------------------------------------------------------------------- #
-# Batch conversion (item 20) lives in latextify.cli_batch to keep this module
-# focused; register its command on the shared app.
-# --------------------------------------------------------------------------- #
+# Batch conversion (item 20) lives in latextify.cli_batch to keep this
+# module focused; register its command on the shared app.
 app.command()(batch)
 @app.command()
 def journals() -> None:
@@ -450,16 +450,17 @@ def make_kit_cmd(
         raise typer.Exit(code=1) from exc
 
 
-# --------------------------------------------------------------------------- #
 # Equation audit (item 23) lives in latextify.cli_equations to keep this
 # module focused; register its command on the shared app.
-# --------------------------------------------------------------------------- #
 app.command()(equations)
-
 
 # Docx sanitizer (item 3, FORMATS_AND_PRIVACY) lives in latextify.cli_clean;
 # register its command on the shared app.
 app.command(name="clean")(clean)
+
+# HTML/Markdown export (items 4-5, FORMATS_AND_PRIVACY) lives in
+# latextify.cli_export; register its command on the shared app.
+app.command(name="export")(export)
 
 
 @app.command()

@@ -108,6 +108,7 @@ select = ["E", "F", "I", "UP", "B"]
 "latextify/cli_batch.py" = ["B008"]
 "latextify/cli_clean.py" = ["B008"]
 "latextify/cli_equations.py" = ["B008"]
+"latextify/cli_export.py" = ["B008"]
 # Same pattern, FastAPI's side: File()/Form() calls as parameter defaults are
 # the documented way to declare request-body fields.
 "latextify/gui/server.py" = ["B008"]
