@@ -157,3 +157,18 @@ class ApplyCorrectionsResponse(BaseModel):
     supplement_pdf_url: str | None = None
     combined_pdf_url: str | None = None
     warnings: list[str] = []
+
+
+class CleanDocxResponse(BaseModel):
+    """Body of ``POST /api/clean-docx`` (plan item 3, FORMATS_AND_PRIVACY).
+
+    Mirrors :class:`latextify.ingest.docx_clean.CleanReport`'s fields plus a
+    download token for the sanitized copy.
+    """
+
+    clean_url: str
+    tracked_changes_accepted: int
+    comments_removed: int
+    hidden_runs_removed: int
+    docprops_stripped: bool
+    rsids_scrubbed: bool

@@ -148,11 +148,30 @@
     <h2>report.md</h2>
     <pre id="report-text" class="report"></pre>
   </section>
+
+  <section class="panel">
+    <h2>Clean a .docx (strip metadata)</h2>
+    <p class="hint">Standalone tool, independent of the conversion above: upload a manuscript to
+      get a copy with authoring metadata, tracked changes, comments, and hidden text removed —
+      the visible body content is otherwise unchanged.</p>
+    <div class="controls">
+      <div class="field">
+        <label for="clean-file">Manuscript (.docx)</label>
+        <input id="clean-file" type="file" accept=".docx" />
+      </div>
+    </div>
+    <div class="actions">
+      <button id="clean-btn" type="button" disabled>Clean .docx</button>
+    </div>
+    <div id="clean-status" class="status"></div>
+    <div id="clean-report" class="hint hidden"></div>
+  </section>
 </main>
 
 <script src="/static/app.js"></script>
 <script src="/static/results.js"></script>
 <script src="/static/export.js"></script>
 <script src="/static/review.js"></script>
+<script src="/static/clean.js"></script>
 </body>
 </html>

@@ -1547,3 +1547,70 @@ def test_apply_corrections_invalidates_stale_zip(tmp_path, monkeypatch):
     )
     assert resp.status_code == 200, resp.text
     assert "zip" not in produced  # stale snapshot invalidated -> export rebuilds fresh
+
+
+# --------------------------------------------------------------------------- #
+# POST /api/clean-docx + GET /api/clean/{token} -- docx sanitizer
+# (plan item 3, FORMATS_AND_PRIVACY)
+# --------------------------------------------------------------------------- #
+
+METADATA_TITLEPAGE_DOCX = FIXTURES / "metadata_titlepage.docx"
+
+
+def test_clean_docx_endpoint_returns_report_and_clean_url(tmp_path):
+    client = _client(tmp_path)
+    with METADATA_TITLEPAGE_DOCX.open("rb") as fh:
+        response = client.post(
+            "/api/clean-docx",
+            files={
+                "main": (
+                    "metadata_titlepage.docx",
+                    fh,
+                    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                )
+            },
+        )
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["clean_url"].startswith("/api/clean/")
+    assert body["docprops_stripped"] is True
+
+    import io
+    import zipfile
+
+    download = client.get(body["clean_url"])
+    assert download.status_code == 200
+    assert download.headers["content-type"] == (
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    )
+    with zipfile.ZipFile(io.BytesIO(download.content)) as archive:
+        names = archive.namelist()
+        assert "docProps/core.xml" not in names
+        assert "word/document.xml" in names
+
+
+def test_clean_docx_endpoint_rejects_non_docx(tmp_path):
+    response = _client(tmp_path).post(
+        "/api/clean-docx",
+        files={"main": ("paper.txt", b"not a docx", "text/plain")},
+    )
+    assert response.status_code == 400
+    assert "docx" in response.json()["detail"].lower()
+
+
+def test_clean_docx_endpoint_requires_secret(tmp_path):
+    # Loopback Host but no secret header -> rejected before the upload is used
+    # (mirrors the other mutating-endpoint guard tests).
+    client = _raw_client(tmp_path)
+    with METADATA_TITLEPAGE_DOCX.open("rb") as fh:
+        response = client.post(
+            "/api/clean-docx",
+            files={"main": ("metadata_titlepage.docx", fh, "application/octet-stream")},
+        )
+    assert response.status_code == 403
+
+
+def test_clean_endpoint_unknown_token_is_404(tmp_path):
+    client = _client(tmp_path)
+    assert client.get("/api/clean/does-not-exist").status_code == 404
