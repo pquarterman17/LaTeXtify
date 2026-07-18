@@ -787,7 +787,7 @@ def create_app(
     @app.post(
         "/api/clean-docx",
         response_model=CleanDocxResponse,
-        dependencies=[Depends(require_gui_auth)],
+        dependencies=[Depends(require_gui_auth), Depends(require_demo_rate_limit)],
     )
     async def clean_docx_endpoint(main: UploadFile = File(...)) -> CleanDocxResponse:
         """Sanitize an uploaded .docx: accept tracked changes, drop comments and
