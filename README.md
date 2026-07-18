@@ -1,5 +1,6 @@
 # LaTeXtify
 
+[![PyPI](https://img.shields.io/pypi/v/latextify)](https://pypi.org/project/latextify/)
 [![CI](https://github.com/pquarterman17/LaTeXtify/actions/workflows/ci.yml/badge.svg)](https://github.com/pquarterman17/LaTeXtify/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 ![Python](https://img.shields.io/badge/python-3.10%2B-blue)
@@ -95,7 +96,24 @@ templates. See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Install
 
-Not yet on PyPI — install from source with [uv](https://docs.astral.sh/uv/):
+Install from [PyPI](https://pypi.org/project/latextify/) with pip (Python 3.10+):
+
+```
+pip install latextify
+```
+
+That is the whole install: **no TeX setup** (the Tectonic engine is fetched and
+managed automatically the first time you use `--pdf`), and pandoc ships bundled
+in the wheel. The `latextify` command is then on your PATH. Also installable
+with `uv pip install latextify` or `pipx install latextify`.
+
+For the drag-and-drop web GUI, add the `gui` extra:
+
+```
+pip install "latextify[gui]"
+```
+
+### From source (development)
 
 ```
 git clone https://github.com/pquarterman17/LaTeXtify
@@ -113,45 +131,48 @@ and prints it for you to copy.
 
 ## Usage
 
+> Installed from source with `uv sync`? Prefix these with `uv run` (e.g.
+> `uv run latextify convert ...`), or activate the project venv first.
+
 ```
 # Convert + compile to PDF (report.md written alongside)
-uv run latextify convert paper.docx --journal revtex4-2 --pdf
+latextify convert paper.docx --journal revtex4-2 --pdf
 
 # Choose citation style where the journal supports both
-uv run latextify convert paper.docx --journal elsarticle --citation-style authoryear
+latextify convert paper.docx --journal elsarticle --citation-style authoryear
 
 # Supplementary material: S-numbered second document sharing the bibliography
-uv run latextify convert paper.docx --journal revtex4-2 --supplement si.docx --pdf
+latextify convert paper.docx --journal revtex4-2 --supplement si.docx --pdf
 
 # ...and staple the main text + supplement into one combined.pdf
-uv run latextify convert paper.docx --journal revtex4-2 --supplement si.docx --pdf --combine-supplement
+latextify convert paper.docx --journal revtex4-2 --supplement si.docx --pdf --combine-supplement
 
 # ...or render the supplement as a simplified one-column article (common for SI,
 # where formatting rules are looser), keeping the shared bibliography + S-numbers
-uv run latextify convert paper.docx --journal revtex4-2 --supplement si.docx --pdf --supplement-onecolumn
+latextify convert paper.docx --journal revtex4-2 --supplement si.docx --pdf --supplement-onecolumn
 
 # Validate references online against Crossref (DOIs, titles, authors, years...)
-uv run latextify convert paper.docx --journal revtex4-2 --check-references
+latextify convert paper.docx --journal revtex4-2 --check-references
 
 # ...and interactively approve/deny/edit each correction, then rewrite + recompile
-uv run latextify convert paper.docx --journal revtex4-2 --pdf --review
+latextify convert paper.docx --journal revtex4-2 --pdf --review
 
 # A folder of manuscripts at once (continue-on-error + summary)
-uv run latextify batch drafts/ --journal revtex4-2 --pdf
+latextify batch drafts/ --journal revtex4-2 --pdf
 
 # Equation conversion audit for equation-heavy papers
-uv run latextify equations paper.docx --pdf
+latextify equations paper.docx --pdf
 
-# Local web GUI (drag-and-drop; requires the gui extra: uv sync --extra gui)
-uv run latextify gui
+# Local web GUI (drag-and-drop; requires the gui extra: pip install "latextify[gui]")
+latextify gui
 
 # List registered journals and their citation modes
-uv run latextify journals
+latextify journals
 ```
 
 ### Web GUI
 
-`uv run latextify gui` starts a local, browser-based front end (bound to
+`latextify gui` starts a local, browser-based front end (bound to
 `127.0.0.1` only — your uploads never leave your machine) and opens a tab.
 Drop your whole submission in at once — **main `.docx`, supplement `.docx`,
 figure files, and a `.bib` reference library together** — then set each
