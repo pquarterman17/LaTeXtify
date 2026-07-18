@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/pquarterman17/LaTeXtify/actions/workflows/ci.yml/badge.svg)](https://github.com/pquarterman17/LaTeXtify/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
-![Python](https://img.shields.io/badge/python-3.11%2B-blue)
+![Python](https://img.shields.io/badge/python-3.10%2B-blue)
 
 Convert scientific manuscripts from Word (`.docx`) into journal-ready LaTeX
 projects and PDFs. Pick a journal, point at a manuscript, get a compilable
