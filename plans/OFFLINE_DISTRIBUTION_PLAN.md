@@ -10,8 +10,9 @@ distribution channels.
 
 **Status:** Active
 **Created:** 2026-07-12
-**Updated:** 2026-07-18 — item 1 PROVEN via the no-network sandbox on Python
-3.10 (Overall: PASS); item 9 (make-kit --zip MAX_PATH) still open
+**Updated:** 2026-07-18 — Tiers 1 + 2 fully shipped (items 1–6, 9); only Tier 3
+7/8 remain (both gated on need/audience). PyPI publish is wired but needs the
+two owner steps before `pip install latextify` is live.
 
 ---
 
@@ -90,26 +91,11 @@ latextify make-kit --target win-x64          →    copy folder via USB
 
 ## Tier 1 — High Impact
 
-*(Item 1 proven — see Completed. Items 2 already shipped.)*
-
-3. **Document the executable-lockdown reality + emit-only fallback** in
-   `README-OFFLINE.md` — be honest that pandoc is always required and Tectonic is
-   required for `--pdf`, and give the emit-only path when a binary is blocked.
-   - [ ] Add a short "if a binary is blocked" section (soft vs hard lockdown)
-   - [ ] State that emit-only avoids Tectonic but still needs pandoc
+*(All shipped — see Completed.)*
 
 ## Tier 2 — Medium Impact
 
-4. **Add a CI gate that install-tests a kit on Python 3.10** so a future
-   dependency bump can't silently break the floor (today only 3.13/Linux is
-   gated).
-
-5. **Recommend/document native Windows kit builds** over the Linux cross-build —
-   native build warms the TeX cache on Windows (the cross path ships
-   `--no-warm-tex` and copies a Linux-warmed cache), which is more robust.
-
-6. **Publish to PyPI** — the "normal version" for online users: one workflow,
-   same wheel, trusted publishing. Enables `pip install latextify`.
+*(All shipped — see Completed.)*
 
 ## Tier 3 — Nice-to-Have
 
@@ -122,14 +108,6 @@ latextify make-kit --target win-x64          →    copy folder via USB
 8. **One-click self-extractor / installer** (extract + run `install.py` + drop a
    shortcut) — only if a non-technical or broad audience materializes. Not for
    the current known, semi-technical use case.
-
-9. **Make `make-kit --zip` robust to long build paths (Windows MAX_PATH)** —
-   found 2026-07-18: zipping a warm-tex kit whose output dir is deep (>260
-   chars) throws `FileNotFoundError` from `os.stat` on a `tex-bundle-cache`
-   member (64-char hash filenames blow MAX_PATH). The folder build is fine; only
-   `--zip` is fragile. Fix by using the `\\?\` long-path prefix (or building the
-   zip via a short temp path). Low priority — a normal short build path (`C:\lt`)
-   works — but a user could hit it.
 
 ---
 
@@ -148,6 +126,40 @@ latextify make-kit --target win-x64          →    copy folder via USB
 
 ## Completed
 
+- ~~**#9 Make `make-kit --zip` robust to long build paths (Windows MAX_PATH)**~~
+  (2026-07-18) — `_zip_kit` replaced `shutil.make_archive` with an explicit
+  `zipfile` walk routed through the existing `_long_path()` `\\?\` helper (the
+  same escape hatch `_copy_portable_cache` already used), preserving the exact
+  archive layout (regression-tested against `shutil.make_archive` output).
+  Verified against the real failing scenario: a warm-tex kit `--zip` to a deep
+  scratchpad path now produces a valid 87 MB zip (408 members incl.
+  `tex-bundle-cache`) — it threw `FileNotFoundError` before. 2 tests.
+- ~~**#6 Publish to PyPI**~~ (2026-07-18) — machinery in place:
+  `.github/workflows/publish.yml` builds sdist+wheel (`uv build` + `twine
+  check`) and publishes via **trusted publishing / OIDC** (`id-token: write`,
+  environment `pypi`), triggered ONLY on `release: published` (no push/PR/tag —
+  no accidental publish). pyproject PyPI metadata rounded out (classifiers,
+  Homepage; License left as the PEP 639 SPDX field, verified by `twine check`).
+  actionlint-clean. **Two OWNER steps remain before `pip install latextify`
+  works:** (1) register the pending trusted publisher on pypi.org (project
+  `latextify`, repo `LaTeXtify`, workflow `publish.yml`, env `pypi`);
+  (2) publish a GitHub Release to fire it.
+- ~~**#5 Recommend/document native Windows kit builds**~~ (2026-07-18) — comment
+  block in `release.yml` above the cross-build step explaining native Windows
+  builds (warming their own TeX cache) are preferred over the Linux cross-build
+  (`--no-warm-tex` + copied Linux-warmed cache) once a native runner exists.
+- ~~**#4 CI gate: install-test a kit on Python 3.10**~~ (2026-07-18) — new
+  `ci.yml` job `offline-kit-py310-windows` (windows-latest): builds an emit-only
+  3.10 kit, installs it under a real 3.10 interpreter and converts a fixture,
+  both with the network poisoned (dead proxy), asserting `main.tex`. Catches a
+  future dep bump silently breaking the 3.10 floor (CI previously gated only
+  3.13/Linux).
+- ~~**#3 Document the executable-lockdown reality + emit-only fallback**~~
+  (2026-07-18) — new `## If a binary is blocked` section in `README-OFFLINE.md`:
+  pandoc is required for every conversion (even emit-only), Tectonic only for
+  `--pdf`; soft lockdown → kit works, hard lockdown (AppLocker) → pandoc blocked,
+  can't run at all (architectural); drop `--pdf` as the fallback when only
+  Tectonic/network is unavailable.
 - ~~**#1 Prove the win-x64 kit installs and runs on Python 3.10 offline**~~
   (2026-07-18) — **the exact target scenario, now proven end-to-end.** Ran the
   sibling `offline-testbed` Windows Sandbox (`Test-OfflineInstall.ps1 -Python
