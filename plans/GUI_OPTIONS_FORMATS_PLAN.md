@@ -9,7 +9,8 @@ clarifies the page, round two adds the per-document emission and new intake
 paths behind it.
 
 **Status:** Active — Tiers 1 + 2 complete; CLI parity (#13) shipped; only
-Tier 3 items 11–12 remain, both blocked on the external-converter owner gate
+Tier 3 items 11–12 remain, parked (owner declined the external-converter
+dependency on 2026-07-18 — keep LaTeXtify dependency-light)
 **Created:** 2026-07-18
 **Updated:** 2026-07-18
 
@@ -99,7 +100,11 @@ recorded in the 2026-07-18 discussion have exactly one home.
 - **Demo redeploy** is manual (Render dashboard) — click after round 1
   lands, and per round thereafter.
 - **External converter dependency** (LibreOffice/Inkscape class) needs
-  owner sign-off before items 11–12 start.
+  owner sign-off before items 11–12 start. **Resolved (2026-07-18): declined
+  — keep LaTeXtify dependency-light (pandoc + Tectonic only, both pip-bundled
+  and offline-kit friendly).** Items 11–12 stay parked; do not start without a
+  concrete need and a fresh sign-off (a heavyweight external app can't be
+  bundled and would break the offline-distribution story).
 
 ---
 
