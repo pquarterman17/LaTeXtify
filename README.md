@@ -14,6 +14,12 @@ downloaded and managed automatically).
 latextify convert paper.docx --journal revtex4-2 --pdf
 ```
 
+**Try it online:** <https://latextify-demo.onrender.com> — a free-hosted demo
+of the GUI (shared low-power hardware: conversions are slow, uploads capped at
+25 MB, rate-limited, and the instance takes ~1 min to wake after idle). Do
+**not** upload confidential or unpublished manuscripts to the demo; install
+locally for private, full-speed conversions.
+
 ## What it does
 
 - **Journal formatting** — emits a project using the journal's real document
