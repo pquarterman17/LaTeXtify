@@ -172,3 +172,21 @@ class CleanDocxResponse(BaseModel):
     hidden_runs_removed: int
     docprops_stripped: bool
     rsids_scrubbed: bool
+
+
+class AltExportResponse(BaseModel):
+    """Body of ``POST /api/export-format`` (FORMATS_AND_PRIVACY items 4-5's
+    GUI action -- the same HTML/Markdown export ``latextify export --format``
+    performs, via :mod:`latextify.emit.alt_formats`).
+
+    Mirrors :class:`latextify.model.ExportResult`'s fields plus a download
+    token for the produced file. ``warnings`` surfaces every export caveat
+    (an un-embeddable figure, the plain-text-citation fallback path, ...) --
+    always shown to the user, never silently dropped.
+    """
+
+    download_url: str
+    format: str
+    figure_count: int
+    citation_count: int
+    warnings: list[str] = []

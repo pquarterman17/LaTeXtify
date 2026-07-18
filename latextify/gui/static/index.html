@@ -166,6 +166,32 @@
     <div id="clean-status" class="status"></div>
     <div id="clean-report" class="hint hidden"></div>
   </section>
+
+  <section class="panel">
+    <h2>Export to HTML or Markdown</h2>
+    <p class="hint">Standalone tool, independent of the conversion above: export a manuscript to a
+      single self-contained <strong>.html</strong> file or a plain <strong>.md</strong> file — no
+      LaTeX project, no journal template. Figures are embedded (HTML) or copied alongside (Markdown);
+      a reconciled reference list is appended either way.</p>
+    <div class="controls">
+      <div class="field">
+        <label for="altexport-file">Manuscript</label>
+        <input id="altexport-file" type="file" accept=".docx,.odt,.rtf,.md" />
+      </div>
+      <div class="field">
+        <label for="altexport-format">Format</label>
+        <select id="altexport-format">
+          <option value="html">HTML (self-contained)</option>
+          <option value="markdown">Markdown</option>
+        </select>
+      </div>
+    </div>
+    <div class="actions">
+      <button id="altexport-btn" type="button" disabled>Export</button>
+    </div>
+    <div id="altexport-status" class="status"></div>
+    <div id="altexport-report" class="hint hidden"></div>
+  </section>
 </main>
 
 <script src="/static/app.js"></script>
@@ -173,5 +199,6 @@
 <script src="/static/export.js"></script>
 <script src="/static/review.js"></script>
 <script src="/static/clean.js"></script>
+<script src="/static/alt-export.js"></script>
 </body>
 </html>

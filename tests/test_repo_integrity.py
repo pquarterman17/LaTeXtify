@@ -32,7 +32,7 @@ SLACK = 50
 #: pins cap further growth. Lower a pin whenever you shrink its file.
 PY_PINS = {
     "latextify/emit/project.py": 1000,
-    "latextify/gui/server.py": 1021,
+    "latextify/gui/server.py": 921,
     "latextify/ingest/filters.py": 1061,
     "latextify/ingest/metadata_guess.py": 919,
     "latextify/cli.py": 517,

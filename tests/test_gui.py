@@ -1614,3 +1614,104 @@ def test_clean_docx_endpoint_requires_secret(tmp_path):
 def test_clean_endpoint_unknown_token_is_404(tmp_path):
     client = _client(tmp_path)
     assert client.get("/api/clean/does-not-exist").status_code == 404
+
+
+# --------------------------------------------------------------------------- #
+# POST /api/export-format + GET /api/alt/{token} -- HTML/Markdown export
+# (FORMATS_AND_PRIVACY items 4-5, the GUI action)
+# --------------------------------------------------------------------------- #
+
+EQUATIONS_DOCX = FIXTURES / "equations.docx"
+
+
+def test_export_format_html_returns_download_url_and_streams_html(tmp_path):
+    client = _client(tmp_path)
+    with EQUATIONS_DOCX.open("rb") as fh:
+        response = client.post(
+            "/api/export-format",
+            files={
+                "main": (
+                    "equations.docx",
+                    fh,
+                    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                )
+            },
+            data={"fmt": "html"},
+        )
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["download_url"].startswith("/api/alt/")
+    assert body["format"] == "html"
+    assert isinstance(body["figure_count"], int)
+    assert isinstance(body["citation_count"], int)
+    assert isinstance(body["warnings"], list)
+
+    download = client.get(body["download_url"])
+    assert download.status_code == 200
+    assert download.headers["content-type"].startswith("text/html")
+    text = download.text
+    assert "<math" in text
+    # Self-contained: no external network reference (data:/#-anchors/absent only).
+    for attr in ("src=", "href="):
+        start = 0
+        while True:
+            idx = text.find(attr, start)
+            if idx == -1:
+                break
+            value_start = idx + len(attr) + 1  # skip the opening quote
+            value = text[value_start : text.find('"', value_start)]
+            assert value.startswith("data:") or value.startswith("#"), (
+                f"non-self-contained {attr}{value!r} found in HTML export"
+            )
+            start = idx + 1
+
+
+def test_export_format_markdown_returns_download_url_and_streams_markdown(tmp_path):
+    client = _client(tmp_path)
+    with CLEAN_DOCX.open("rb") as fh:
+        response = client.post(
+            "/api/export-format",
+            files={"main": ("clean.docx", fh, "application/octet-stream")},
+            data={"fmt": "markdown"},
+        )
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["download_url"].startswith("/api/alt/")
+    assert body["format"] == "markdown"
+
+    download = client.get(body["download_url"])
+    assert download.status_code == 200
+    assert download.headers["content-type"].startswith("text/markdown")
+    assert "This manuscript uses only plain paragraphs" in download.text
+
+
+def test_export_format_rejects_unsupported_format(tmp_path):
+    client = _client(tmp_path)
+    with CLEAN_DOCX.open("rb") as fh:
+        response = client.post(
+            "/api/export-format",
+            files={"main": ("clean.docx", fh, "application/octet-stream")},
+            data={"fmt": "pdf"},
+        )
+    assert response.status_code == 400
+    assert "pdf" in response.json()["detail"].lower()
+
+
+def test_export_format_requires_secret(tmp_path):
+    # Loopback Host but no secret header -> rejected before the upload is used
+    # (mirrors the other mutating-endpoint guard tests).
+    client = _raw_client(tmp_path)
+    with CLEAN_DOCX.open("rb") as fh:
+        response = client.post(
+            "/api/export-format",
+            files={"main": ("clean.docx", fh, "application/octet-stream")},
+            data={"fmt": "html"},
+        )
+    assert response.status_code == 403
+
+
+def test_alt_endpoint_unknown_token_is_404(tmp_path):
+    client = _client(tmp_path)
+    assert client.get("/api/alt/does-not-exist").status_code == 404
