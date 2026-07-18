@@ -12,7 +12,7 @@
     references: "References (.bib)", ignore: "Ignore",
   };
   const IMAGE_EXTS = ["png", "jpg", "jpeg", "tif", "tiff", "gif", "bmp", "webp", "eps", "svg", "pdf"];
-  const REF_EXTS = ["bib", "ris"];
+  const REF_EXTS = ["bib", "ris", "json", "xml", "nbib"];
   const CITATION_MODE_LABELS = { numeric: "numeric — [1], [2]", authoryear: "author–year — (Doe, 2020)" };
   const el = (id) => document.getElementById(id);
   const dropzone = el("dropzone");

@@ -1102,7 +1102,7 @@ def test_supplement_must_be_docx(tmp_path):
     assert "supplement" in resp.json()["detail"].lower()
 
 
-def test_references_must_be_bib_or_ris(tmp_path):
+def test_references_must_be_an_allowed_reference_ext(tmp_path):
     with FIGURES_DOCX.open("rb") as fh:
         resp = _client(tmp_path).post(
             "/api/convert-multi",
@@ -1113,7 +1113,52 @@ def test_references_must_be_bib_or_ris(tmp_path):
             data={"journal": "revtex4-2", "pdf": "false"},
         )
     assert resp.status_code == 400
-    assert "bib" in resp.json()["detail"].lower()
+    detail = resp.json()["detail"].lower()
+    # The widened allowlist (plan item 10): BibTeX/RIS plus CSL-JSON, EndNote
+    # XML, and PubMed .nbib all show up in the rejection message.
+    for ext in ("bib", "ris", "json", "xml", "nbib"):
+        assert ext in detail
+
+
+_SAMPLE_CSL_JSON = (
+    b'[{"id": "k", "type": "article-journal", "title": "A Title", '
+    b'"issued": {"date-parts": [[2020]]}}]'
+)
+_SAMPLE_ENDNOTE_XML = (
+    b"<xml><records><record><rec-number>1</rec-number>"
+    b"<titles><title>A Title</title></titles>"
+    b"<dates><year>2020</year></dates>"
+    b"</record></records></xml>"
+)
+_SAMPLE_NBIB = b"PMID- 1\nTI  - A Title\nDP  - 2020\n"
+
+
+@pytest.mark.parametrize(
+    ("filename", "content"),
+    [
+        ("lib.json", _SAMPLE_CSL_JSON),
+        ("lib.xml", _SAMPLE_ENDNOTE_XML),
+        ("lib.nbib", _SAMPLE_NBIB),
+    ],
+)
+def test_convert_multi_accepts_the_new_reference_formats(tmp_path, filename, content):
+    with FIGURES_DOCX.open("rb") as fh:
+        response = _client(tmp_path).post(
+            "/api/convert-multi",
+            files={
+                "main": ("figures.docx", fh, "application/octet-stream"),
+                "references": (filename, content, "application/octet-stream"),
+            },
+            data={"journal": "revtex4-2", "pdf": "false"},
+        )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["success"] is True
+    # Threaded to the parser, not just accepted: the uploaded file lands on
+    # disk under its real extension (server.py names it references.<ext>).
+    ext = filename.rsplit(".", 1)[1]
+    refs = list((tmp_path / "gui-workdir").rglob(f"references.{ext}"))
+    assert refs, f"references.{ext} not found under workdir"
 
 
 def test_figure_number_must_be_positive(tmp_path):

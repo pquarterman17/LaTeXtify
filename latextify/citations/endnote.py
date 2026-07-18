@@ -152,18 +152,22 @@ def _ref_type(record) -> str:
     return _REF_TYPE_TO_CSL.get(name, "")
 
 
-def cite_to_refentry(cite_elem, source: str = "endnote") -> RefEntry | None:
-    """Convert one ``<Cite>`` element to a keyless ``RefEntry``.
+def record_to_refentry(record, *, source: str = "endnote", key: str = "") -> RefEntry | None:
+    """Convert one ``<record>`` element to a ``RefEntry`` (``None`` if ``record`` is ``None``).
 
-    Returns ``None`` (never raises) when the ``<Cite>`` has no ``<record>``
-    -- a malformed field that should be skipped, not crash the extraction.
+    Shared by both EndNote intake paths: the Word field-code citation
+    (:func:`cite_to_refentry`, one ``<record>`` per ``<Cite>``) and the full
+    library XML export (:mod:`latextify.citations.endnote_xml_in`, one
+    ``<record>`` per ``<records>`` child) use the exact same record schema,
+    so the field extraction lives here once. ``key`` defaults to keyless
+    (``""``) -- the field-code path leaves keys for later assignment; the
+    library-export path passes the record's own ``rec-number`` instead.
     """
-    record = cite_elem.find("record")
     if record is None:
         return None
     csl_type = _ref_type(record)
     return RefEntry(
-        key="",
+        key=key,
         entry_type=csl_type_to_bibtex(csl_type),
         csl_type=csl_type,
         title=_find_text(record, "titles/title"),
@@ -176,6 +180,15 @@ def cite_to_refentry(cite_elem, source: str = "endnote") -> RefEntry | None:
         source=source,
         raw_id=_find_text(record, "rec-number"),
     )
+
+
+def cite_to_refentry(cite_elem, source: str = "endnote") -> RefEntry | None:
+    """Convert one ``<Cite>`` element to a keyless ``RefEntry``.
+
+    Returns ``None`` (never raises) when the ``<Cite>`` has no ``<record>``
+    -- a malformed field that should be skipped, not crash the extraction.
+    """
+    return record_to_refentry(cite_elem.find("record"), source=source)
 
 
 def parse_instruction(instruction: str, source: str = "endnote") -> list[RefEntry]:

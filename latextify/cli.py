@@ -108,10 +108,10 @@ def convert(
         "--references",
         exists=True,
         readable=True,
-        help="A .bib export of your reference manager. On documents with no "
-        "citation field codes, each typed reference is matched against it first "
-        "(authoritative, offline); only references it doesn't cover fall back to "
-        "Crossref. Shared with the supplement.",
+        help="A .bib/.ris/CSL-JSON/EndNote-XML/.nbib export of your reference "
+        "manager. On documents with no citation field codes, each typed reference "
+        "is matched against it first (authoritative, offline); only references it "
+        "doesn't cover fall back to Crossref. Shared with the supplement.",
     ),
     supplement_onecolumn: bool = typer.Option(
         False,

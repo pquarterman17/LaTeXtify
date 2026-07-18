@@ -227,11 +227,12 @@ def _build_validation_out(
 # Upload validation (audit item 5). Case-insensitive extension allowlists,
 # checked before anything touches disk or Pandoc. Figure extensions mirror the
 # formats the conversion pipeline already handles (raster + vector + PDF);
-# references accept the two reference-manager exports the pipeline recognizes.
+# references accept every reference-manager export
+# latextify.citations.refs_import.parse_references_file recognizes.
 _ALLOWED_FIGURE_EXTS = frozenset(
     {"png", "jpg", "jpeg", "tif", "tiff", "gif", "bmp", "webp", "eps", "svg", "pdf"}
 )
-_ALLOWED_REFERENCE_EXTS = frozenset({"bib", "ris"})
+_ALLOWED_REFERENCE_EXTS = frozenset({"bib", "ris", "json", "xml", "nbib"})
 
 
 def _lower_ext(name: str | None) -> str:
@@ -541,7 +542,11 @@ def create_app(
             raise HTTPException(status_code=400, detail="supplement must be a .docx file")
         if references is not None:
             if _lower_ext(references.filename) not in _ALLOWED_REFERENCE_EXTS:
-                raise HTTPException(status_code=400, detail="references must be .bib or .ris")
+                raise HTTPException(
+                    status_code=400,
+                    detail="references must be one of: "
+                    + ", ".join("." + e for e in sorted(_ALLOWED_REFERENCE_EXTS)),
+                )
         if any(n <= 0 for n in figure_numbers):
             raise HTTPException(status_code=400, detail="figure numbers must be positive")
         if len(set(figure_numbers)) != len(figure_numbers):
