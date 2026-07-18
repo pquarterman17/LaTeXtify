@@ -1,7 +1,8 @@
 """Local web GUI: FastAPI app wrapping the conversion pipeline (plan item 19).
 
-Buildless v1: a single self-contained ``static/index.html`` (vanilla JS, no
-build step, no CDN) talks to three JSON/file endpoints. This module contains
+Buildless: ``static/index.html`` plus plain ``style.css`` / ``app.js`` /
+``review.js`` siblings served under ``/static`` (vanilla JS, no build step,
+no CDN) talk to the JSON/file endpoints. This module contains
 no conversion logic of its own -- it only orchestrates calls into
 :mod:`latextify.emit.project`, :mod:`latextify.compile.tectonic`, and
 :mod:`latextify.templates.loader`, the same functions :mod:`latextify.cli`'s
@@ -52,6 +53,7 @@ from pathlib import Path
 
 from fastapi import Depends, FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.staticfiles import StaticFiles
 
 from latextify.audit.equations import write_equation_audit
 from latextify.citations.bib import entries_to_bib
@@ -65,6 +67,7 @@ from latextify.gui.demo import (
     inject_demo_banner,
     require_demo_rate_limit,
 )
+from latextify.gui.exporting import _EXPORTABLE, _export_artifacts  # noqa: F401 - re-exported
 from latextify.gui.folder_picker import pick_folder_native
 from latextify.gui.guard import inject_gui_secret, new_gui_secret, require_gui_auth
 from latextify.gui.schemas import (
@@ -220,10 +223,6 @@ def _build_validation_out(
     )
 
 
-# Artifact types the Export panel can copy to a chosen folder. Keys are the
-# values the frontend sends; each maps to a produced path (or the project tree).
-_EXPORTABLE = ("project", "main_pdf", "supplement_pdf", "combined_pdf", "audit_pdf", "zip")
-
 # Upload validation (audit item 5). Case-insensitive extension allowlists,
 # checked before anything touches disk or Pandoc. Figure extensions mirror the
 # formats the conversion pipeline already handles (raster + vector + PDF);
@@ -237,47 +236,6 @@ _ALLOWED_REFERENCE_EXTS = frozenset({"bib", "ris"})
 def _lower_ext(name: str | None) -> str:
     """Lowercase extension without the dot ("Paper.DOCX" -> "docx"); "" if none."""
     return Path(name or "").suffix.lstrip(".").lower()
-
-
-def _export_artifacts(
-    export_dir: str, types: set[str], *, output_dir: Path, produced: dict[str, Path]
-) -> tuple[str, list[str], list[str]]:
-    """Copy the selected artifact ``types`` into ``export_dir`` (created if needed).
-
-    Returns ``(destination, exported, warnings)``. A requested type that was not
-    produced (e.g. ``combined_pdf`` without combine) is reported as a warning
-    rather than failing the whole export. ``project`` copies the whole output
-    tree; ``zip`` copies the produced archive or builds one on demand.
-    """
-    dest = Path(export_dir).expanduser()
-    dest.mkdir(parents=True, exist_ok=True)
-    exported: list[str] = []
-    warnings: list[str] = []
-    for kind in _EXPORTABLE:
-        if kind not in types:
-            continue
-        if kind == "project":
-            target = dest / output_dir.name
-            if target.exists():
-                shutil.rmtree(target)
-            shutil.copytree(output_dir, target)
-            exported.append(f"project ({output_dir.name}/)")
-        elif kind == "zip":
-            zip_dest = dest / "latextify-project.zip"
-            if "zip" in produced:
-                shutil.copy2(produced["zip"], zip_dest)
-            else:
-                shutil.make_archive(str(zip_dest.with_suffix("")), "zip", root_dir=output_dir)
-            exported.append("latextify-project.zip")
-        elif kind in produced:
-            shutil.copy2(produced[kind], dest / produced[kind].name)
-            exported.append(produced[kind].name)
-        else:
-            warnings.append(
-                f"export: '{kind}' was requested but not produced -- enable the "
-                "matching option (Compile PDF / Combine supplement / Equation-audit)."
-            )
-    return str(dest), exported, warnings
 
 
 async def _stream_upload(
@@ -377,6 +335,10 @@ def create_app(
         if demo:
             html = inject_demo_banner(html)
         return HTMLResponse(inject_gui_secret(html, app.state.gui_secret))
+
+    # The page's stylesheet + scripts (no secret material lives in them; the
+    # secret wrapper is injected only into the served index above).
+    app.mount("/static", StaticFiles(directory=_STATIC_DIR), name="static")
 
     @app.get("/api/journals", response_model=list[JournalInfo])
     def list_journals() -> list[JournalInfo]:

@@ -40,10 +40,11 @@ PY_PINS = {
     "latextify/templates/loader.py": 539,
 }
 
-#: The frontend is one buildless file today; pinned so it can only shrink.
-FRONTEND_PINS = {
-    "latextify/gui/static/index.html": 906,
-}
+#: No frontend pins: the once-monolithic index.html graduated on 2026-07-18
+#: when it was split into index.html + style.css + app.js + review.js, each
+#: under the general ceiling. New frontend files must stay under it — never
+#: add a pin; split the file instead.
+FRONTEND_PINS: dict[str, int] = {}
 
 
 def _wc_l(path: Path) -> int:

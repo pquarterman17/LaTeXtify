@@ -51,6 +51,20 @@ def _client(tmp_path: Path) -> TestClient:
     return _client_for(application)
 
 
+def _ui_text(client: TestClient) -> str:
+    """The full DOM contract: served index + the split static JS files.
+
+    The buildless page was split into index.html + app.js + review.js (+
+    style.css); assertions about endpoint wiring and JS behavior span all of
+    them, so contract smoke tests grep this concatenation.
+    """
+    return (
+        client.get("/").text
+        + client.get("/static/app.js").text
+        + client.get("/static/review.js").text
+    )
+
+
 # --------------------------------------------------------------------------- #
 # GET /
 # --------------------------------------------------------------------------- #
@@ -70,7 +84,7 @@ def test_index_wires_the_multifile_ui(tmp_path):
     """The static page drives /api/convert-multi with a multi-file dropzone,
     per-file role dropdowns, and the four option toggles (buildless, so this
     is a DOM-contract smoke test rather than a JS execution test)."""
-    html = _client(tmp_path).get("/").text
+    html = _ui_text(_client(tmp_path))
 
     assert "/api/convert-multi" in html
     assert "multiple" in html  # multi-file input
@@ -81,14 +95,29 @@ def test_index_wires_the_multifile_ui(tmp_path):
 
 
 def test_index_citation_styles_have_labels(tmp_path):
-    """The static page labels citation styles with human-readable examples."""
-    html = _client(tmp_path).get("/").text
+    """The page's JS labels citation styles with human-readable examples."""
+    html = _ui_text(_client(tmp_path))
     assert "author–year — (Doe, 2020)" in html
+
+
+def test_split_static_assets_are_served(tmp_path):
+    """The split page assets come back from /static with sane content types."""
+    client = _client(tmp_path)
+    css = client.get("/static/style.css")
+    assert css.status_code == 200 and "text/css" in css.headers["content-type"]
+    for name in ("app.js", "review.js"):
+        resp = client.get(f"/static/{name}")
+        assert resp.status_code == 200, name
+        assert "javascript" in resp.headers["content-type"], name
+    # The served index references exactly these assets.
+    html = client.get("/").text
+    assert '/static/style.css' in html
+    assert '/static/app.js' in html and '/static/review.js' in html
 
 
 def test_index_wires_the_review_panel(tmp_path):
     """The static page carries the reference-review panel + apply wiring."""
-    html = _client(tmp_path).get("/").text
+    html = _ui_text(_client(tmp_path))
     assert 'id="review-panel"' in html
     assert 'id="review-cards"' in html
     assert 'id="apply-btn"' in html
@@ -99,7 +128,7 @@ def test_index_wires_the_export_panel(tmp_path):
     """The Export panel offers a Browse button (drives /api/pick-folder), a
     destination field, one checkbox per exportable artifact type, and a
     dedicated Export button that posts to /api/export (preview-then-export)."""
-    html = _client(tmp_path).get("/").text
+    html = _ui_text(_client(tmp_path))
 
     assert "/api/pick-folder" in html
     assert "/api/export" in html

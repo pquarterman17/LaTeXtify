@@ -104,13 +104,6 @@ recorded in the 2026-07-18 discussion have exactly one home.
 
 ## Tier 1 — High Impact (round 1: frontend split + UX)
 
-1. **Split the buildless page** — `index.html` + `app.js` + `style.css`,
-   each under the 500-line frontend ceiling
-   - [ ] Serve the new statics from `server.py` (offset its 1021 pin in the
-     same change); secret + demo-banner injection stay index-only
-   - [ ] Ratchet: delete the graduated index.html pin; add no new pins
-   - [ ] GUI + demo test suites green against the split page
-
 2. **Grouped Options layout** — Conversion / Outputs / Online-checks
    clusters; every option gets a one-line hint and a hover explanation
 
@@ -155,6 +148,11 @@ recorded in the 2026-07-18 discussion have exactly one home.
 
 ## Completed
 
+- ~~**#1 Split the buildless page**~~ (2026-07-18) — index.html 905 → 133
+  lines plus style.css (158) / app.js (450) / review.js (193), all under the
+  500 ceiling; served via a `/static` mount; export helpers extracted to
+  `gui/exporting.py` to offset server.py; the frontend pin graduated and was
+  deleted. Review panel bridges via window.LTXApp / window.LTXReview.
 - ~~**Citation-style labels + Crossref-email tooltip**~~ (2026-07-18) —
   pre-plan quick fix, commit 32b8081: dropdown shows example-labeled styles,
   disabled with explanation when the journal allows only one; email field
