@@ -17,7 +17,8 @@ What gets scrubbed, and how "accept all changes" is approximated:
     - ``docProps/core.xml``, ``docProps/app.xml``, ``docProps/custom.xml``
       (author, company, edit time, custom properties, ...) are deleted
       outright, along with their ``[Content_Types].xml`` Override and
-      ``_rels/.rels`` Relationship entries.
+      ``_rels/.rels`` Relationship entries. A saved ``docProps/thumbnail.*``
+      first-page preview (a rendered image of the document) is dropped too.
     - ``w:ins`` (tracked insertion) is unwrapped in place: its children
       (the inserted content) move up to replace it, keeping the text but
       dropping the "this was inserted" marker. This also correctly resolves
@@ -81,6 +82,7 @@ from pathlib import Path
 
 from lxml import etree
 
+from ._xml import hardened_xml_parser
 from .archive_guard import stream_zip_member, validate_docx_archive
 
 W = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
@@ -95,20 +97,16 @@ _COMMENTS_PART_RE = re.compile(r"^word/comments[^/]*\.xml$")
 _RELS_MEMBER_RE = re.compile(r"^(?:(.*)/)?_rels/([^/]+)\.rels$")
 
 _DOCPROPS_PARTS = ("docProps/core.xml", "docProps/app.xml", "docProps/custom.xml")
+#: The saved first-page preview (docProps/thumbnail.<ext>) is a rendered image
+#: of the document -- a visual content/identity leak for a "clean" export, so
+#: it is dropped with the other docProps. It rides the shared image Default
+#: content-type (no Override), so only its _rels/.rels Relationship is cleaned.
+_THUMBNAIL_RE = re.compile(r"^docProps/thumbnail\.[^/]+$")
 _PEOPLE_PART = "word/people.xml"
 
-# resolve_entities=False + load_dtd=False: an XXE payload fails to parse
-# rather than being resolved; no_network=True blocks any DTD/entity fetch
-# too. Mirrors latextify.citations.endnote_xml_in's parser -- defined locally
-# (rather than imported) so this module has no dependency on a shared
-# XML-hardening helper that may land concurrently elsewhere.
-_PARSER = etree.XMLParser(
-    resolve_entities=False,
-    no_network=True,
-    load_dtd=False,
-    dtd_validation=False,
-    huge_tree=False,
-)
+# All XML parsing goes through the shared hardened_xml_parser() (fresh
+# instance per call: safe under the GUI's concurrent request threads, unlike
+# a reused module-level parser).
 
 
 @dataclass
@@ -156,6 +154,7 @@ def sanitize_docx(src: Path | str, dest: Path | str) -> CleanReport:
             raise ValueError(f"{src}: not a valid .docx (missing {_DOCUMENT_PART})")
 
         docprops_present = [name for name in _DOCPROPS_PARTS if name in names]
+        docprops_present += sorted(name for name in names if _THUMBNAIL_RE.match(name))
         comment_parts = sorted(name for name in names if _COMMENTS_PART_RE.match(name))
         people_present = [_PEOPLE_PART] if _PEOPLE_PART in names else []
         parts_to_remove = set(docprops_present) | set(comment_parts) | set(people_present)
@@ -239,7 +238,7 @@ def _write_sanitized_archive(
 
 def _sanitize_wordml_part(data: bytes) -> tuple[bytes, int, int]:
     """Return (new_bytes, tracked_changes_accepted, hidden_runs_removed)."""
-    root = etree.fromstring(data, parser=_PARSER)
+    root = etree.fromstring(data, parser=hardened_xml_parser())
 
     tracked = 0
     tracked += _remove_all(root, "del")
@@ -344,7 +343,7 @@ def _remove_hidden_runs(root: etree._Element) -> int:
 
 def _scrub_settings(data: bytes) -> tuple[bytes, bool]:
     """Remove ``<w:rsids>`` (the revision-session-id index) if present."""
-    root = etree.fromstring(data, parser=_PARSER)
+    root = etree.fromstring(data, parser=hardened_xml_parser())
     rsids = root.find(_q("rsids"))
     scrubbed = False
     if rsids is not None:
@@ -361,7 +360,7 @@ def _scrub_settings(data: bytes) -> tuple[bytes, bool]:
 
 def _count_comments(data: bytes) -> int:
     try:
-        root = etree.fromstring(data, parser=_PARSER)
+        root = etree.fromstring(data, parser=hardened_xml_parser())
     except etree.XMLSyntaxError:
         return 0
     return len(root.findall(_q("comment")))
@@ -403,7 +402,7 @@ def _resolve_target(base_dir: str, target: str) -> str:
 
 def _scrub_rels(data: bytes, base_dir: str, parts_to_remove: set[str]) -> tuple[bytes, bool]:
     """Drop any ``<Relationship>`` whose ``Target`` resolves into ``parts_to_remove``."""
-    root = etree.fromstring(data, parser=_PARSER)
+    root = etree.fromstring(data, parser=hardened_xml_parser())
     changed = False
     for rel in list(root):
         if not isinstance(rel.tag, str):
@@ -424,7 +423,7 @@ def _scrub_rels(data: bytes, base_dir: str, parts_to_remove: set[str]) -> tuple[
 
 def _scrub_content_types(data: bytes, parts_to_remove: set[str]) -> bytes:
     """Drop each removed part's ``<Override>`` entry from ``[Content_Types].xml``."""
-    root = etree.fromstring(data, parser=_PARSER)
+    root = etree.fromstring(data, parser=hardened_xml_parser())
     wanted = {f"/{part}" for part in parts_to_remove}
     for override in root.findall(f"{{{_CT_NS}}}Override"):
         if override.get("PartName") in wanted:

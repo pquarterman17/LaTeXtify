@@ -350,3 +350,24 @@ def test_roundtrip_clean_fixture_preserves_visible_body_text(tmp_path):
     assert distinctive_sentence in xml
     assert "A Perfectly Ordinary Manuscript" in xml
     assert report.docprops_stripped is True
+
+
+def test_docprops_thumbnail_is_stripped(tmp_path):
+    """A saved first-page preview (docProps/thumbnail.*) is a rendered image of
+    the document -- a visual content/identity leak -- so it must be dropped."""
+    src = FIXTURE_DIR / "metadata_titlepage.docx"
+    with zipfile.ZipFile(src) as archive:
+        thumbs = [n for n in archive.namelist() if n.startswith("docProps/thumbnail")]
+    assert thumbs, "fixture precondition: source should carry a docProps thumbnail"
+
+    dest = tmp_path / "no-thumb.docx"
+    report = sanitize_docx(src, dest)
+
+    with zipfile.ZipFile(dest) as archive:
+        names = archive.namelist()
+        assert not [n for n in names if n.startswith("docProps/thumbnail")]
+        assert archive.testzip() is None
+        # The thumbnail's relationship is gone; the shared jpeg Default
+        # content-type stays (embedded images may rely on it).
+        assert "thumbnail" not in archive.read("_rels/.rels").decode("utf-8").lower()
+    assert report.docprops_stripped is True
