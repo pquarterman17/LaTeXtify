@@ -10,8 +10,8 @@ safely.
 
 **Status:** Active
 **Created:** 2026-07-13
-**Updated:** 2026-07-18 — Tier 1 + item 3 shipped; items 4/5 core+CLI shipped
-(GUI option deferred, see the items below)
+**Updated:** 2026-07-18 — Tier 1 + items 3, 4, 5 fully shipped (core+CLI+GUI);
+only #7 (plaintext-citation export fidelity) and #6 (reverse→Word) remain
 
 ---
 
@@ -91,33 +91,7 @@ _Tier 1 is complete — see `## Completed`._
 
 ## Tier 2 — Medium Impact
 
-*(Item 3 shipped — see Completed.)*
-
-4. **HTML export** — self-contained shareable page from the same AST.
-   - [x] New export path: `latextify/emit/alt_formats.py::export_html`, pandoc
-     `to="html"` with `--mathml --standalone --embed-resources`, reusing the
-     AST-reading half of the body pipeline (new
-     `latextify.ingest.pandoc.convert_docx_to_ast`) and the SAME reconciled
-     figures/citations `emit_project` uses
-   - [x] MathML math (offline-safe); no MathJax fallback -- MathML alone
-     satisfies the resolved offline requirement, so the fallback was dropped
-     as unneeded complexity
-   - [x] Citation linker: reconciled markers → `<a href="#ref-N">` + an HTML
-     reference list -- field-coded citations (Zotero/Mendeley/EndNote/
-     Word-native) only; a manuscript with no citation field codes still gets
-     a numbered reference list but its in-text markers are left as typed
-     (`latextify.citations.plaintext`'s marker-linking regexes are LaTeX-text
-     specific -- porting them is a follow-up, not done here)
-   - [x] `latextify export DOCX --format html` CLI flag (new `cli_export.py`)
-   - [ ] GUI option -- deferred to a follow-up round (explicitly out of scope
-     this round to avoid conflicting with in-flight `gui/server.py` work)
-
-5. **Markdown export** — plain `.md` from the same AST (math as literal LaTeX).
-   - [x] `export_markdown`, pandoc `to="markdown"` (literal `$...$`/`$$...$$`
-     math), figures copied to `<stem>_files/` + referenced as
-     `![caption](path)`, reconciled reference list appended
-   - [x] `latextify export DOCX --format markdown` CLI flag
-   - [ ] GUI option -- deferred, same as item 4
+*(Items 3, 4, 5 shipped — see Completed.)*
 
 7. **Plaintext-citation fidelity on the HTML/MD export** — on the
    no-field-codes path the export reconstructs a numbered reference list but
@@ -146,6 +120,22 @@ _(none open)_
 
 ## Completed
 
+- ~~**#4 HTML export** + **#5 Markdown export**~~ (2026-07-18) — self-contained
+  single-file export reusing the docx→AST ingest via a safe refactor
+  (`ingest/pandoc.py::convert_docx_to_ast`; `filters.py` byte-unchanged) and a
+  portable-anchor mechanism (`ingest/portable_anchors.py`) that survives
+  pandoc's HTML/MD writers where the LaTeX anchors don't. `emit/alt_formats.py`
+  (+ `_render`): HTML = `--mathml --standalone --embed-resources` (native
+  MathML, figures inlined as base64 `data:` URIs, no network refs); Markdown =
+  literal `$...$`, figures to `<stem>_files/`. Field-coded citations → linked
+  `<a href="#ref-N">` (verified: link targets match anchor ids) + reference
+  list; plaintext-cited path warns and leaves a duplicate list (tracked as
+  #7). Shipped via `latextify export DOCX --format html|markdown` (new
+  `cli_export.py`), and the GUI `POST /api/export-format` + `GET /api/alt/{token}`
+  (guarded + demo rate-limited; frontend `alt-export.js`). Verified end-to-end
+  (CLI + GUI). `ExportResult` added to the model layer. To offset the GUI
+  route, both single-upload routes were extracted to `gui/uploads_routes.py`
+  (+ `gui/upload_utils.py`), dropping server.py 1010→921 and its pin to 921.
 - ~~**#3 Metadata-stripped clean-`.docx` export**~~ (2026-07-18) — new
   `latextify/ingest/docx_clean.py::sanitize_docx` streams a sanitized archive
   copy: strips `docProps/{core,app,custom}.xml` **and the saved thumbnail**,
