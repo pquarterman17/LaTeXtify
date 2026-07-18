@@ -88,7 +88,6 @@ from dataclasses import replace
 from pathlib import Path
 
 from latextify.citations.bib import entries_to_bib, escape_latex
-from latextify.citations.bibtex_in import parse_bibtex
 from latextify.citations.crossref import CrossrefClient
 from latextify.citations.fields import extract_field_citations
 from latextify.citations.merge import merge_ref_entries
@@ -98,6 +97,7 @@ from latextify.citations.plaintext import (
     strip_reference_section,
     strip_reference_section_to_eof,
 )
+from latextify.citations.refs_import import parse_references_file
 from latextify.citations.validate import validate_references
 from latextify.emit.anchors import (
     citation_linkage_warning,
@@ -316,7 +316,7 @@ def emit_project(
     # it -- they already carry full metadata in their citation field codes.
     bib_entries: list[RefEntry] | None = None
     if references_bib_path is not None:
-        bib_entries = parse_bibtex(Path(references_bib_path).read_text(encoding="utf-8"))
+        bib_entries = parse_references_file(references_bib_path)
 
     # Preflight: inventory and flag unsupported constructs before any conversion.
     preflight_report = run_preflight(docx_path)
