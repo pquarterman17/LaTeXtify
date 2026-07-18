@@ -127,8 +127,7 @@ def _read_document_root(docx_path: Path):
                 return etree.parse(fh, parser=hardened_xml_parser()).getroot()
             except etree.XMLSyntaxError as exc:
                 raise ValueError(
-                    f"{docx_path}: not a valid .docx "
-                    f"(malformed XML in word/document.xml: {exc})"
+                    f"{docx_path}: not a valid .docx (malformed XML in word/document.xml: {exc})"
                 ) from exc
 
 
