@@ -10,8 +10,8 @@ distribution channels.
 
 **Status:** Active
 **Created:** 2026-07-12
-**Updated:** 2026-07-18 — item 1 kit stages validated on py3.14 (3.10 + no-net
-proof pending the offline-testbed profile); added item 9 (make-kit --zip MAX_PATH)
+**Updated:** 2026-07-18 — item 1 PROVEN via the no-network sandbox on Python
+3.10 (Overall: PASS); item 9 (make-kit --zip MAX_PATH) still open
 
 ---
 
@@ -90,26 +90,7 @@ latextify make-kit --target win-x64          →    copy folder via USB
 
 ## Tier 1 — High Impact
 
-1. **Prove the win-x64 kit installs and runs on Python 3.10 offline** — the exact
-   target scenario, which CI never exercises (its offline gate is Linux/3.13).
-   - [x] Build a win-x64 kit natively on Windows (`make-kit --target current`) —
-     built both emit-only and warm-tex (revtex4-2) kits on 2026-07-18.
-   - [ ] Install it with a Python **3.10** interpreter, network poisoned
-   - [x] Confirm emit-only (docx → LaTeX) works with no network — validated on
-     **py3.14** (see progress note); the 3.10-specific + true-no-network proof
-     still needs the sandbox.
-   - [x] Confirm `--pdf` works (Tectonic + warmed cache) — validated on py3.14:
-     warm kit compiled `main.pdf` in ~6 s from the bundled cache, no fetch.
-
-   *Progress (2026-07-18):* direct dev-machine test (win-x64, py3.14, short build
-   path) passed all three kit stages — `install.py` offline (`pip --no-index`, 33
-   wheels) → offline emit → offline `--pdf`. Remaining for full sign-off: the
-   **exact 3.10 interpreter** and a **genuinely network-poisoned** run — both of
-   which the sibling `offline-testbed` Windows Sandbox delivers. That harness
-   can't drive LaTeXtify yet (no `profiles/latextify.ps1`; Python matrix stops at
-   3.13; needs a sample `.docx`) — gaps logged in
-   `offline-testbed/LATEXTIFY-TESTBED-FINDINGS.md`. 3.10 IS in the installer
-   cache, so a sandbox run is possible once that profile lands.
+*(Item 1 proven — see Completed. Items 2 already shipped.)*
 
 3. **Document the executable-lockdown reality + emit-only fallback** in
    `README-OFFLINE.md` — be honest that pandoc is always required and Tectonic is
@@ -167,6 +148,19 @@ latextify make-kit --target win-x64          →    copy folder via USB
 
 ## Completed
 
+- ~~**#1 Prove the win-x64 kit installs and runs on Python 3.10 offline**~~
+  (2026-07-18) — **the exact target scenario, now proven end-to-end.** Ran the
+  sibling `offline-testbed` Windows Sandbox (`Test-OfflineInstall.ps1 -Python
+  3.10 -ProjectProfile latextify -Fixture clean.docx -SkipWebView2`) against a
+  natively-built win-x64 warm-tex kit. **Overall: PASS** on a genuinely
+  network-poisoned guest — all 8 steps green: `offline-check` (dns=False
+  ping=False), install Python 3.10, extract, `install.py` (offline
+  `pip --no-index`), `import latextify 0.1.0`, launcher written, `convert
+  clean.docx → main.tex`, and `compile-pdf main.pdf` (12218 bytes, bundled
+  Tectonic, no network). Direct dev-machine tests on py3.14 corroborated
+  earlier. The offline-testbed gaps that had blocked this (no latextify
+  profile, Python matrix ≤3.13, no `-Fixture`) were fixed by the harness owner
+  after the findings file was left; 3.10–3.14 installers are all cached now.
 - ~~**#2 Correct the advertised Python floor**~~ (2026-07-17) — README badge
   changed to `3.10+` in commit dbf94fd (matches `requires-python` and the CI
   matrix). Closed retroactively 2026-07-18 during a reconciliation pass.
