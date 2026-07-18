@@ -126,7 +126,17 @@ def _render_compile_outcome(lines: list[str], result: CompileResult, *, label: s
                 loc += ")"
             lines.append(f"**[{sev}]{loc}:** {_flatten(diag.message)}\n")
     elif not result.success:
-        lines.append("No diagnostics available.\n")
+        # A failure with zero parsed diagnostics is usually not a TeX problem
+        # at all (the engine binary failed to launch: missing shared library,
+        # OOM kill, bad install). Surface the raw engine output instead of a
+        # dead end -- this is exactly the case where the .log never exists.
+        raw_tail = result.raw_log.strip()
+        if raw_tail:
+            tail = "\n".join(raw_tail.splitlines()[-20:])
+            lines.append("No TeX diagnostics parsed; raw engine output (tail):\n")
+            lines.append(f"```text\n{tail}\n```\n")
+        else:
+            lines.append("No diagnostics available.\n")
 
 
 def render_report(

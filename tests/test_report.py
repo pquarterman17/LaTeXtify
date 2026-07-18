@@ -371,6 +371,35 @@ class TestCompilationReporting:
         assert "Undefined control sequence" in report_text
         assert "preamble.tex:10" in report_text
 
+    def test_compile_failure_without_diagnostics_surfaces_raw_log(self):
+        """An engine that dies before producing a TeX log (loader error, OOM)
+        parses to zero diagnostics; the report must show the raw output tail
+        instead of a dead-end 'No diagnostics available.'"""
+        loader_error = (
+            "tectonic: error while loading shared libraries: "
+            "libfontconfig.so.1: cannot open shared object file"
+        )
+        compile_result = CompileResult(
+            success=False,
+            pdf_path=None,
+            diagnostics=(),
+            raw_log=loader_error,
+            returncode=127,
+        )
+        report_text = render_report(compile_result=compile_result)
+
+        assert "✗ failed" in report_text
+        assert "libfontconfig.so.1" in report_text
+        assert "raw engine output" in report_text
+        assert "No diagnostics available" not in report_text
+
+    def test_compile_failure_with_empty_log_still_says_no_diagnostics(self):
+        compile_result = CompileResult(
+            success=False, pdf_path=None, diagnostics=(), raw_log="", returncode=1
+        )
+        report_text = render_report(compile_result=compile_result)
+        assert "No diagnostics available" in report_text
+
 
 def _compile(success, diagnostics=()):
     from latextify.model.compile import CompileResult

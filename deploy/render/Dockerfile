@@ -8,8 +8,11 @@ FROM python:3.12-slim
 
 # libcairo2 lets cairosvg (the preferred SVG->PDF converter) load its native
 # backend; latextify falls back to pure-Python svglib without it.
+# libfontconfig1 + libssl3 are hard requirements of the Tectonic release
+# binary: python:*-slim lacks them and Tectonic then dies at exec with a
+# shared-library loader error (instant compile "failure" with no TeX log).
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends libcairo2 \
+    && apt-get install -y --no-install-recommends libcairo2 libfontconfig1 libssl3 \
     && rm -rf /var/lib/apt/lists/*
 
 # Non-root user with a writable $HOME (Tectonic binary + LaTeX package caches
