@@ -8,7 +8,8 @@ and figure input formats). Frontend-first: round one restructures and
 clarifies the page, round two adds the per-document emission and new intake
 paths behind it.
 
-**Status:** Active
+**Status:** Active — Tiers 1 + 2 complete; only Tier 3 (external-converter
+gate + CLI parity) remains
 **Created:** 2026-07-18
 **Updated:** 2026-07-18
 
@@ -108,8 +109,7 @@ recorded in the 2026-07-18 discussion have exactly one home.
 
 ## Tier 2 — Medium Impact (round 2: per-document emission + intake)
 
-9. **Manuscript inputs `.odt` / `.rtf` / `.md`** — ingest routing,
-   preflight, GUI/CLI accept lists, tests
+*(all shipped — see Completed)*
 
 ## Tier 3 — Nice-to-Have (external-converter gate)
 
@@ -128,6 +128,14 @@ recorded in the 2026-07-18 discussion have exactly one home.
 
 ## Completed
 
+- ~~**#9 Manuscript inputs .odt / .rtf / .md**~~ (2026-07-18) — new
+  `ingest/formats.py` routes pandoc's input format by extension; the five
+  docx-specific stages degrade honestly (empty preflight, minimal Meta with
+  sidecar round-trip, plain-text citation path via pandoc AST, generalized
+  figure extraction that now also works for odt/md). Fixed two latent bugs:
+  convert-multi renamed every upload to main.docx (breaking non-docx
+  routing), and markdown's external images lacked --resource-path. Verified
+  end-to-end: .md → compiled REVTeX PDF via the CLI.
 - ~~**#10 Bibliography inputs CSL-JSON / EndNote XML / .nbib**~~ (2026-07-18)
   — new single dispatch point `citations/refs_import.py::parse_references_file`
   routes by extension to `csl_json_in.py` / `endnote_xml_in.py` (hardened
