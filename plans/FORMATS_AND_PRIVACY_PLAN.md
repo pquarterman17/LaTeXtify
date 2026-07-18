@@ -119,6 +119,16 @@ _Tier 1 is complete — see `## Completed`._
    - [x] `latextify export DOCX --format markdown` CLI flag
    - [ ] GUI option -- deferred, same as item 4
 
+7. **Plaintext-citation fidelity on the HTML/MD export** — on the
+   no-field-codes path the export reconstructs a numbered reference list but
+   leaves in-text markers unlinked AND leaves the manuscript's own typed
+   reference list in the body, so the output carries **two** reference lists
+   (a loud warning fires). Port the plaintext linking + list-stripping
+   (`citations/plaintext.py::_link_plaintext_citations` and
+   `strip_reference_section_to_eof`, today LaTeX-escaped-text specific) to the
+   HTML/MD text. The LaTeX path already handles this; field-coded exports are
+   unaffected.
+
 ## Tier 3 — Nice-to-Have
 
 6. **Reverse direction `→ Word`** (deferred, note only) — no committed approach.
