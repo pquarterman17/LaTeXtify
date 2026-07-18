@@ -102,6 +102,22 @@ def _is_heading_paragraph(text: str) -> bool:
     return bool(_HEADING_RE.match(text)) and len(text.strip()) <= 40
 
 
+def is_reference_heading_text(text: str) -> bool:
+    """True when ``text`` (a whole paragraph/heading's text, already stripped)
+    reads as a reference-list heading -- "References", "Bibliography", "Works
+    Cited", ... (see :data:`_HEADING_KEYWORDS`), not just a sentence that
+    happens to mention one.
+
+    Public wrapper around :func:`_is_heading_paragraph` -- the same
+    classification :func:`segment_reference_list` uses to find a manuscript's
+    typed reference-list heading in its raw OOXML paragraphs. Reused by
+    :mod:`latextify.emit.alt_formats` to find (and strip) the SAME heading in
+    a panflute AST ``Header`` block, so the HTML/Markdown export path doesn't
+    need its own copy of :data:`_HEADING_KEYWORDS`/:data:`_HEADING_RE`.
+    """
+    return _is_heading_paragraph(text)
+
+
 def _has_list_numbering(paragraph) -> bool:
     """True when a paragraph carries real Word list numbering (``w:numPr``).
 

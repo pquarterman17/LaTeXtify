@@ -7,10 +7,14 @@ paper.yaml sidecar beside whatever docx path it's given).
 
 from __future__ import annotations
 
+import re
 import shutil
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
+import httpx
+
+from latextify.citations.crossref import CrossrefClient
 from latextify.emit.alt_formats import export_html, export_markdown
 from latextify.emit.project import emit_project
 
@@ -20,6 +24,30 @@ FIGURES_DOCX = FIXTURES / "figures.docx"
 EQUATIONS_DOCX = FIXTURES / "equations.docx"
 ZOTERO_DOCX = FIXTURES / "zotero_cited.docx"
 HAND_CITED_DOCX = FIXTURES / "hand_cited.docx"
+BRACKET_CITED_DOCX = FIXTURES / "bracket_cited.docx"
+
+# A distinctive phrase from bracket_cited.docx's reference #1 -- see
+# tests/fixtures/make_bracket_cited.py.
+_BRACKET_REF_1_PHRASE = "Foundational widget calibration techniques"
+
+_MARKDOWN_REFERENCES_HEADING_RE = re.compile(r"^#{1,6}[ \t]+References[ \t]*$", re.MULTILINE)
+_HTML_REFERENCES_HEADING_RE = re.compile(r"<h[1-6][^>]*>References</h[1-6]>")
+
+
+def _mock_crossref_no_match(**_kwargs: object) -> CrossrefClient:
+    """A ``CrossrefClient`` that matches nothing (no network, fully offline).
+
+    Used for the plaintext-citation-path tests below: every typed reference
+    falls back to a keyless "raw" entry (``reconcile.raw_refentry``) built
+    verbatim from its typed text -- deterministic and fast, and exactly what
+    is needed to exercise the duplicate-reference-list fix without depending
+    on Crossref actually matching (or being reachable).
+    """
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"message": {"items": []}})
+
+    return CrossrefClient(mailto="test@example.com", transport=httpx.MockTransport(handler))
 
 
 def _copy_fixture(tmp_path: Path, src: Path) -> Path:
@@ -47,7 +75,15 @@ def _parse_xhtml(html_text: str) -> ET.Element:
 
 
 def test_fixtures_exist():
-    for fixture in (CLEAN_DOCX, FIGURES_DOCX, EQUATIONS_DOCX, ZOTERO_DOCX, HAND_CITED_DOCX):
+    fixtures = (
+        CLEAN_DOCX,
+        FIGURES_DOCX,
+        EQUATIONS_DOCX,
+        ZOTERO_DOCX,
+        HAND_CITED_DOCX,
+        BRACKET_CITED_DOCX,
+    )
+    for fixture in fixtures:
         assert fixture.is_file(), f"tests/fixtures/{fixture.name} is missing"
 
 
@@ -173,6 +209,139 @@ def test_export_html_reference_list_and_linked_citations(tmp_path):
     assert result.citation_count == 5
     assert '<a href="#ref-1">1</a>' in text
     assert 'id="ref-1"' in text
+
+
+# --------------------------------------------------------------------------- #
+# Plaintext-citation path: the typed reference list must not survive
+# alongside the reconstructed one (the duplicate-reference-list fix)
+# --------------------------------------------------------------------------- #
+
+
+def test_export_markdown_plaintext_citation_path_has_exactly_one_reference_list(
+    tmp_path, monkeypatch
+):
+    """bracket_cited.docx's own typed "References" section must be stripped
+    from the AST -- pre-fix, it survived alongside the reconstructed list
+    below, so "References" appeared as a heading twice.
+    """
+    monkeypatch.setattr("latextify.citations.crossref.CrossrefClient", _mock_crossref_no_match)
+    docx = _copy_fixture(tmp_path, BRACKET_CITED_DOCX)
+    result = export_markdown(docx, tmp_path / "bracket_cited.md")
+
+    text = result.output_path.read_text(encoding="utf-8")
+    assert len(_MARKDOWN_REFERENCES_HEADING_RE.findall(text)) == 1
+    # The reconstructed entry appears once -- not once in the typed list and
+    # once more in the reconstructed one.
+    assert text.count(_BRACKET_REF_1_PHRASE) == 1
+    assert result.citation_count == 5
+
+
+def test_export_markdown_plaintext_citation_path_in_text_marker_aligns(tmp_path, monkeypatch):
+    """The "[2]" in-text marker is left as typed (see the module docstring's
+    documented simplification) but its number must still fall inside the
+    reconstructed list's 1..N range -- reconstruct_citations numbers typed
+    entries in the same order the author's own "[N]" markers assume, so the
+    strip must not have shifted that numbering.
+    """
+    monkeypatch.setattr("latextify.citations.crossref.CrossrefClient", _mock_crossref_no_match)
+    docx = _copy_fixture(tmp_path, BRACKET_CITED_DOCX)
+    result = export_markdown(docx, tmp_path / "bracket_cited.md")
+
+    text = result.output_path.read_text(encoding="utf-8")
+    # pandoc's markdown writer backslash-escapes literal "[" / "]".
+    assert "\\[2\\]" in text or "[2]" in text
+    assert 1 <= 2 <= result.citation_count
+
+
+def test_export_html_plaintext_citation_path_has_exactly_one_reference_list(tmp_path, monkeypatch):
+    monkeypatch.setattr("latextify.citations.crossref.CrossrefClient", _mock_crossref_no_match)
+    docx = _copy_fixture(tmp_path, BRACKET_CITED_DOCX)
+    result = export_html(docx, tmp_path / "bracket_cited.html")
+
+    text = result.output_path.read_text(encoding="utf-8")
+    _parse_xhtml(text)
+    assert len(_HTML_REFERENCES_HEADING_RE.findall(text)) == 1
+    assert text.count(_BRACKET_REF_1_PHRASE) == 1
+    assert result.citation_count == 5
+
+
+def test_export_html_plaintext_citation_path_in_text_marker_aligns(tmp_path, monkeypatch):
+    monkeypatch.setattr("latextify.citations.crossref.CrossrefClient", _mock_crossref_no_match)
+    docx = _copy_fixture(tmp_path, BRACKET_CITED_DOCX)
+    result = export_html(docx, tmp_path / "bracket_cited.html")
+
+    text = result.output_path.read_text(encoding="utf-8")
+    assert "[2]" in text  # HTML does not escape literal brackets
+    assert 1 <= 2 <= result.citation_count
+
+
+def test_export_markdown_plaintext_citation_path_warning_is_accurate(tmp_path, monkeypatch):
+    """The warning must no longer claim a duplicate list survives (it doesn't,
+    after the fix) -- only that in-text markers are left unlinked.
+    """
+    monkeypatch.setattr("latextify.citations.crossref.CrossrefClient", _mock_crossref_no_match)
+    docx = _copy_fixture(tmp_path, BRACKET_CITED_DOCX)
+    result = export_markdown(docx, tmp_path / "bracket_cited.md")
+
+    messages = [w.message for w in result.warnings]
+    assert any("no citation field codes found" in m for m in messages)
+    # The old (pre-fix) wording claimed the typed list was left in the body,
+    # producing a duplicate -- no longer true, so it must be gone.
+    assert not any("was not removed from the body" in m for m in messages)
+    assert not any("the typed reference list" in m and "not stripped" in m for m in messages)
+
+
+def test_export_markdown_field_coded_path_unaffected_by_reference_strip(tmp_path):
+    """Regression: zotero_cited.docx (field-coded citations) must be
+    completely untouched by the AST strip -- it only fires on the plaintext
+    path (see ``_prepare_reference_data``'s ``strip_typed_list`` flag).
+    """
+    docx = _copy_fixture(tmp_path, ZOTERO_DOCX)
+    result = export_markdown(docx, tmp_path / "zotero.md")
+
+    text = result.output_path.read_text(encoding="utf-8")
+    assert len(_MARKDOWN_REFERENCES_HEADING_RE.findall(text)) == 1
+    assert result.citation_count == 5
+    assert not any("no citation field codes found" in w.message for w in result.warnings)
+
+
+def test_export_html_field_coded_path_unaffected_by_reference_strip(tmp_path):
+    docx = _copy_fixture(tmp_path, ZOTERO_DOCX)
+    result = export_html(docx, tmp_path / "zotero.html")
+
+    text = result.output_path.read_text(encoding="utf-8")
+    _parse_xhtml(text)
+    assert len(_HTML_REFERENCES_HEADING_RE.findall(text)) == 1
+    assert '<a href="#ref-1">1</a>' in text
+    assert not any("no citation field codes found" in w.message for w in result.warnings)
+
+
+def test_export_markdown_no_citation_path_no_spurious_reference_list(tmp_path):
+    """Regression: clean.docx has no citations at all -- must export cleanly
+    with no reference list (empty, not a spurious "## References" with
+    nothing under it), and the AST strip must not fire (no typed reference
+    list was ever reconstructed to strip).
+    """
+    docx = _copy_fixture(tmp_path, CLEAN_DOCX)
+    result = export_markdown(docx, tmp_path / "clean.md")
+
+    assert result.output_path.is_file()
+    text = result.output_path.read_text(encoding="utf-8")
+    assert not _MARKDOWN_REFERENCES_HEADING_RE.search(text)
+    assert result.citation_count == 0
+    assert result.warnings == ()
+
+
+def test_export_html_no_citation_path_no_spurious_reference_list(tmp_path):
+    docx = _copy_fixture(tmp_path, CLEAN_DOCX)
+    result = export_html(docx, tmp_path / "clean.html")
+
+    assert result.output_path.is_file()
+    text = result.output_path.read_text(encoding="utf-8")
+    _parse_xhtml(text)
+    assert not _HTML_REFERENCES_HEADING_RE.search(text)
+    assert result.citation_count == 0
+    assert result.warnings == ()
 
 
 # --------------------------------------------------------------------------- #
