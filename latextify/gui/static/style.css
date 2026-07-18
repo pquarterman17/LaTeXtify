@@ -65,6 +65,13 @@ table.filelist td { padding: 0.4rem 0.5rem; border-bottom: 1px solid var(--borde
 table.filelist td.name { word-break: break-all; }
 .fignum { width: 4.5rem; }
 .fignum[hidden] { display: none; }
+tr.layout-row td { padding: 0.15rem 0.5rem 0.5rem 1.4rem; border-bottom: 1px solid var(--border); }
+.doc-layout {
+  display: flex; align-items: center; gap: 0.9rem; flex-wrap: wrap;
+  font-size: 0.85rem; color: var(--muted);
+}
+.doc-layout select { width: auto; padding: 0.25rem 0.4rem; font-size: 0.85rem; }
+.doc-layout .checkbox-row { font-size: 0.85rem; }
 .remove-btn {
   border: 1px solid var(--border); background: var(--panel); color: var(--muted);
   border-radius: 6px; padding: 0.25rem 0.55rem; font-size: 0.9rem; cursor: pointer;

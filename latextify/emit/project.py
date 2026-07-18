@@ -105,6 +105,14 @@ from latextify.emit.anchors import (
     resolve_anchors,
 )
 from latextify.emit.metadata import load_meta, write_metadata_tex
+from latextify.emit.submission import (
+    _ONECOLUMN_FIGURE_ENV,
+    DocumentLayout,
+    anonymize_meta,
+    build_main_preamble,
+    build_supplement_preamble,
+    strip_acknowledgments,
+)
 from latextify.figures.convert import convert_for_latex
 from latextify.figures.extract import extract_figures
 from latextify.figures.override import resolve_overrides
@@ -118,7 +126,7 @@ from latextify.model.refs import Citation, RefEntry
 from latextify.model.validate import ValidationReport
 from latextify.report.render import write_report
 from latextify.templates import loader as templates_loader
-from latextify.templates.loader import FigureEnv, Journal
+from latextify.templates.loader import Journal
 
 _MAIN_TEX_TEMPLATE = (
     "\\input{generated/preamble}\n"
@@ -157,30 +165,6 @@ _SUPPLEMENT_NUMBERING = (
     "\\renewcommand{\\thesection}{S\\arabic{section}}\n"
 )
 
-# One-column plain-article supplement (--supplement-onecolumn): a deliberately
-# simple document class for the "less strict" SI format many journals accept.
-# 11pt article + natbib with a PORTABLE numeric bibstyle -- the journal's own
-# apsrev4-2/aipnum4-2 are REVTeX-specific and do not compile under article, and
-# an SI shares references.bib, so unsrtnat (bundled, natbib-native) renders the
-# cited subset without pulling in the journal machinery. S-numbering is appended
-# exactly like the journal-class path.
-_PLAIN_ARTICLE_SUPPLEMENT_PREAMBLE = (
-    "% One-column plain-article supplement (--supplement-onecolumn).\n"
-    "\\documentclass[11pt]{article}\n"
-    "\\usepackage{amsmath}\n"
-    "\\usepackage{amssymb}\n"
-    "\\usepackage{graphicx}\n"
-    "\\usepackage{bm}\n"
-    "\\usepackage{booktabs}\n"
-    "\\usepackage[numbers]{natbib}\n"
-    "\\usepackage[colorlinks=true,linkcolor=blue,citecolor=blue,urlcolor=blue]{hyperref}\n"
-    "\\bibliographystyle{unsrtnat}\n"
-)
-# A one-column document has no page-width float, so a wide figure falls back to
-# the ordinary single-column figure environment (figure* is a two-column-only
-# construct).
-_ONECOLUMN_FIGURE_ENV = FigureEnv(single="figure", wide="figure")
-
 # Bibliography inclusion lives in a regenerated file (plan item 26), NOT
 # directly in the write-once main.tex, so a citation-free manuscript emits no
 # ``\bibliography`` line at all and still compiles under classes whose
@@ -200,23 +184,6 @@ _BIBLIOGRAPHY_EMPTY = (
 # to advise the one-line migration instead.
 _DIRECT_BIBLIOGRAPHY_RE = re.compile(r"(?m)^[^%\n]*\\bibliography\{")
 
-_HYPERREF_RE = re.compile(r"\\usepackage(?:\[[^\]]*\])?\{hyperref\}")
-_DEFAULT_HYPERREF_LINE = (
-    "\\usepackage[colorlinks=true,linkcolor=blue,citecolor=blue,urlcolor=blue]{hyperref}\n"
-)
-
-# A journal preamble that already fixes a bottom mode (either direction) is left
-# alone; otherwise \raggedbottom is appended (see _ensure_raggedbottom).
-_BOTTOM_MODE_RE = re.compile(r"\\(?:ragged|flush)bottom\b")
-_RAGGEDBOTTOM_LINE = (
-    "% Let each column end at its natural length. Two-column 'reprint' classes\n"
-    "% (REVTeX reprint, IEEEtran, elsarticle twocolumn) default to \\flushbottom,\n"
-    "% which stretches inter-paragraph glue to equalize column height -- opening a\n"
-    "% large gap on a text-only page whose figures floated elsewhere. Add\n"
-    "% \\flushbottom after this \\input in main.tex for the published look.\n"
-    "\\raggedbottom\n"
-)
-
 def emit_project(
     docx_path: Path | str,
     journal_name: str,
@@ -231,6 +198,10 @@ def emit_project(
     references_bib_path: Path | str | None = None,
     supplement_onecolumn: bool = False,
     check_references: bool = False,
+    main_layout: DocumentLayout | None = None,
+    supplement_layout: DocumentLayout | None = None,
+    anonymize: bool = False,
+    figures_at_end: bool = False,
 ) -> EmitResult:
     """Convert ``docx_path`` into a journal-ready LaTeX project.
 
@@ -299,6 +270,19 @@ def emit_project(
             (default) leaves the main document's output byte-identical to
             not passing this argument at all.
 
+        main_layout / supplement_layout: optional per-document
+            :class:`~latextify.emit.submission.DocumentLayout` overrides
+            (column mode, reviewer line numbers, double spacing) applied to
+            the rendered preambles. A supplement layout with ``columns="one"``
+            selects the plain-article supplement exactly like
+            ``supplement_onecolumn``. ``None`` keeps the journal defaults.
+        anonymize: double-blind submission -- render a placeholder author
+            block with no affiliations and strip the acknowledgments
+            section/environment from the body (noted in report warnings).
+        figures_at_end: gather figure/table floats after the references via
+            the ``endfloat`` package, as several publishers require at
+            submission. Applies to both emitted documents.
+
     Returns:
         An :class:`~latextify.model.emit.EmitResult` naming every written
         path plus any anchor-resolution warnings. ``.supplement`` is
@@ -323,6 +307,11 @@ def emit_project(
 
     journal = templates_loader.load(journal_name, journals_dir=journals_dir)
     meta = load_meta(docx_path)
+    if anonymize:
+        # After load_meta so the (write-once) paper.yaml sidecar keeps the real
+        # author block; only this run's rendered output is anonymized. The
+        # report warning is added once `warnings` exists, with the body strip.
+        meta = anonymize_meta(meta)
 
     with tempfile.TemporaryDirectory(prefix="latextify-media-") as tmp:
         media_dir = Path(tmp)
@@ -402,8 +391,18 @@ def emit_project(
 
     bib_text = entries_to_bib(entries)
 
-    preamble_text = _ensure_raggedbottom(
-        _ensure_hyperref(journal.render_preamble(mode=citation_style))
+    if anonymize:
+        resolved_tex, ack_removed = strip_acknowledgments(resolved_tex)
+        note = "anonymize: placeholder author block, affiliations removed"
+        if ack_removed:
+            note += "; acknowledgments section removed"
+        warnings.append(EmitWarning(message=note + " (double-blind review)."))
+
+    preamble_text = build_main_preamble(
+        journal.render_preamble(mode=citation_style),
+        document_class=journal.document_class,
+        layout=main_layout,
+        figures_at_end=figures_at_end,
     )
     (generated_dir / "preamble.tex").write_text(preamble_text, encoding="utf-8")
 
@@ -442,8 +441,11 @@ def emit_project(
             crossref_mailto=crossref_mailto,
             main_entries=entries,
             bib_entries=bib_entries,
-            onecolumn=supplement_onecolumn,
+            onecolumn=supplement_onecolumn
+            or (supplement_layout is not None and supplement_layout.columns == "one"),
             exclude_figures=exclude_figures,
+            layout=supplement_layout,
+            figures_at_end=figures_at_end,
         )
         # references.bib is shared by main.tex and supplement.tex; rewrite it
         # with the merged set now that any new SI-only references were
@@ -624,39 +626,6 @@ def _prune_stale_figures(figures_dir: Path, prefix: str, keep_names: set[str]) -
 
 
 # --------------------------------------------------------------------------- #
-# Preamble: hyperref wiring for clickable DOIs
-# --------------------------------------------------------------------------- #
-
-
-def _ensure_hyperref(preamble_text: str) -> str:
-    """Append hyperref wiring if the journal's own preamble doesn't already load it."""
-    if _HYPERREF_RE.search(preamble_text):
-        return preamble_text
-    if not preamble_text.endswith("\n"):
-        preamble_text += "\n"
-    return preamble_text + _DEFAULT_HYPERREF_LINE
-
-
-def _ensure_raggedbottom(preamble_text: str) -> str:
-    """Append ``\\raggedbottom`` unless the journal preamble already sets a bottom mode.
-
-    Two-column "reprint" classes force every column to equal height with
-    ``\\flushbottom``; on a text-only page (its figures floated to another page)
-    the only way to reach full height is to inflate the rubber glue between
-    paragraphs, which reads as a jarring mid-column gap. ``\\raggedbottom`` lets
-    the column end where the text ends. Harmless for single-column classes
-    (already their default), so it is applied journal-agnostically -- one fix for
-    every two-column journal rather than per-template. A preamble that already
-    commits to ``\\raggedbottom``/``\\flushbottom`` is respected.
-    """
-    if _BOTTOM_MODE_RE.search(preamble_text):
-        return preamble_text
-    if not preamble_text.endswith("\n"):
-        preamble_text += "\n"
-    return preamble_text + _RAGGEDBOTTOM_LINE
-
-
-# --------------------------------------------------------------------------- #
 # Backward-compat: pre-item-26 main.tex with a direct \bibliography call
 # --------------------------------------------------------------------------- #
 
@@ -823,6 +792,8 @@ def _emit_supplement(
     bib_entries: list[RefEntry] | None = None,
     onecolumn: bool = False,
     exclude_figures: bool = False,
+    layout: DocumentLayout | None = None,
+    figures_at_end: bool = False,
 ) -> tuple[SupplementResult, list[RefEntry]]:
     """Emit the supplementary-material project (plan item 21).
 
@@ -940,13 +911,9 @@ def _emit_supplement(
         si_citation_count = si_resolved_tex.count("\\cite{")
 
     # -- generated/supplement_preamble.tex: (journal | plain article) + S-numbering --
-    if onecolumn:
-        # Plain one-column article; preamble already loads hyperref itself.
-        si_preamble_text = _ensure_raggedbottom(_PLAIN_ARTICLE_SUPPLEMENT_PREAMBLE)
-    else:
-        si_preamble_text = _ensure_raggedbottom(
-            _ensure_hyperref(journal.render_preamble(mode=citation_style))
-        )
+    si_preamble_text = build_supplement_preamble(
+        journal, citation_style, onecolumn=onecolumn, layout=layout, figures_at_end=figures_at_end
+    )
     si_preamble_text = si_preamble_text.rstrip("\n") + "\n" + _SUPPLEMENT_NUMBERING
     supplement_preamble_path = generated_dir / "supplement_preamble.tex"
     supplement_preamble_path.write_text(si_preamble_text, encoding="utf-8")

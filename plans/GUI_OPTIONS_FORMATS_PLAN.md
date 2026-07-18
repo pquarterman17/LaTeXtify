@@ -108,17 +108,6 @@ recorded in the 2026-07-18 discussion have exactly one home.
 
 ## Tier 2 — Medium Impact (round 2: per-document emission + intake)
 
-6. **Per-file layout mini-panels + emission** — columns (one/two), line
-   numbers, double spacing per main/supplement document, threaded
-   UI → form → emit → journal template (REVTeX reprint/preprint rides the
-   columns choice)
-
-7. **Double-blind anonymize** (global option) — strip authors,
-   affiliations, acknowledgments at emit
-
-8. **Figures at end** (global option) — figures/tables after references
-   for journals that require it at submission
-
 9. **Manuscript inputs `.odt` / `.rtf` / `.md`** — ingest routing,
    preflight, GUI/CLI accept lists, tests
 
@@ -133,10 +122,28 @@ recorded in the 2026-07-18 discussion have exactly one home.
 12. **`.doc` manuscripts** — LibreOffice-headless pre-conversion to docx as
     an optional, auto-detected dependency with an actionable error otherwise
 
+13. **CLI parity for submission options** — expose `--layout` / line numbers
+    / double spacing / `--anonymize` / `--figures-at-end` on `latextify
+    convert` (deferred from item 6, which shipped GUI-first; cli.py sits at
+    its ratchet pin and needs an offsetting extraction first)
+
 ---
 
 ## Completed
 
+- ~~**#6 Per-file layout mini-panels + emission**~~ (2026-07-18) — new
+  `emit/submission.py`: DocumentLayout applied to rendered preambles, keyed
+  by document class (REVTeX one/two-column = preprint/reprint + native
+  `linenumbers`; other classes use standard options + lineno/setspace).
+  Main/Supplement rows grow mini-panels (columns, line numbers, double
+  spacing); the global "One-column supplement" toggle was absorbed by the
+  supplement mini-panel (`supplement_columns=one` = the plain-article path;
+  the `supplement_onecolumn` API field remains for compatibility).
+- ~~**#7 Double-blind anonymize**~~ (2026-07-18) — placeholder author block,
+  affiliations dropped, acknowledgments section/environment stripped from the
+  body; paper.yaml sidecar keeps the real authors; noted in report warnings.
+- ~~**#8 Figures at end**~~ (2026-07-18) — `endfloat` (nolists,tablesfirst)
+  appended to both documents' preambles behind a global toggle.
 - ~~**#4 Citation default + confirm**~~ (2026-07-18) — manifests already
   required ``bib.default_mode`` (all currently numeric); it is now exposed in
   ``GET /api/journals`` and the dropdown follows it on journal change. A

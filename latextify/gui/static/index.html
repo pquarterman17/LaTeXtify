@@ -49,9 +49,11 @@
       </div>
       <div class="options-grid">
         <label class="checkbox-row" title="Emit a text-only project: embedded and dropped-in figure files are skipped and figure anchors are removed from the LaTeX."><input id="opt-nofigs" type="checkbox" /> Exclude figures (text only)</label>
-        <label class="checkbox-row" title="Build the supplement as a one-column article-style document instead of the journal's own layout."><input id="opt-si1col" type="checkbox" /> One-column (article) supplement</label>
+        <label class="checkbox-row" title="Double-blind review copy: the author/affiliation block is replaced with a placeholder and the acknowledgments section is removed from the body. The paper.yaml sidecar keeps the real authors for later."><input id="opt-anonymize" type="checkbox" /> Anonymize (double-blind)</label>
+        <label class="checkbox-row" title="Gather figure and table floats after the references (endfloat package), as several publishers require at submission."><input id="opt-figsend" type="checkbox" /> Figures &amp; tables at end</label>
       </div>
       <div id="nofigs-warning" class="hint hidden">“Exclude figures” is on while figure files are staged — those files will be ignored.</div>
+      <p class="hint">Per-document layout (columns, line numbers, spacing) is set on each uploaded Main/Supplement file in the list above.</p>
     </fieldset>
 
     <fieldset class="opt-group">
@@ -149,6 +151,7 @@
 </main>
 
 <script src="/static/app.js"></script>
+<script src="/static/results.js"></script>
 <script src="/static/export.js"></script>
 <script src="/static/review.js"></script>
 </body>

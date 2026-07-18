@@ -61,6 +61,7 @@ def _ui_text(client: TestClient) -> str:
     return (
         client.get("/").text
         + client.get("/static/app.js").text
+        + client.get("/static/results.js").text
         + client.get("/static/export.js").text
         + client.get("/static/review.js").text
     )
@@ -91,7 +92,10 @@ def test_index_wires_the_multifile_ui(tmp_path):
     assert "multiple" in html  # multi-file input
     assert 'id="filelist"' in html  # per-file role table
     assert 'id="crossref-email"' in html
-    for toggle in ("opt-pdf", "opt-combine", "opt-zip", "opt-audit", "opt-si1col", "opt-checkrefs"):
+    for toggle in (
+        "opt-pdf", "opt-combine", "opt-zip", "opt-audit",
+        "opt-anonymize", "opt-figsend", "opt-checkrefs",
+    ):
         assert f'id="{toggle}"' in html, toggle
 
 
@@ -106,14 +110,16 @@ def test_split_static_assets_are_served(tmp_path):
     client = _client(tmp_path)
     css = client.get("/static/style.css")
     assert css.status_code == 200 and "text/css" in css.headers["content-type"]
-    for name in ("app.js", "export.js", "review.js"):
+    for name in ("app.js", "results.js", "export.js", "review.js"):
         resp = client.get(f"/static/{name}")
         assert resp.status_code == 200, name
         assert "javascript" in resp.headers["content-type"], name
     # The served index references exactly these assets.
     html = client.get("/").text
     assert '/static/style.css' in html
-    for script in ("/static/app.js", "/static/export.js", "/static/review.js"):
+    for script in (
+        "/static/app.js", "/static/results.js", "/static/export.js", "/static/review.js",
+    ):
         assert script in html, script
 
 
@@ -124,8 +130,8 @@ def test_options_are_grouped_and_every_toggle_explained(tmp_path):
     for legend in ("Conversion", "Outputs", "Online checks"):
         assert f"<legend>{legend}</legend>" in html, legend
     for opt in (
-        "opt-pdf", "opt-combine", "opt-si1col", "opt-zip",
-        "opt-nofigs", "opt-audit", "opt-checkrefs",
+        "opt-pdf", "opt-combine", "opt-zip", "opt-nofigs",
+        "opt-audit", "opt-checkrefs", "opt-anonymize", "opt-figsend",
     ):
         pattern = rf'<label class="checkbox-row" title="[^"]{{30,}}"><input id="{opt}"'
         assert re.search(pattern, html), f"{opt} lacks a tooltip"
@@ -153,6 +159,66 @@ def test_citation_default_confirm_wiring_present(tmp_path):
     assert "citationOverridePending" in js
     assert "default_mode" in js  # dropdown follows the journal's house style
     assert "Confirm or revert the citation-style choice first." in js
+
+
+def test_per_document_layout_wiring_present(tmp_path):
+    """Main/Supplement rows grow layout mini-panels; anonymize + figures-at-end
+    are global toggles (plan items 6-8)."""
+    client = _client(tmp_path)
+    js = client.get("/static/app.js").text
+    assert "buildLayoutRow" in js
+    for field_name in ("main_columns", "supplement_columns", "main_double_spacing"):
+        assert field_name in js, field_name
+    assert "one-column (article)" in js  # supplement choice absorbs the old toggle
+    html = client.get("/").text
+    assert 'id="opt-anonymize"' in html and 'id="opt-figsend"' in html
+    assert 'id="opt-si1col"' not in html  # superseded by the supplement mini-panel
+
+
+def test_convert_multi_threads_submission_options(tmp_path):
+    """Layout + anonymize + figures-at-end flow form -> emitted files (items 6-8)."""
+    client = _client(tmp_path)
+    with CLEAN_DOCX.open("rb") as fh:
+        response = client.post(
+            "/api/convert-multi",
+            files={"main": ("clean.docx", fh, "application/octet-stream")},
+            data={
+                "journal": "revtex4-2",
+                "pdf": "false",
+                "main_columns": "one",
+                "main_line_numbers": "true",
+                "main_double_spacing": "true",
+                "anonymize": "true",
+                "figures_at_end": "true",
+            },
+        )
+    assert response.status_code == 200
+    body = response.json()
+    out = Path(body["output_dir"])
+
+    preamble = (out / "generated" / "preamble.tex").read_text(encoding="utf-8")
+    class_line = next(
+        line for line in preamble.splitlines() if line.startswith("\\documentclass")
+    )
+    assert "preprint" in class_line  # one-column on REVTeX = preprint mode
+    assert "reprint" not in class_line.replace("preprint", "")
+    assert "linenumbers" in class_line  # REVTeX's native line-number option
+    assert "\\doublespacing" in preamble
+    assert "endfloat" in preamble
+
+    metadata = (out / "generated" / "metadata.tex").read_text(encoding="utf-8")
+    assert "Anonymous Author(s)" in metadata
+    assert any(w.startswith("anonymize:") for w in body["warnings"])
+
+
+def test_convert_multi_rejects_unknown_column_mode(tmp_path):
+    response = _client(tmp_path).post(
+        "/api/convert-multi",
+        files={"main": ("paper.docx", b"irrelevant", "application/octet-stream")},
+        data={"journal": "revtex4-2", "pdf": "false", "main_columns": "three"},
+    )
+    assert response.status_code == 400
+    assert "columns" in response.json()["detail"]
 
 
 def test_input_aware_toggle_wiring_present(tmp_path):

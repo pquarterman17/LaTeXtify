@@ -22,20 +22,12 @@
   const journalSelect = el("journal-select");
   const citationSelect = el("citation-select");
   const crossrefEmail = el("crossref-email");
-  const optPdf = el("opt-pdf"), optCombine = el("opt-combine"), optSi1col = el("opt-si1col"),
-    optZip = el("opt-zip"), optNoFigs = el("opt-nofigs"), optAudit = el("opt-audit"), optCheckRefs = el("opt-checkrefs");
+  const optPdf = el("opt-pdf"), optCombine = el("opt-combine"), optZip = el("opt-zip"),
+    optNoFigs = el("opt-nofigs"), optAudit = el("opt-audit"), optCheckRefs = el("opt-checkrefs"),
+    optAnon = el("opt-anonymize"), optFigsEnd = el("opt-figsend");
   const convertBtn = el("convert-btn");
   const statusEl = el("status");
   const errorBox = el("error-box");
-  const warningsPanel = el("warnings-panel");
-  const warningsList = el("warnings-list");
-  const downloadsPanel = el("downloads-panel");
-  const downloads = el("downloads");
-  const pdfPanel = el("pdf-panel");
-  const pdfTabs = el("pdf-tabs");
-  const pdfEmbed = el("pdf-embed");
-  const reportPanel = el("report-panel");
-  const reportText = el("report-text");
 
   // Advertise the real accepted formats from the same lists role detection
   // uses, and keep the file picker's filter in sync (one source of truth —
@@ -86,11 +78,13 @@
     return n;
   }
 
+  const defaultLayout = () => ({ columns: "default", linenos: false, dblspace: false });
+
   function addFiles(fileList) {
     Array.from(fileList).forEach((file) => {
       const role = detectRole(file);
       const number = role === "figure" ? nextFigureNumber() : null;
-      entries.push({ file, role, number });
+      entries.push({ file, role, number, layout: defaultLayout() });
     });
     renderFiles();
     updateButton();
@@ -120,6 +114,11 @@
       roleSel.addEventListener("change", () => {
         entry.role = roleSel.value;
         if (entry.role === "figure" && entry.number == null) entry.number = nextFigureNumber();
+        // The supplement's column choices don't include "two" (its one-column
+        // choice IS the plain-article format); drop a stale main-only pick.
+        if (entry.role === "supplement" && entry.layout && entry.layout.columns === "two") {
+          entry.layout.columns = "default";
+        }
         renderFiles();
         updateButton();
         invalidatePreview();
@@ -158,8 +157,63 @@
       tr.appendChild(rmTd);
 
       filelistBody.appendChild(tr);
+      if (entry.role === "main" || entry.role === "supplement") {
+        if (!entry.layout) entry.layout = defaultLayout();
+        filelistBody.appendChild(buildLayoutRow(entry));
+      }
     });
     filelist.classList.toggle("hidden", entries.length === 0);
+  }
+
+  // Per-document layout mini-panel (plan item 6): a second table row under a
+  // Main/Supplement file carrying its column mode, line numbers, and spacing.
+  const COLUMN_CHOICES = {
+    main: [["default", "journal default"], ["one", "one-column"], ["two", "two-column"]],
+    supplement: [["default", "journal default"], ["one", "one-column (article)"]],
+  };
+
+  function buildLayoutRow(entry) {
+    const tr = document.createElement("tr");
+    tr.className = "layout-row";
+    const td = document.createElement("td");
+    td.colSpan = 4;
+    const wrap = document.createElement("div");
+    wrap.className = "doc-layout";
+    const label = document.createElement("span");
+    label.textContent = "Layout:";
+    wrap.appendChild(label);
+
+    const sel = document.createElement("select");
+    sel.title = "Column mode for this document. On APS/AIP journals one-column is REVTeX's "
+      + "preprint mode and two-column its reprint mode; the supplement's one-column choice "
+      + "is the simplified article format.";
+    COLUMN_CHOICES[entry.role].forEach(([value, text]) => {
+      const opt = document.createElement("option");
+      opt.value = value; opt.textContent = text;
+      if (value === entry.layout.columns) opt.selected = true;
+      sel.appendChild(opt);
+    });
+    sel.addEventListener("change", () => { entry.layout.columns = sel.value; invalidatePreview(); });
+    wrap.appendChild(sel);
+
+    const mk = (key, text, title) => {
+      const lab = document.createElement("label");
+      lab.className = "checkbox-row";
+      lab.title = title;
+      const box = document.createElement("input");
+      box.type = "checkbox"; box.checked = entry.layout[key];
+      box.addEventListener("change", () => { entry.layout[key] = box.checked; invalidatePreview(); });
+      lab.appendChild(box); lab.appendChild(document.createTextNode(" " + text));
+      return lab;
+    };
+    wrap.appendChild(mk("linenos", "Line numbers",
+      "Reviewer line numbers (REVTeX's native class option where available; the lineno package elsewhere)."));
+    wrap.appendChild(mk("dblspace", "Double spacing",
+      "Double-space this document via the setspace package."));
+
+    td.appendChild(wrap);
+    tr.appendChild(td);
+    return tr;
   }
 
   function updateButton() {
@@ -175,11 +229,9 @@
   // when it will silently ignore staged figure files.
   function updateOptionState() {
     const hasSupp = entries.some((x) => x.role === "supplement");
-    [optCombine, optSi1col].forEach((box) => {
-      box.disabled = !hasSupp;
-      if (!hasSupp) box.checked = false;
-      box.title = hasSupp ? "" : "Add a file with the Supplement role to enable.";
-    });
+    optCombine.disabled = !hasSupp;
+    if (!hasSupp) optCombine.checked = false;
+    optCombine.title = hasSupp ? "" : "Add a file with the Supplement role to enable.";
     const figsStaged = entries.some((x) => x.role === "figure");
     el("nofigs-warning").classList.toggle("hidden", !(optNoFigs.checked && figsStaged));
   }
@@ -194,13 +246,6 @@
     window.LTXReview.reset();
   }
 
-  // Warnings accumulate across convert + export flows in one shared panel.
-  function appendWarning(message) {
-    const li = document.createElement("li");
-    li.textContent = message;
-    warningsList.appendChild(li);
-    warningsPanel.classList.remove("hidden");
-  }
 
   // -- dropzone + input wiring --
   dropzone.addEventListener("click", () => fileInput.click());
@@ -294,61 +339,13 @@
   });
   // Changing any option makes an earlier preview stale (opt-nofigs included:
   // it changes what the conversion emits, so a prior preview no longer applies).
-  [citationSelect, optPdf, optCombine, optSi1col, optZip, optNoFigs, optAudit, optCheckRefs].forEach(
-    (ctrl) => ctrl.addEventListener("change", invalidatePreview)
-  );
+  [
+    citationSelect, optPdf, optCombine, optZip, optNoFigs,
+    optAudit, optCheckRefs, optAnon, optFigsEnd,
+  ].forEach((ctrl) => ctrl.addEventListener("change", invalidatePreview));
   optNoFigs.addEventListener("change", updateOptionState);
   citationSelect.addEventListener("change", onCitationChange);
   crossrefEmail.addEventListener("input", invalidatePreview);
-
-  // -- result rendering --
-  function resetResultPanels() {
-    warningsPanel.classList.add("hidden"); warningsList.innerHTML = "";
-    downloadsPanel.classList.add("hidden"); downloads.innerHTML = "";
-    reportPanel.classList.add("hidden"); reportText.textContent = "";
-    pdfPanel.classList.add("hidden"); pdfTabs.innerHTML = ""; pdfEmbed.removeAttribute("src");
-    window.LTXReview.reset();
-  }
-
-  function renderPdfTabs(body) {
-    pdfTabs.innerHTML = "";  // rebuildable: also called to refresh after a recompile
-    const views = [
-      ["Main", body.pdf_url],
-      ["Supplement", body.supplement_pdf_url],
-      ["Combined", body.combined_pdf_url],
-      ["Equation audit", body.audit_pdf_url],
-    ].filter((v) => v[1]);
-    if (!views.length) return;
-
-    function show(url, btn) {
-      pdfEmbed.setAttribute("src", url);
-      Array.from(pdfTabs.children).forEach((c) => c.classList.remove("active"));
-      btn.classList.add("active");
-    }
-    views.forEach(([label, url], i) => {
-      const btn = document.createElement("button");
-      btn.type = "button"; btn.textContent = label;
-      btn.addEventListener("click", () => show(url, btn));
-      pdfTabs.appendChild(btn);
-      if (i === 0) show(url, btn);
-    });
-    pdfPanel.classList.remove("hidden");
-  }
-
-  function renderDownloads(body) {
-    const items = [
-      ["Project .zip", body.zip_url],
-      ["combined.pdf", body.combined_pdf_url],
-      ["audit.pdf", body.audit_pdf_url],
-    ].filter((v) => v[1]);
-    if (!items.length) return;
-    items.forEach(([label, url]) => {
-      const a = document.createElement("a");
-      a.href = url; a.textContent = "⬇ " + label; a.setAttribute("download", "");
-      downloads.appendChild(a);
-    });
-    downloadsPanel.classList.remove("hidden");
-  }
 
   function buildFormData() {
     const fd = new FormData();
@@ -367,13 +364,24 @@
       fd.append("figures", f.file);
       fd.append("figure_numbers", String(f.number || 1));
     });
+    const mainLayout = main.layout || defaultLayout();
+    fd.append("main_columns", mainLayout.columns || "default");
+    fd.append("main_line_numbers", mainLayout.linenos ? "true" : "false");
+    fd.append("main_double_spacing", mainLayout.dblspace ? "true" : "false");
+    if (supplement) {
+      const suppLayout = supplement.layout || defaultLayout();
+      fd.append("supplement_columns", suppLayout.columns || "default");
+      fd.append("supplement_line_numbers", suppLayout.linenos ? "true" : "false");
+      fd.append("supplement_double_spacing", suppLayout.dblspace ? "true" : "false");
+    }
     fd.append("pdf", optPdf.checked ? "true" : "false");
     fd.append("combine", optCombine.checked ? "true" : "false");
-    fd.append("supplement_onecolumn", optSi1col.checked ? "true" : "false");
     fd.append("want_zip", optZip.checked ? "true" : "false");
     fd.append("exclude_figures", optNoFigs.checked ? "true" : "false");
     fd.append("equation_audit", optAudit.checked ? "true" : "false");
     fd.append("check_references", optCheckRefs.checked ? "true" : "false");
+    fd.append("anonymize", optAnon.checked ? "true" : "false");
+    fd.append("figures_at_end", optFigsEnd.checked ? "true" : "false");
     // Preview never exports — the Export button copies the previewed result via
     // its export_token (see /api/export).
     return fd;
@@ -381,7 +389,8 @@
 
   async function runConvert() {
     clearError();
-    resetResultPanels();
+    window.LTXResults.reset();
+    window.LTXReview.reset();
 
     if (entries.filter((x) => x.role === "main").length !== 1) {
       showError("Assign exactly one file the “Main text” role.");
@@ -416,14 +425,11 @@
       setStatus(statusMsg);
       window.LTXExport.update();
 
-      (body.warnings || []).forEach(appendWarning);
-      renderPdfTabs(body);
-      renderDownloads(body);
+      (body.warnings || []).forEach(window.LTXResults.appendWarning);
+      window.LTXResults.renderPdfTabs(body);
+      window.LTXResults.renderDownloads(body);
       window.LTXReview.render(body.validation);
-      if (body.report_md) {
-        reportText.textContent = body.report_md;
-        reportPanel.classList.remove("hidden");
-      }
+      window.LTXResults.showReport(body.report_md);
     } catch (err) {
       showError(err.message);
       setStatus("");
@@ -436,13 +442,13 @@
 
   // Bridge for review.js + export.js: the live preview token, the PDF-tab
   // renderer (reused after an apply-corrections recompile), and the shared
-  // error/warning surfaces.
+  // error/warning surfaces (forwarded to results.js).
   window.LTXApp = {
     exportToken: () => lastExportToken,
-    renderPdfTabs: renderPdfTabs,
+    renderPdfTabs: (body) => window.LTXResults.renderPdfTabs(body),
     showError: showError,
     clearError: clearError,
-    appendWarning: appendWarning,
+    appendWarning: (message) => window.LTXResults.appendWarning(message),
   };
 
   loadJournals();

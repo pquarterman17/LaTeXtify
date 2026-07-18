@@ -61,6 +61,7 @@ from latextify.citations.corrections import apply_corrections, entry_from_dict, 
 from latextify.compile.pdf import staple_pdfs
 from latextify.compile.tectonic import compile_document, ensure_tectonic
 from latextify.emit.project import emit_project
+from latextify.emit.submission import parse_layout_form
 from latextify.gui.demo import (
     DEMO_MAX_UPLOAD_BYTES,
     RateLimiter,
@@ -486,6 +487,14 @@ def create_app(
         pdf: bool = Form(True),
         export_dir: str | None = Form(None),
         export_types: list[str] = Form([]),
+        main_columns: str = Form("default"),
+        main_line_numbers: bool = Form(False),
+        main_double_spacing: bool = Form(False),
+        supplement_columns: str = Form("default"),
+        supplement_line_numbers: bool = Form(False),
+        supplement_double_spacing: bool = Form(False),
+        anonymize: bool = Form(False),
+        figures_at_end: bool = Form(False),
     ) -> ConvertMultiResponse:
         """Convert a main manuscript plus optional supplement/figures/.bib in one call.
 
@@ -496,6 +505,15 @@ def create_app(
         the whole project tree. Every produced artifact is returned as an opaque
         download token.
         """
+        # Per-document layout overrides (plan item 6); a bad columns value is a
+        # clean 400 naming the field, before anything touches disk.
+        try:
+            main_layout = parse_layout_form(main_columns, main_line_numbers, main_double_spacing)
+            supplement_layout = parse_layout_form(
+                supplement_columns, supplement_line_numbers, supplement_double_spacing
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
         # combine needs both a supplement and a compile step (mirror the CLI).
         if combine and supplement is None:
             raise HTTPException(status_code=400, detail="combine requires a supplement file")
@@ -600,6 +618,10 @@ def create_app(
                 supplement_onecolumn=supplement_onecolumn,
                 exclude_figures=exclude_figures,
                 check_references=check_references,
+                main_layout=main_layout,
+                supplement_layout=supplement_layout,
+                anonymize=anonymize,
+                figures_at_end=figures_at_end,
             )
         except ValueError as exc:
             _rmtree(session_dir)  # a failed emit leaves the upload behind otherwise
