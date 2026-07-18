@@ -10,7 +10,7 @@ safely.
 
 **Status:** Active
 **Created:** 2026-07-13
-**Updated:** 2026-07-13 — Tier 1 complete (items 1, 2 shipped)
+**Updated:** 2026-07-18 — Tier 1 + item 3 shipped; HTML/Markdown (4, 5) next
 
 ---
 
@@ -86,14 +86,7 @@ _Tier 1 is complete — see `## Completed`._
 
 ## Tier 2 — Medium Impact
 
-3. **Metadata-stripped clean-`.docx` export** — a headless "Document Inspector":
-   emit a sanitized copy of the source docx.
-   - [ ] New module operating on the docx zip: strip `docProps/{core,app,custom}.xml`
-   - [ ] Accept-then-remove tracked changes (`w:ins`/`w:del`/`*Change`)
-   - [ ] Delete comments (`comments*.xml` + range markers) and hidden text (`w:vanish`)
-   - [ ] Scrub `settings.xml` rsids / `people.xml`
-   - [ ] CLI command + GUI action; note it does NOT re-rasterize cropped images
-     (item 2 covers crops for the LaTeX path)
+*(Item 3 shipped — see Completed.)*
 
 4. **HTML export** — self-contained shareable page from the same AST.
    - [ ] New export path: pandoc `to="html"`, `--embed-resources --standalone`
@@ -127,6 +120,20 @@ _Tier 1 is complete — see `## Completed`._
 
 ## Completed
 
+- ~~**#3 Metadata-stripped clean-`.docx` export**~~ (2026-07-18) — new
+  `latextify/ingest/docx_clean.py::sanitize_docx` streams a sanitized archive
+  copy: strips `docProps/{core,app,custom}.xml` **and the saved thumbnail**,
+  accepts tracked changes (insertions kept, deletions dropped), deletes
+  comments + markers, drops `w:vanish` hidden runs, scrubs `settings.xml`
+  rsids and `people.xml`, keeping `[Content_Types].xml` + every `.rels`
+  consistent with what it dropped. Uses the shared hardened XML parser
+  (thread-safe). Exposed as `latextify clean SRC DEST` (new `cli_clean.py`)
+  and `POST /api/clean-docx` + `GET /api/clean/{token}` (guarded + demo
+  rate-limited); server.py offset by extracting session/token infra to
+  `gui/downloads.py` (1019→1010). Verified end-to-end: cleaned download
+  carries no docProps/thumbnail/people. Known gaps documented in the module
+  (row/cell-level tracked changes, paragraph-mark merges, scattered rsid
+  attrs). Does NOT re-rasterize cropped images (item 2 covers crops).
 - ~~**#2 Fix the Word image-crop privacy/fidelity leak**~~ (2026-07-13) — Word
   crops images for display via `a:srcRect` but keeps the full original pixels,
   and nothing applied the crop, so hidden regions shipped into `figures/` and
