@@ -36,6 +36,28 @@ Embedded media is extracted via pandoc's ``--extract-media`` into
 ``media_dir`` as ``media/imageN.<ext>``, in document order; the
 figures stage (item 9) associates those files with figure numbers and
 captions.
+
+:func:`convert_docx_to_ast` factors the docx-read + format-agnostic-filter
+half out of :func:`convert_docx_to_body` (FORMATS_AND_PRIVACY items 4-5).
+It runs the same five format-agnostic filter steps
+:func:`~latextify.ingest.filters.apply_all` always ran first
+(``promote_pseudo_headings``, ``normalize_headings``, ``strip_word_junk``,
+``associate_table_captions``, ``allow_slash_line_breaks`` -- see that
+module's docstring), in the same order, calling each PUBLIC filter function
+directly rather than adding a new shared-orchestration function to
+``latextify.ingest.filters`` (a large, size-ratchet-pinned file already at
+its ceiling). ``latextify.ingest.filters.apply_all`` itself is completely
+untouched by this refactor, so the LaTeX pipeline's behavior/output is
+unchanged; :func:`convert_docx_to_body` below is now a thin wrapper that
+calls :func:`convert_docx_to_ast` then the LaTeX-specific tail
+(:func:`~latextify.ingest.filters.plant_anchors` +
+:func:`~latextify.ingest.filters.normalize_tables` + the json->latex pandoc
+call). The HTML/Markdown export pipeline
+(:mod:`latextify.emit.alt_formats`) calls :func:`convert_docx_to_ast`
+directly to get the still-native (un-anchored, un-table-normalized)
+filtered ``Doc`` and hands it to a different pandoc writer, planting its own
+writer-appropriate markers first (see
+:mod:`latextify.ingest.portable_anchors`).
 """
 
 from __future__ import annotations
@@ -48,35 +70,72 @@ import panflute as pf
 import pypandoc
 
 from latextify.ingest.citation_sentinels import plant_citation_sentinels
-from latextify.ingest.filters import apply_all
+from latextify.ingest.filters import (
+    FilterFinding,
+    allow_slash_line_breaks,
+    associate_table_captions,
+    normalize_headings,
+    normalize_tables,
+    plant_anchors,
+    promote_pseudo_headings,
+    strip_word_junk,
+)
 from latextify.ingest.formats import is_docx, pandoc_format_for
 from latextify.ingest.frontmatter import strip_front_matter_from_docx
 from latextify.model import BodyConversionResult
 
 
-def convert_docx_to_body(
+def _corrupt_docx_error(docx_path: Path, pandoc_format: str, exc: Exception) -> ValueError:
+    """The shared "pandoc failed to convert this document" wrapper.
+
+    preflight only validates word/document.xml and word/styles.xml directly
+    with lxml (see latextify.ingest.preflight); a .docx can pass that check
+    yet still have a structurally broken OOXML package (missing
+    [Content_Types].xml, a corrupt relationship, ...) that only pandoc's own
+    docx reader notices -- the same is true of the other three formats' own
+    readers. Never let that raw pypandoc/subprocess failure reach the caller
+    -- wrap it at this ingest boundary the same way a bad zip or malformed
+    XML is wrapped. Shared by :func:`convert_docx_to_ast` and
+    :func:`convert_docx_to_body` so both halves of the (now split) pipeline
+    raise the identical error shape.
+    """
+    return ValueError(
+        f"{docx_path}: pandoc failed to convert this document (it may be "
+        f"corrupt or use a {pandoc_format} structure pandoc's reader "
+        f"can't parse): {exc}"
+    )
+
+
+def convert_docx_to_ast(
     docx_path: Path | str,
     media_dir: Path | str,
     *,
     strip_front_matter: bool = False,
-) -> BodyConversionResult:
-    """Convert a .docx manuscript body to a LaTeX fragment.
+) -> tuple[pf.Doc, list[FilterFinding]]:
+    """Read a manuscript to a format-agnostic filtered panflute ``Doc``.
+
+    Does the docx-read half of :func:`convert_docx_to_body` (citation-sentinel
+    planting, optional front-matter strip, pandoc's docx/odt/rtf/md ->json
+    read, ``--extract-media``) then runs only the five format-agnostic filter
+    steps -- NOT :func:`~latextify.ingest.filters.plant_anchors` or
+    :func:`~latextify.ingest.filters.normalize_tables`, both of which bake in
+    the LaTeX writer (see the module docstring). The returned ``Doc`` still
+    has native ``Image``/``Cite``/``Table`` nodes, ready for ANY pandoc
+    writer -- callers that want LaTeX use :func:`convert_docx_to_body`;
+    callers that want another target (see :mod:`latextify.emit.alt_formats`)
+    plant their own writer-appropriate markers (see
+    :mod:`latextify.ingest.portable_anchors`) and call
+    ``pypandoc.convert_text(..., to=<target>, format="json")`` themselves.
 
     Args:
-        docx_path: path to the source .docx manuscript.
+        docx_path: path to the source manuscript.
         media_dir: directory embedded images are extracted into (created if
             missing).
-        strip_front_matter: when True (the emitter sets this for the main
-            document), remove the manuscript's own title page from the body
-            before conversion so it does not duplicate the journal metadata
-            template's rendering (gap 4). Off by default so a document with no
-            metadata context -- a supplement, or a direct body-fragment call --
-            converts verbatim. See :mod:`latextify.ingest.frontmatter`.
+        strip_front_matter: see :func:`convert_docx_to_body`.
 
     Returns:
-        A :class:`~latextify.model.BodyConversionResult` with the emitted
-        LaTeX text (anchors unresolved), the media directory, anchor
-        counts, and any normalization findings.
+        The filtered ``Doc`` and the format-agnostic filter findings (e.g. a
+        clamped heading level).
     """
     docx_path = Path(docx_path)
     media_dir = Path(media_dir)
@@ -118,31 +177,66 @@ def convert_docx_to_body(
                 ],
             )
         doc = pf.load(io.StringIO(ast_json))
+        # The same five format-agnostic steps latextify.ingest.filters.apply_all
+        # runs first, in the same order -- see the module docstring for why
+        # they are called directly here instead of through a new shared
+        # function added to that (size-ratchet-pinned) module.
+        doc, promo_findings = promote_pseudo_headings(doc)
+        doc, heading_findings = normalize_headings(doc)
+        doc = strip_word_junk(doc)
+        doc, caption_findings = associate_table_captions(doc)
+        doc = allow_slash_line_breaks(doc)
+    except (RuntimeError, OSError) as exc:
+        raise _corrupt_docx_error(docx_path, pandoc_format, exc) from exc
 
-        result = apply_all(doc)
+    return doc, promo_findings + heading_findings + caption_findings
+
+
+def convert_docx_to_body(
+    docx_path: Path | str,
+    media_dir: Path | str,
+    *,
+    strip_front_matter: bool = False,
+) -> BodyConversionResult:
+    """Convert a .docx manuscript body to a LaTeX fragment.
+
+    Args:
+        docx_path: path to the source .docx manuscript.
+        media_dir: directory embedded images are extracted into (created if
+            missing).
+        strip_front_matter: when True (the emitter sets this for the main
+            document), remove the manuscript's own title page from the body
+            before conversion so it does not duplicate the journal metadata
+            template's rendering (gap 4). Off by default so a document with no
+            metadata context -- a supplement, or a direct body-fragment call --
+            converts verbatim. See :mod:`latextify.ingest.frontmatter`.
+
+    Returns:
+        A :class:`~latextify.model.BodyConversionResult` with the emitted
+        LaTeX text (anchors unresolved), the media directory, anchor
+        counts, and any normalization findings.
+    """
+    docx_path = Path(docx_path)
+    media_dir = Path(media_dir)
+    doc, shared_findings = convert_docx_to_ast(
+        docx_path, media_dir, strip_front_matter=strip_front_matter
+    )
+    pandoc_format = pandoc_format_for(docx_path)
+
+    try:
+        doc, anchors = plant_anchors(doc)
+        doc, table_findings = normalize_tables(doc)
 
         filtered_json = io.StringIO()
-        pf.dump(result.doc, filtered_json)
+        pf.dump(doc, filtered_json)
         tex = pypandoc.convert_text(filtered_json.getvalue(), to="latex", format="json")
     except (RuntimeError, OSError) as exc:
-        # preflight only validates word/document.xml and word/styles.xml
-        # directly with lxml (see latextify.ingest.preflight); a .docx can
-        # pass that check yet still have a structurally broken OOXML package
-        # (missing [Content_Types].xml, a corrupt relationship, ...) that
-        # only pandoc's own docx reader notices -- the same is true of the
-        # other three formats' own readers. Never let that raw
-        # pypandoc/subprocess failure reach the caller -- wrap it at this
-        # ingest boundary the same way a bad zip or malformed XML is wrapped.
-        raise ValueError(
-            f"{docx_path}: pandoc failed to convert this document (it may be "
-            f"corrupt or use a {pandoc_format} structure pandoc's reader "
-            f"can't parse): {exc}"
-        ) from exc
+        raise _corrupt_docx_error(docx_path, pandoc_format, exc) from exc
 
     return BodyConversionResult(
         tex=tex,
         media_dir=media_dir,
-        figure_count=result.anchors.figures,
-        citation_count=result.anchors.citations,
-        findings=tuple(result.findings),
+        figure_count=anchors.figures,
+        citation_count=anchors.citations,
+        findings=tuple(shared_findings + table_findings),
     )

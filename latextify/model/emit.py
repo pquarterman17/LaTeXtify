@@ -106,3 +106,22 @@ class EmitResult:
     supplement: SupplementResult | None = None
     validation: ValidationReport | None = None
     entries: tuple[RefEntry, ...] = field(default_factory=tuple)
+
+
+@dataclass(frozen=True)
+class ExportResult:
+    """Outcome of one :mod:`latextify.emit.alt_formats` HTML/Markdown export.
+
+    Mirrors ``EmitResult``'s shape for the self-contained single-file
+    HTML/Markdown export pipeline (FORMATS_AND_PRIVACY items 4-5), which
+    writes one file rather than a project tree. ``figure_count`` is every
+    figure found in the manuscript (embedded/copied or not -- see
+    ``warnings`` for any that could not be included); ``citation_count`` is
+    the number of reconciled bibliography entries in the appended reference
+    list.
+    """
+
+    output_path: Path
+    figure_count: int
+    citation_count: int
+    warnings: tuple[EmitWarning, ...] = field(default_factory=tuple)

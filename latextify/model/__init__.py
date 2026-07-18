@@ -11,7 +11,8 @@ Implemented so far:
     body.py      -- BodyConversionResult, FilterFinding (plan item 3)
     compile.py   -- CompileDiagnostic, CompileResult (plan item 6)
     emit.py      -- EmitResult, EmitWarning (plan item 5), SupplementResult
-                    (plan item 21)
+                    (plan item 21), ExportResult (HTML/Markdown export,
+                    FORMATS_AND_PRIVACY items 4-5)
     figure.py    -- Figure, FigureSource (plan items 9, 15)
     meta.py      -- Affiliation, Author, Meta paper.yaml/template IR (items 4+8)
     preflight.py -- PreflightFinding, PreflightReport, StyleInventory (plan item 2)
@@ -23,7 +24,7 @@ Implemented so far:
 
 from latextify.model.body import BodyConversionResult, FilterFinding
 from latextify.model.compile import CompileDiagnostic, CompileResult, DiagnosticSeverity
-from latextify.model.emit import EmitResult, EmitWarning, SupplementResult
+from latextify.model.emit import EmitResult, EmitWarning, ExportResult, SupplementResult
 from latextify.model.equations import (
     EquationAuditResult,
     EquationCompileStatus,
@@ -57,6 +58,7 @@ __all__ = [
     "EquationCompileStatus",
     "EquationRecord",
     "EquationWriteResult",
+    "ExportResult",
     "Figure",
     "FigureSource",
     "FilterFinding",
