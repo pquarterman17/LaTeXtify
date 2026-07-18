@@ -20,6 +20,7 @@ FIXTURES = Path(__file__).parent / "fixtures"
 FIGURES_DOCX = FIXTURES / "figures.docx"
 ZOTERO_DOCX = FIXTURES / "zotero_cited.docx"
 SUPPLEMENT_DOCX = FIXTURES / "supplement.docx"
+CLEAN_DOCX = FIXTURES / "clean.docx"
 
 runner = CliRunner()
 
@@ -529,6 +530,179 @@ def test_convert_skips_report_with_no_report_flag(tmp_path):
     assert result.exit_code == 0, result.output
     report_path = output / "revtex4-2" / "report.md"
     assert not report_path.exists()
+
+
+# --------------------------------------------------------------------------- #
+# Submission/layout options: --columns, --line-numbers, --double-spacing,
+# --anonymize, --figures-at-end, and their --supplement-* counterparts (plan
+# item 13, GUI_OPTIONS_FORMATS parity). These already worked through the
+# GUI's /api/convert-multi (see tests/test_gui.py::
+# test_convert_multi_threads_submission_options); this covers the CLI wiring
+# added on top of the same emit_project() keyword args.
+# --------------------------------------------------------------------------- #
+
+
+def test_convert_columns_one_and_line_numbers_change_main_preamble(tmp_path):
+    """--columns one switches REVTeX out of its default two-column reprint
+    mode into preprint mode, and --line-numbers adds REVTeX's native
+    linenumbers class option -- both land on the \\documentclass line."""
+    docx = tmp_path / "clean.docx"
+    shutil.copy(CLEAN_DOCX, docx)
+    output = tmp_path / "output"
+
+    result = runner.invoke(
+        app,
+        [
+            "convert", str(docx), "--journal", "revtex4-2", "--output", str(output),
+            "--columns", "one", "--line-numbers",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    preamble = (output / "revtex4-2" / "generated" / "preamble.tex").read_text(encoding="utf-8")
+    class_line = next(
+        line for line in preamble.splitlines() if line.startswith("\\documentclass")
+    )
+    assert "preprint" in class_line
+    assert "reprint" not in class_line.replace("preprint", "")
+    assert "linenumbers" in class_line
+
+
+def test_convert_columns_two_on_generic_class_adds_twocolumn_option(tmp_path):
+    """elsarticle isn't in the per-class column table, so --columns two takes
+    the generic onecolumn/twocolumn LaTeX option path instead of REVTeX's
+    preprint/reprint switch."""
+    docx = tmp_path / "clean.docx"
+    shutil.copy(CLEAN_DOCX, docx)
+    output = tmp_path / "output"
+
+    result = runner.invoke(
+        app,
+        [
+            "convert", str(docx), "--journal", "elsarticle", "--output", str(output),
+            "--columns", "two",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    preamble = (output / "elsarticle" / "generated" / "preamble.tex").read_text(encoding="utf-8")
+    class_line = next(
+        line for line in preamble.splitlines() if line.startswith("\\documentclass")
+    )
+    assert "twocolumn" in class_line
+
+
+def test_convert_double_spacing_appends_setspace_to_preamble(tmp_path):
+    docx = tmp_path / "clean.docx"
+    shutil.copy(CLEAN_DOCX, docx)
+    output = tmp_path / "output"
+
+    result = runner.invoke(
+        app,
+        [
+            "convert", str(docx), "--journal", "revtex4-2", "--output", str(output),
+            "--double-spacing",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    preamble = (output / "revtex4-2" / "generated" / "preamble.tex").read_text(encoding="utf-8")
+    assert "\\doublespacing" in preamble
+
+
+def test_convert_anonymize_replaces_author_and_warns(tmp_path):
+    docx = tmp_path / "clean.docx"
+    shutil.copy(CLEAN_DOCX, docx)
+    output = tmp_path / "output"
+
+    result = runner.invoke(
+        app,
+        [
+            "convert", str(docx), "--journal", "revtex4-2", "--output", str(output),
+            "--anonymize",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    metadata = (output / "revtex4-2" / "generated" / "metadata.tex").read_text(encoding="utf-8")
+    assert "Anonymous Author(s)" in metadata
+    assert "warning: anonymize:" in result.output
+
+
+def test_convert_figures_at_end_uses_revtex_native_endfloats_option(tmp_path):
+    docx = tmp_path / "clean.docx"
+    shutil.copy(CLEAN_DOCX, docx)
+    output = tmp_path / "output"
+
+    result = runner.invoke(
+        app,
+        [
+            "convert", str(docx), "--journal", "revtex4-2", "--output", str(output),
+            "--figures-at-end",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    preamble = (output / "revtex4-2" / "generated" / "preamble.tex").read_text(encoding="utf-8")
+    class_line = next(
+        line for line in preamble.splitlines() if line.startswith("\\documentclass")
+    )
+    assert "endfloats" in class_line
+
+
+def test_convert_invalid_columns_value_exits_cleanly(tmp_path):
+    docx = tmp_path / "clean.docx"
+    shutil.copy(CLEAN_DOCX, docx)
+
+    result = runner.invoke(
+        app,
+        [
+            "convert", str(docx), "--journal", "revtex4-2",
+            "--output", str(tmp_path / "output"), "--columns", "three",
+        ],
+    )
+
+    assert result.exit_code != 0
+    assert result.exception is None or isinstance(result.exception, SystemExit), (
+        f"raw traceback leaked: {result.exception!r}"
+    )
+    assert "error:" in result.output
+
+
+def test_convert_supplement_layout_is_independent_of_main_layout(tmp_path):
+    """--supplement-line-numbers affects only supplement_preamble.tex, not the
+    main document's own preamble.tex (mirrors the GUI's separate main_*/
+    supplement_* form fields)."""
+    docx = tmp_path / "zotero.docx"
+    shutil.copy(ZOTERO_DOCX, docx)
+    supplement = tmp_path / "supplement.docx"
+    shutil.copy(SUPPLEMENT_DOCX, supplement)
+    output = tmp_path / "output"
+
+    result = runner.invoke(
+        app,
+        [
+            "convert", str(docx), "--journal", "revtex4-2", "--output", str(output),
+            "--supplement", str(supplement),
+            "--supplement-line-numbers",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    generated = output / "revtex4-2" / "generated"
+    main_class_line = next(
+        line for line in generated.joinpath("preamble.tex").read_text(encoding="utf-8").splitlines()
+        if line.startswith("\\documentclass")
+    )
+    supplement_class_line = next(
+        line
+        for line in generated.joinpath("supplement_preamble.tex")
+        .read_text(encoding="utf-8")
+        .splitlines()
+        if line.startswith("\\documentclass")
+    )
+    assert "linenumbers" not in main_class_line
+    assert "linenumbers" in supplement_class_line
 
 
 # --------------------------------------------------------------------------- #
