@@ -1,5 +1,12 @@
 # Deploying the LaTeXtify demo to a Hugging Face Space
 
+> **Cost note (2026-07):** Hugging Face now requires a **PRO subscription
+> ($9/month)** to host Docker Spaces, even on the free cpu-basic hardware
+> (repo creation fails with HTTP 402 otherwise). The zero-cost deployment
+> for this demo is Render's free tier -- see `deploy/render/DEPLOY.md` and
+> the repo-root `render.yaml`. This kit remains the better-hardware option
+> (2 vCPU / 16 GB) if the subscription is ever worth it.
+
 This directory holds the exact contents of the Space repo: `Dockerfile`,
 `README.md` (the Space card — its YAML frontmatter configures the Space), and
 `warm_cache.py`. This `DEPLOY.md` stays in the main repo only.

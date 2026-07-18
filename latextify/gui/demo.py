@@ -26,12 +26,13 @@ Concurrency note: the conversion handlers do their heavy work on the event
 loop, so requests naturally serialize -- a crude but real bound on concurrent
 Tectonic compiles. The rate limit bounds how much work one client can queue.
 
-Run the demo server directly (the Space's Dockerfile CMD)::
+Run the demo server directly (the deployment container's CMD)::
 
     python -m latextify.gui.demo
 
 Binds ``LATEXTIFY_DEMO_HOST`` (default 127.0.0.1 -- the container sets 0.0.0.0)
-on port ``LATEXTIFY_DEMO_PORT`` (default 7860, the HF Spaces convention).
+on ``LATEXTIFY_DEMO_PORT``, falling back to the ``PORT`` convention most PaaS
+hosts (Render, Railway, Heroku-alikes) inject, then 7860 (HF Spaces).
 """
 
 from __future__ import annotations
@@ -166,7 +167,9 @@ def serve_demo() -> None:  # pragma: no cover - thin uvicorn launcher
     from latextify.gui.server import create_app  # deferred: avoids import cycle
 
     host = os.environ.get("LATEXTIFY_DEMO_HOST", "127.0.0.1")
-    port = int(os.environ.get("LATEXTIFY_DEMO_PORT", "7860"))
+    port = int(
+        os.environ.get("LATEXTIFY_DEMO_PORT") or os.environ.get("PORT") or "7860"
+    )
     print(f"LaTeXtify demo GUI on http://{host}:{port} (demo hardening active)")
     uvicorn.run(create_app(demo=True), host=host, port=port)
 

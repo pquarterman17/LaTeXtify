@@ -1,0 +1,20 @@
+# Build context hygiene for deploy/render/Dockerfile (context = repo root).
+# Only the installable package + metadata should reach the image.
+.git
+.venv
+.claude
+__pycache__
+**/__pycache__
+*.pyc
+build
+dist
+output
+png
+plans
+tests
+examples
+deploy/hf-space/README.md
+deploy/hf-space/DEPLOY.md
+deploy/render/DEPLOY.md
+*.log
+uv.lock

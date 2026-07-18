@@ -1,0 +1,20 @@
+# Render Blueprint for the LaTeXtify public demo (deploy/render/DEPLOY.md).
+# Free-tier instance: 0.1 vCPU / 512 MB, sleeps after ~15 min idle. Demo
+# hardening (rate limit, 25 MB upload cap, privacy banner) lives in
+# latextify/gui/demo.py, not here.
+services:
+  - type: web
+    name: latextify-demo
+    runtime: docker
+    plan: free
+    dockerfilePath: ./deploy/render/Dockerfile
+    dockerContext: .
+    # A cheap read-only endpoint that proves the app (not just the container)
+    # is up; also what Render pings to wake a slept instance.
+    healthCheckPath: /api/journals
+    # Deploy on demand from the dashboard, not on every push to main -- the
+    # demo should track releases, not development.
+    autoDeploy: false
+    envVars:
+      - key: LATEXTIFY_DEMO_HOST
+        value: 0.0.0.0
