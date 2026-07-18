@@ -37,6 +37,7 @@ import platform
 import shutil
 import subprocess
 import sys
+import zipfile
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -374,11 +375,35 @@ def _warm_tex_cache(tex_cache: Path, journals: list[str]) -> list[str]:
 
 
 def _zip_kit(kit_dir: Path) -> Path:
-    """Zip ``kit_dir`` alongside itself; return the archive path."""
-    archive = shutil.make_archive(
-        str(kit_dir), "zip", root_dir=str(kit_dir.parent), base_dir=kit_dir.name
-    )
-    return Path(archive)
+    """Zip ``kit_dir`` alongside itself; return the archive path.
+
+    Uses an explicit ``zipfile`` walk instead of ``shutil.make_archive``:
+    ``shutil.make_archive`` stats each member through a plain (non-prefixed)
+    path, and a warmed kit's ``tex-bundle-cache/bundles/data/<64-char-hash>``
+    files can push the total path past Windows' 260-char MAX_PATH, making
+    ``os.stat`` raise ``FileNotFoundError: [WinError 3]`` even though the
+    same tree copies fine -- :func:`_copy_portable_cache` already routes
+    around the identical limit for the cache-copy step via :func:`_long_path`.
+    Produces the same ``<kit_dir.name>/<relative path>`` layout
+    ``shutil.make_archive(..., root_dir=kit_dir.parent, base_dir=kit_dir.name)``
+    produced, including a zip entry for every directory (so an empty
+    directory still round-trips), at the same archive path.
+    """
+    archive_path = kit_dir.parent / f"{kit_dir.name}.zip"
+    root = kit_dir.resolve()
+    walk_root = _long_path(root)
+    with zipfile.ZipFile(_long_path(archive_path.resolve()), "w", zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr(f"{kit_dir.name}/", "")
+        for dirpath, dirnames, filenames in os.walk(walk_root):
+            dirnames.sort()
+            rel = os.path.relpath(dirpath, walk_root)
+            rel_posix = "" if rel == os.curdir else rel.replace(os.sep, "/")
+            base = kit_dir.name if not rel_posix else f"{kit_dir.name}/{rel_posix}"
+            for name in dirnames:
+                zf.writestr(f"{base}/{name}/", "")
+            for name in sorted(filenames):
+                zf.write(os.path.join(dirpath, name), f"{base}/{name}")
+    return archive_path
 
 
 def make_kit(
