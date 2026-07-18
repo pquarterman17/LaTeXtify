@@ -122,3 +122,51 @@ jobs:
           "$KIT/latextify" convert demo.docx -j revtex4-2 -o demo-out --pdf
           test -f demo-out/revtex4-2/main.pdf || { echo "no PDF produced offline"; exit 1; }
           echo "offline PDF compiled: $(du -h demo-out/revtex4-2/main.pdf)"
+
+  offline-kit-py310-windows:
+    name: offline kit installs on Python 3.10 (Windows)
+    # Every other kit-install gate above targets the newest supported
+    # interpreter (3.13) on Linux; none proves the offline kit against the
+    # OLDEST supported Python (3.10, our documented floor -- see
+    # requires-python in pyproject.toml) on the platform most kit users
+    # actually run: Windows. A future dependency bump could silently break
+    # the 3.10 floor without this catching it. Kept fast: emit-only
+    # (--no-warm-tex, no --pdf) -- the PDF/Tectonic offline path is already
+    # covered by the `offline-kit` job above.
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+      - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7
+        with:
+          python-version: "3.13"
+      - name: Install
+        run: uv sync --locked
+      - name: Set up the TARGET Python 3.10 (what install.py will run under)
+        id: py310
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.10"
+      - name: Build an emit-only kit covering Python 3.10 (network ON)
+        run: uv run latextify make-kit --target current --python-versions 3.10 --no-warm-tex --output build
+      - name: Install the kit under Python 3.10, network POISONED
+        env:
+          # Same reasoning as the Linux offline-kit job: uppercase only, one
+          # case, so GitHub's case-insensitive env-key de-dupe can't collide.
+          HTTPS_PROXY: http://127.0.0.1:9
+          HTTP_PROXY: http://127.0.0.1:9
+          ALL_PROXY: http://127.0.0.1:9
+        run: |
+          & "${{ steps.py310.outputs.python-path }}" "build/latextify-offline-windows-x64/install.py"
+          if ($LASTEXITCODE -ne 0) { throw "install.py failed under Python 3.10 (exit $LASTEXITCODE)" }
+      - name: Convert a fixture manuscript offline (emit-only, no --pdf)
+        env:
+          HTTPS_PROXY: http://127.0.0.1:9
+          HTTP_PROXY: http://127.0.0.1:9
+          ALL_PROXY: http://127.0.0.1:9
+        run: |
+          & "build/latextify-offline-windows-x64/LaTeXtify.bat" convert tests/fixtures/clean.docx -j revtex4-2 -o demo-out
+          if ($LASTEXITCODE -ne 0) { throw "convert failed under the Python 3.10 kit (exit $LASTEXITCODE)" }
+          if (-not (Test-Path "demo-out/revtex4-2/main.tex")) {
+            throw "Python 3.10 kit did not produce demo-out/revtex4-2/main.tex"
+          }
+          Write-Host "offline (Python 3.10, Windows): produced demo-out/revtex4-2/main.tex"
