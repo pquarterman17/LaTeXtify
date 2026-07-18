@@ -111,9 +111,6 @@ recorded in the 2026-07-18 discussion have exactly one home.
 9. **Manuscript inputs `.odt` / `.rtf` / `.md`** — ingest routing,
    preflight, GUI/CLI accept lists, tests
 
-10. **Bibliography inputs CSL-JSON / EndNote XML / `.nbib`** — parse to
-    `RefEntry` beside `bibtex_in.py`, wire into reference intake + accepts
-
 ## Tier 3 — Nice-to-Have (external-converter gate)
 
 11. **EMF/WMF figure conversion** — Word's native vector format, via a
@@ -131,6 +128,12 @@ recorded in the 2026-07-18 discussion have exactly one home.
 
 ## Completed
 
+- ~~**#10 Bibliography inputs CSL-JSON / EndNote XML / .nbib**~~ (2026-07-18)
+  — new single dispatch point `citations/refs_import.py::parse_references_file`
+  routes by extension to `csl_json_in.py` / `endnote_xml_in.py` (hardened
+  lxml, XXE-tested) / `nbib_in.py`; accept lists widened (server + app.js +
+  CLI help). Also fixed latent bug: `.ris` uploads previously fell through to
+  the BibTeX parser and silently matched nothing.
 - ~~**#6 Per-file layout mini-panels + emission**~~ (2026-07-18) — new
   `emit/submission.py`: DocumentLayout applied to rendered preambles, keyed
   by document class (REVTeX one/two-column = preprint/reprint + native
