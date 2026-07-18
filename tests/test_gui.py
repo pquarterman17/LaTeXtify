@@ -204,7 +204,7 @@ def test_convert_multi_threads_submission_options(tmp_path):
     assert "reprint" not in class_line.replace("preprint", "")
     assert "linenumbers" in class_line  # REVTeX's native line-number option
     assert "\\doublespacing" in preamble
-    assert "endfloat" in preamble
+    assert "endfloats" in class_line  # REVTeX's native floats-at-end option
 
     metadata = (out / "generated" / "metadata.tex").read_text(encoding="utf-8")
     assert "Anonymous Author(s)" in metadata

@@ -57,13 +57,21 @@ _LINENO_PACKAGE = (
     "\\usepackage{lineno}\n\\linenumbers\n"
 )
 _DOUBLESPACE_PACKAGE = (
-    "% Double spacing (per-document layout option).\n"
+    "% Double spacing (per-document layout option). setspace's \\doublespacing\n"
+    "% dispatches on the standard classes' \\@ptsize internal, which REVTeX-family\n"
+    "% classes never define -- default it to the 10pt table first (verified by\n"
+    "% compiling: bare setspace under revtex4-2 dies with an undefined \\@ptsize).\n"
+    "\\makeatletter\\@ifundefined{@ptsize}{\\def\\@ptsize{0}}{}\\makeatother\n"
     "\\usepackage{setspace}\n\\doublespacing\n"
 )
 _ENDFLOAT_PACKAGE = (
     "% Figures & tables gathered after the references (figures-at-end option).\n"
     "\\usepackage[nolists,tablesfirst]{endfloat}\n"
 )
+#: Classes with a native floats-at-end class option. The endfloat package is
+#: incompatible with REVTeX (its end-of-document code calls \onecolumn, which
+#: REVTeX does not define); REVTeX's own `endfloats` option does the job.
+_FIGSEND_CLASS_OPTIONS: dict[str, tuple[str, ...]] = {"revtex4-2": ("endfloats",)}
 
 _DOCUMENTCLASS_RE = re.compile(r"\\documentclass(?:\[(?P<opts>[^\]]*)\])?\{(?P<cls>[^}]+)\}")
 
@@ -120,6 +128,14 @@ def _rewrite_class_options(
         return f"\\documentclass{bracket}{{{match.group('cls')}}}"
 
     return _DOCUMENTCLASS_RE.sub(_swap, preamble_text, count=1)
+
+
+def _apply_figures_at_end(preamble_text: str, *, document_class: str) -> str:
+    """Gather floats after the references, via the class-appropriate mechanism."""
+    native = _FIGSEND_CLASS_OPTIONS.get(document_class)
+    if native:
+        return _rewrite_class_options(preamble_text, add=native, remove=())
+    return _append(preamble_text, _ENDFLOAT_PACKAGE)
 
 
 def apply_document_layout(
@@ -225,7 +241,7 @@ def build_main_preamble(
         _ensure_hyperref(rendered), document_class=document_class, layout=layout
     )
     if figures_at_end:
-        text = _append(text, _ENDFLOAT_PACKAGE)
+        text = _apply_figures_at_end(text, document_class=document_class)
     return _ensure_raggedbottom(text)
 
 
@@ -242,19 +258,20 @@ def build_supplement_preamble(
     On the plain-article path the ``columns`` choice is already spent (that IS
     the one-column format), so only line numbers / double spacing apply.
     """
+    document_class = "article" if onecolumn else journal.document_class
     if onecolumn:
         effective = replace(layout, columns=None) if layout is not None else None
         text = apply_document_layout(
-            _PLAIN_ARTICLE_SUPPLEMENT_PREAMBLE, document_class="article", layout=effective
+            _PLAIN_ARTICLE_SUPPLEMENT_PREAMBLE, document_class=document_class, layout=effective
         )
     else:
         text = apply_document_layout(
             _ensure_hyperref(journal.render_preamble(mode=citation_style)),
-            document_class=journal.document_class,
+            document_class=document_class,
             layout=layout,
         )
     if figures_at_end:
-        text = _append(text, _ENDFLOAT_PACKAGE)
+        text = _apply_figures_at_end(text, document_class=document_class)
     return _ensure_raggedbottom(text)
 
 

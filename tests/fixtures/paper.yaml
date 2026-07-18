@@ -1,0 +1,16 @@
+title: A Perfectly Ordinary Manuscript
+# CHECK: no superscript affiliation markers found on the author line; affiliation assignment could not be inferred — verify manually.
+authors:
+- name: Introduction
+  affiliations: []
+# CHECK: affiliations were guessed positionally (no author markers to anchor them); verify.
+affiliations:
+- This manuscript uses only plain paragraphs and standard Word styles, with nothing for the
+  preflight detectors to flag.
+- Background
+- More ordinary body text, spanning a second paragraph.
+- 'Figure 1: A perfectly ordinary caption.'
+# CHECK: no 'Abstract' heading found in the scanned range; abstract left empty.
+abstract: ''
+# CHECK: no 'Keywords:' line found in the scanned range; keywords left empty.
+keywords: []

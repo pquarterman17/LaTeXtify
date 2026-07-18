@@ -93,11 +93,24 @@ def test_generic_line_numbers_use_lineno_package():
     assert "\\usepackage{lineno}" in out and "\\linenumbers" in out
 
 
-def test_double_spacing_appends_setspace():
+def test_double_spacing_appends_setspace_with_ptsize_guard():
     out = apply_document_layout(
         _ARTICLE, document_class="article", layout=DocumentLayout(double_spacing=True)
     )
     assert "\\usepackage{setspace}" in out and "\\doublespacing" in out
+    # REVTeX never defines \@ptsize and setspace's \doublespacing dispatches on
+    # it; the guard must precede the package load (verified by real compiles).
+    assert out.index("@ptsize") < out.index("\\usepackage{setspace}")
+
+
+def test_figures_at_end_is_native_on_revtex_package_elsewhere():
+    revtex = build_main_preamble(_REVTEX, document_class="revtex4-2", figures_at_end=True)
+    class_line = next(line for line in revtex.splitlines() if line.startswith("\\documentclass"))
+    assert "endfloats" in class_line  # REVTeX's native option
+    assert "\\usepackage[nolists,tablesfirst]{endfloat}" not in revtex  # pkg breaks REVTeX
+
+    article = build_main_preamble(_ARTICLE, document_class="article", figures_at_end=True)
+    assert "\\usepackage[nolists,tablesfirst]{endfloat}" in article
 
 
 # --------------------------------------------------------------------------- #
@@ -115,7 +128,7 @@ def test_build_main_preamble_composes_everything():
     first = out.splitlines()[0]
     opts = first[first.index("[") + 1 : first.index("]")].split(",")
     assert "preprint" in opts and "reprint" not in opts
-    assert "\\usepackage[nolists,tablesfirst]{endfloat}" in out
+    assert "endfloats" in opts  # REVTeX-native figures-at-end
     assert "\\doublespacing" in out
     assert "hyperref" in out  # insurance still applied
     assert "\\raggedbottom" in out
