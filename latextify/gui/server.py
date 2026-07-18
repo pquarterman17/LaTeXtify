@@ -20,6 +20,8 @@ Endpoints
     POST /api/convert-multi   main + supplement + figures + .bib + options
     GET  /api/pdf/{token}     stream a compiled PDF (server-issued token only)
     GET  /api/zip/{token}     stream a project .zip (server-issued token only)
+    POST /api/clean-docx      sanitize an uploaded .docx -> token + CleanReport
+    GET  /api/clean/{token}   stream the sanitized .docx (server-issued token only)
     POST /api/pick-folder     open a native folder dialog on the server host
     POST /api/export          copy a previewed conversion's artifacts to a folder
 
@@ -52,7 +54,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, File, Form, HTTPException, UploadFile
-from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 
 from latextify.audit.equations import write_equation_audit
@@ -68,12 +70,23 @@ from latextify.gui.demo import (
     inject_demo_banner,
     require_demo_rate_limit,
 )
+from latextify.gui.downloads import (
+    _MAX_SESSIONS,  # noqa: F401 - re-exported (latextify.gui.server._MAX_SESSIONS)
+    _SESSION_TTL_SECONDS,  # noqa: F401 - re-exported (latextify.gui.server._SESSION_TTL_SECONDS)
+    _issue_token,
+    _prune_sessions,  # noqa: F401 - re-exported (latextify.gui.server._prune_sessions)
+    _register_session,
+    _rmtree,
+    _touch_session,
+    register_download_routes,
+)
 from latextify.gui.exporting import _EXPORTABLE, _export_artifacts  # noqa: F401 - re-exported
 from latextify.gui.folder_picker import pick_folder_native
 from latextify.gui.guard import inject_gui_secret, new_gui_secret, require_gui_auth
 from latextify.gui.schemas import (
     ApplyCorrectionsRequest,
     ApplyCorrectionsResponse,
+    CleanDocxResponse,
     ConvertMultiResponse,
     ConvertResponse,
     ExportRequest,
@@ -84,6 +97,7 @@ from latextify.gui.schemas import (
     ValidationOut,
     ValidationRecordOut,
 )
+from latextify.ingest.docx_clean import sanitize_docx
 from latextify.model.refs import RefEntry
 from latextify.model.validate import CorrectionDecision, ValidationReport
 from latextify.report.render import write_report
@@ -122,66 +136,6 @@ def _safe_filename(name: str | None) -> str:
         return "upload.docx"
     candidate = Path(name).name
     return candidate or "upload.docx"
-
-
-def _issue_token(tokens: dict[str, Path], path: Path) -> str:
-    """Map a fresh opaque token to ``path`` and return it (never the path itself)."""
-    token = uuid.uuid4().hex
-    tokens[token] = path
-    return token
-
-
-# Session lifecycle (audit item 3). Previews write uploads + generated artifacts
-# under a per-run session directory and issue in-memory download tokens; without
-# bounds these retain private manuscripts and grow on disk/in memory forever.
-_SESSION_TTL_SECONDS = 3600.0  # a previewed conversion stays exportable for 1 hour
-_MAX_SESSIONS = 32  # cap concurrent retained sessions; LRU-evict oldest beyond it
-
-
-def _rmtree(path: Path | None) -> None:
-    """Best-effort recursive delete; never raises (cleanup must not mask errors)."""
-    if isinstance(path, Path):
-        shutil.rmtree(path, ignore_errors=True)
-
-
-def _prune_dead_tokens(app: FastAPI) -> None:
-    """Drop PDF/zip tokens whose backing file is gone (its session was cleaned)."""
-    for store in (app.state.pdf_tokens, app.state.zip_tokens):
-        for token, path in list(store.items()):
-            if not path.is_file():
-                store.pop(token, None)
-
-
-def _prune_sessions(app: FastAPI, *, now: float) -> None:
-    """Remove sessions past their TTL, deleting each one's on-disk directory."""
-    sessions = app.state.export_sessions
-    for token, session in list(sessions.items()):
-        if now - float(session.get("_last_access", now)) > _SESSION_TTL_SECONDS:
-            _rmtree(session.get("_session_dir"))  # type: ignore[arg-type]
-            sessions.pop(token, None)
-    _prune_dead_tokens(app)
-
-
-def _touch_session(session: dict[str, object], *, now: float | None = None) -> None:
-    """Refresh a session's last-access time so active use defers its expiry."""
-    session["_last_access"] = now if now is not None else time.time()
-
-
-def _register_session(
-    app: FastAPI, token: str, session: dict[str, object], *, session_dir: Path, now: float
-) -> None:
-    """Register a completed run's session, pruning expired + capping total count."""
-    sessions = app.state.export_sessions
-    _prune_sessions(app, now=now)
-    # LRU-evict (by last access) down to the cap before admitting the new one.
-    while len(sessions) >= _MAX_SESSIONS:
-        oldest = min(sessions, key=lambda t: float(sessions[t].get("_last_access", 0.0)))
-        _rmtree(sessions[oldest].get("_session_dir"))  # type: ignore[arg-type]
-        sessions.pop(oldest, None)
-    session["_session_dir"] = session_dir
-    session["_created"] = now
-    session["_last_access"] = now
-    sessions[token] = session
 
 
 _VALIDATION_STATUS_ORDER = (
@@ -315,6 +269,10 @@ def create_app(
     # GET /api/zip/{token}). Populated only by a convert-multi run with
     # want_zip=True.
     app.state.zip_tokens: dict[str, Path] = {}
+    # Opaque token -> sanitized .docx path (same pattern as pdf_tokens/zip_tokens;
+    # served by GET /api/clean/{token}). Populated only by a successful
+    # POST /api/clean-docx run.
+    app.state.clean_tokens: dict[str, Path] = {}
     # Opaque token -> {"output_dir": Path, "produced": dict[str, Path]} for a
     # completed convert-multi run, so POST /api/export can copy that exact
     # result's artifacts out later (the preview-then-export flow) without
@@ -826,21 +784,54 @@ def create_app(
             validation=validation_out,
         )
 
-    @app.get("/api/pdf/{token}", include_in_schema=False)
-    def get_pdf(token: str) -> FileResponse:
-        pdf_path = app.state.pdf_tokens.get(token)
-        if pdf_path is None or not pdf_path.is_file():
-            raise HTTPException(status_code=404, detail="unknown or expired PDF token")
-        return FileResponse(pdf_path, media_type="application/pdf", filename=pdf_path.name)
+    @app.post(
+        "/api/clean-docx",
+        response_model=CleanDocxResponse,
+        dependencies=[Depends(require_gui_auth)],
+    )
+    async def clean_docx_endpoint(main: UploadFile = File(...)) -> CleanDocxResponse:
+        """Sanitize an uploaded .docx: accept tracked changes, drop comments and
+        hidden runs, strip docProps, scrub settings.xml rsids. Returns a download
+        token for the cleaned copy plus a summary of what was removed."""
+        if _lower_ext(main.filename) != "docx":
+            raise HTTPException(status_code=400, detail="file must be a .docx")
 
-    @app.get("/api/zip/{token}", include_in_schema=False)
-    def get_zip(token: str) -> FileResponse:
-        zip_path = app.state.zip_tokens.get(token)
-        if zip_path is None or not zip_path.is_file():
-            raise HTTPException(status_code=404, detail="unknown or expired zip token")
-        return FileResponse(
-            zip_path, media_type="application/zip", filename="latextify-project.zip"
+        session_dir = root / uuid.uuid4().hex
+        upload_dir = session_dir / "upload"
+        upload_dir.mkdir(parents=True, exist_ok=True)
+        src_path = upload_dir / "main.docx"
+        dest_path = session_dir / "cleaned.docx"
+
+        try:
+            await _stream_upload(main, src_path, max_bytes=max_upload_bytes)
+            report = sanitize_docx(src_path, dest_path)
+        except ValueError as exc:
+            _rmtree(session_dir)  # a failed clean must not leave the upload behind
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except Exception:
+            _rmtree(session_dir)
+            raise
+
+        _register_session(
+            app,
+            uuid.uuid4().hex,
+            {"output_dir": session_dir, "produced": {}},
+            session_dir=session_dir,
+            now=time.time(),
         )
+        clean_url = f"/api/clean/{_issue_token(app.state.clean_tokens, dest_path)}"
+        return CleanDocxResponse(
+            clean_url=clean_url,
+            tracked_changes_accepted=report.tracked_changes_accepted,
+            comments_removed=report.comments_removed,
+            hidden_runs_removed=report.hidden_runs_removed,
+            docprops_stripped=report.docprops_stripped,
+            rsids_scrubbed=report.rsids_scrubbed,
+        )
+
+    # Token-gated artifact downloads (/api/pdf, /api/zip, /api/clean) live in
+    # latextify.gui.downloads to keep this module under its size-ratchet pin.
+    register_download_routes(app)
 
     @app.post(
         "/api/pick-folder",

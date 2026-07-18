@@ -1,6 +1,6 @@
 """Command-line interface.
 
-Current surface (plan items 5, 16, 18, 19, 20, 21, 23):
+Current surface (plan items 3, 5, 16, 18, 19, 20, 21, 23):
 
     latextify convert paper.docx --journal revtex4-2 [--output output] \\
         [--citation-style numeric|authoryear] [--pdf] [--report/--no-report] \\
@@ -15,6 +15,7 @@ Current surface (plan items 5, 16, 18, 19, 20, 21, 23):
         [--output output] [--recursive]          # batch conversion (item 20)
     latextify journals              # list registered journal templates (item 18)
     latextify equations paper.docx [--output DIR] [--pdf]  # equation audit (item 23)
+    latextify clean paper.docx clean.docx  # strip metadata/tracked changes/comments (item 3)
     latextify gui [--port 8501] [--no-browser] [--workdir DIR]  # local web GUI (item 19)
 
 Planned (later items):
@@ -33,6 +34,7 @@ import typer
 from latextify.citations.bib import entries_to_bib
 from latextify.citations.corrections import apply_corrections
 from latextify.cli_batch import batch
+from latextify.cli_clean import clean
 from latextify.cli_equations import equations
 from latextify.cli_review import review_corrections
 from latextify.compile.tectonic import compile_document, ensure_tectonic
@@ -453,6 +455,11 @@ def make_kit_cmd(
 # module focused; register its command on the shared app.
 # --------------------------------------------------------------------------- #
 app.command()(equations)
+
+
+# Docx sanitizer (item 3, FORMATS_AND_PRIVACY) lives in latextify.cli_clean;
+# register its command on the shared app.
+app.command(name="clean")(clean)
 
 
 @app.command()

@@ -21,6 +21,7 @@ FIGURES_DOCX = FIXTURES / "figures.docx"
 ZOTERO_DOCX = FIXTURES / "zotero_cited.docx"
 SUPPLEMENT_DOCX = FIXTURES / "supplement.docx"
 CLEAN_DOCX = FIXTURES / "clean.docx"
+METADATA_TITLEPAGE_DOCX = FIXTURES / "metadata_titlepage.docx"
 
 runner = CliRunner()
 
@@ -1323,3 +1324,47 @@ def test_review_nothing_flagged_is_noop(tmp_path, monkeypatch):
     _run_interactive_review(result)
 
     assert bib_path.read_text(encoding="utf-8") == before
+
+
+# --------------------------------------------------------------------------- #
+# `latextify clean` -- docx sanitizer CLI (plan item 3, FORMATS_AND_PRIVACY)
+# --------------------------------------------------------------------------- #
+
+
+def test_clean_strips_docprops_and_prints_summary(tmp_path):
+    docx = tmp_path / "metadata_titlepage.docx"
+    shutil.copy(METADATA_TITLEPAGE_DOCX, docx)
+    dest = tmp_path / "clean.docx"
+
+    result = runner.invoke(app, ["clean", str(docx), str(dest)])
+
+    assert result.exit_code == 0, result.output
+    assert dest.is_file()
+
+    import zipfile
+
+    with zipfile.ZipFile(dest) as archive:
+        names = archive.namelist()
+        assert "docProps/core.xml" not in names
+        assert "word/document.xml" in names  # ordinary body content survives
+
+    assert str(dest) in result.output
+    assert "docProps stripped" in result.output
+
+
+def test_clean_missing_docx_exits_nonzero():
+    result = runner.invoke(app, ["clean", "does-not-exist.docx", "out.docx"])
+    assert result.exit_code != 0
+
+
+def test_clean_txt_renamed_to_docx_exits_cleanly(tmp_path):
+    bogus = tmp_path / "renamed.docx"
+    bogus.write_text("This is just plain text, not a docx.\n", encoding="utf-8")
+
+    result = runner.invoke(app, ["clean", str(bogus), str(tmp_path / "out.docx")])
+
+    assert result.exit_code != 0
+    assert result.exception is None or isinstance(result.exception, SystemExit), (
+        f"raw traceback leaked: {result.exception!r}"
+    )
+    assert "error:" in result.output
