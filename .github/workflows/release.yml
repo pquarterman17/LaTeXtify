@@ -45,6 +45,21 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
         run: uv run latextify make-kit --target linux-x64 -o build
 
+      # NOTE -- native-build preference: this workflow cross-builds the
+      # win-x64 (and macos-arm64) kits from a single Linux runner, on a
+      # GitHub-hosted-runner cost/simplicity tradeoff (one TeX warm-up pass
+      # instead of three, no matrix). A NATIVE Windows kit build --
+      # `latextify make-kit --target win-x64` run ON Windows, warming its own
+      # TeX cache directly -- is the PREFERRED way to produce the Windows
+      # kit: it exercises the real target-platform Tectonic binary end to
+      # end, rather than shipping `--no-warm-tex` and trusting that a
+      # Linux-warmed, source-only cache regenerates its engine format
+      # correctly the first time on Windows. (The CI `offline-kit-py310-windows`
+      # job partially covers this by installing+running a Windows kit, but it
+      # is also `--no-warm-tex`/emit-only for speed -- it does not warm-test
+      # this path either.) If a native Windows release runner ever becomes
+      # available, prefer switching the win-x64 build to it over this
+      # cross-build path.
       - name: Build cross Windows/macOS kits, sharing the warmed cache
         env:
           GITHUB_TOKEN: ${{ github.token }}

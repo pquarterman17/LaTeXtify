@@ -1,0 +1,72 @@
+name: Publish to PyPI
+
+# Publishes the sdist + wheel to PyPI. Triggers ONLY on a published GitHub
+# Release -- never on a plain push, a pull request, or even a tag push (tag
+# pushes drive release.yml's offline-kit build instead). This is the
+# machinery only: it cannot fire a real publish until an OWNER completes the
+# two one-time setup steps below.
+#
+# ---------------------------------------------------------------------------
+# OWNER SETUP REQUIRED before the first real publish (both are one-time,
+# human actions on pypi.org / GitHub -- this workflow cannot do either):
+#
+#   1. Register a PENDING trusted publisher at
+#      https://pypi.org/manage/account/publishing/ for a new project named
+#      "latextify":
+#        Owner:            pquarterman17
+#        Repository name:  LaTeXtify
+#        Workflow name:    publish.yml
+#        Environment name: pypi
+#      (PyPI creates the "latextify" project automatically on the first
+#      successful publish from this trusted publisher -- no manual project
+#      creation needed.)
+#
+#   2. Publish a GitHub Release (e.g. tag v0.1.0). The `release: published`
+#      event below is what triggers the `publish` job -- nothing publishes
+#      before that happens.
+# ---------------------------------------------------------------------------
+
+on:
+  release:
+    types: [published]
+
+concurrency:
+  group: publish-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+      - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7
+        with:
+          python-version: "3.12"
+      - name: Build sdist + wheel
+        run: uv build
+      - name: Validate distribution metadata
+        run: uvx twine check dist/*
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: dist
+          path: dist/
+          if-no-files-found: error
+
+  publish:
+    name: Publish to PyPI (trusted publishing)
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/project/latextify/
+    permissions:
+      id-token: write # OIDC trusted publishing -- no API token stored in secrets
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: dist
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@cef221092ed1bacb1cc03d23a2d87d1d172e277b # v1.14.0
