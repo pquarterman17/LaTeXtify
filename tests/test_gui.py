@@ -54,13 +54,14 @@ def _client(tmp_path: Path) -> TestClient:
 def _ui_text(client: TestClient) -> str:
     """The full DOM contract: served index + the split static JS files.
 
-    The buildless page was split into index.html + app.js + review.js (+
-    style.css); assertions about endpoint wiring and JS behavior span all of
-    them, so contract smoke tests grep this concatenation.
+    The buildless page was split into index.html + app.js + export.js +
+    review.js (+ style.css); assertions about endpoint wiring and JS behavior
+    span all of them, so contract smoke tests grep this concatenation.
     """
     return (
         client.get("/").text
         + client.get("/static/app.js").text
+        + client.get("/static/export.js").text
         + client.get("/static/review.js").text
     )
 
@@ -105,14 +106,15 @@ def test_split_static_assets_are_served(tmp_path):
     client = _client(tmp_path)
     css = client.get("/static/style.css")
     assert css.status_code == 200 and "text/css" in css.headers["content-type"]
-    for name in ("app.js", "review.js"):
+    for name in ("app.js", "export.js", "review.js"):
         resp = client.get(f"/static/{name}")
         assert resp.status_code == 200, name
         assert "javascript" in resp.headers["content-type"], name
     # The served index references exactly these assets.
     html = client.get("/").text
     assert '/static/style.css' in html
-    assert '/static/app.js' in html and '/static/review.js' in html
+    for script in ("/static/app.js", "/static/export.js", "/static/review.js"):
+        assert script in html, script
 
 
 def test_options_are_grouped_and_every_toggle_explained(tmp_path):
@@ -136,6 +138,21 @@ def test_dropzone_advertises_accepted_formats(tmp_path):
     assert "dropzone-text" in js
     for advertised in ("webp", "eps", "svg", "ris"):
         assert advertised in js, advertised
+
+
+def test_citation_default_confirm_wiring_present(tmp_path):
+    """A non-default citation pick must be confirmed before converting (plan
+    item 4): the confirm row exists and the JS tracks the journal default."""
+    client = _client(tmp_path)
+    html = client.get("/").text
+    for elem in (
+        "citation-confirm", "citation-confirm-text", "citation-confirm-yes", "citation-confirm-no",
+    ):
+        assert f'id="{elem}"' in html, elem
+    js = client.get("/static/app.js").text
+    assert "citationOverridePending" in js
+    assert "default_mode" in js  # dropdown follows the journal's house style
+    assert "Confirm or revert the citation-style choice first." in js
 
 
 def test_input_aware_toggle_wiring_present(tmp_path):
@@ -199,6 +216,13 @@ def test_journals_endpoint_lists_all_registered_journals_with_modes(tmp_path):
     assert display["revtex4-2"].startswith("American Physical Society")
     assert "Physical Review Letters" in display["aps-prl"]
     assert all(entry["display_name"] for entry in body)
+
+    # Every entry declares its house citation style, drawn from the manifest's
+    # required bib.default_mode — the GUI preselects it (plan item 4).
+    defaults = {entry["name"]: entry["default_mode"] for entry in body}
+    assert defaults["revtex4-2"] == "numeric"
+    assert defaults["elsarticle"] == "numeric"  # multi-mode journals default numeric
+    assert all(d in by_name[n] for n, d in defaults.items())  # default ∈ modes
 
 
 # --------------------------------------------------------------------------- #

@@ -104,8 +104,7 @@ recorded in the 2026-07-18 discussion have exactly one home.
 
 ## Tier 1 — High Impact (round 1: frontend split + UX)
 
-4. **Citation default + confirm** — manifests declare a default mode;
-   dropdown follows the journal; non-default choice asks a one-time confirm
+*(all shipped — see Completed)*
 
 ## Tier 2 — Medium Impact (round 2: per-document emission + intake)
 
@@ -138,6 +137,12 @@ recorded in the 2026-07-18 discussion have exactly one home.
 
 ## Completed
 
+- ~~**#4 Citation default + confirm**~~ (2026-07-18) — manifests already
+  required ``bib.default_mode`` (all currently numeric); it is now exposed in
+  ``GET /api/journals`` and the dropdown follows it on journal change. A
+  non-default pick shows the inline ⚠ confirm row and blocks Preview until
+  confirmed (held per journal) or reverted. app.js stayed under the ceiling
+  by extracting the Export panel to ``export.js`` (90 lines).
 - ~~**#2 Grouped Options layout**~~ (2026-07-18) — three fieldset clusters
   (Conversion / Outputs / Online checks), hover tooltip on every option
   (hover-only per resolved decision; the unclear equation-audit toggle now

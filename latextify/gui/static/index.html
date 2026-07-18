@@ -37,9 +37,15 @@
           <select id="journal-select"></select>
         </div>
         <div class="field">
-          <label for="citation-select" title="How in-text citations and the bibliography render: numeric brackets or author–year.">Citation style</label>
+          <label for="citation-select" title="How in-text citations and the bibliography render: numeric brackets or author–year. Defaults to the journal's house style.">Citation style</label>
           <select id="citation-select"></select>
         </div>
+      </div>
+      <div id="citation-confirm" class="citation-confirm hidden">
+        <span aria-hidden="true">⚠</span>
+        <span id="citation-confirm-text"></span>
+        <button id="citation-confirm-yes" type="button" class="secondary">Confirm</button>
+        <button id="citation-confirm-no" type="button" class="secondary">Revert</button>
       </div>
       <div class="options-grid">
         <label class="checkbox-row" title="Emit a text-only project: embedded and dropped-in figure files are skipped and figure anchors are removed from the LaTeX."><input id="opt-nofigs" type="checkbox" /> Exclude figures (text only)</label>
@@ -143,6 +149,7 @@
 </main>
 
 <script src="/static/app.js"></script>
+<script src="/static/export.js"></script>
 <script src="/static/review.js"></script>
 </body>
 </html>

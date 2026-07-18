@@ -16,6 +16,9 @@ class JournalInfo(BaseModel):
     name: str
     display_name: str
     modes: list[str]
+    #: The journal's house citation style (manifest ``bib.default_mode``); the
+    #: GUI preselects it and asks for confirmation before a manual override.
+    default_mode: str
 
 
 class ConvertResponse(BaseModel):

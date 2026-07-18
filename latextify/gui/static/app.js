@@ -24,15 +24,6 @@
   const crossrefEmail = el("crossref-email");
   const optPdf = el("opt-pdf"), optCombine = el("opt-combine"), optSi1col = el("opt-si1col"),
     optZip = el("opt-zip"), optNoFigs = el("opt-nofigs"), optAudit = el("opt-audit"), optCheckRefs = el("opt-checkrefs");
-  const exportDir = el("export-dir");
-  const browseBtn = el("browse-btn");
-  const exportBtn = el("export-btn");
-  const exportStatus = el("export-status");
-  // Export checkbox id suffix -> the export_types value the server expects.
-  const EXPORT_TYPES = {
-    "exp-project": "project", "exp-main_pdf": "main_pdf", "exp-supplement_pdf": "supplement_pdf",
-    "exp-combined_pdf": "combined_pdf", "exp-audit_pdf": "audit_pdf", "exp-zip": "zip",
-  };
   const convertBtn = el("convert-btn");
   const statusEl = el("status");
   const errorBox = el("error-box");
@@ -65,6 +56,11 @@
   // result's artifacts. Cleared whenever inputs change so a stale preview can
   // never be exported (you must re-preview first).
   let lastExportToken = null;
+  // Citation-style override state (plan item 4): a pick that differs from the
+  // journal's declared default blocks conversion until confirmed or reverted;
+  // a confirmed override holds until the journal changes.
+  let citationOverridePending = false;
+  let citationConfirmedJournal = null;
 
   const ext = (name) => (name.split(".").pop() || "").toLowerCase();
   const setStatus = (t) => { statusEl.textContent = t || ""; };
@@ -168,7 +164,9 @@
 
   function updateButton() {
     const hasMain = entries.filter((x) => x.role === "main").length === 1;
-    convertBtn.disabled = !(hasMain && journalSelect.value);
+    convertBtn.disabled = !(hasMain && journalSelect.value) || citationOverridePending;
+    convertBtn.title = citationOverridePending
+      ? "Confirm or revert the citation-style choice first." : "";
     updateOptionState();
   }
 
@@ -186,23 +184,22 @@
     el("nofigs-warning").classList.toggle("hidden", !(optNoFigs.checked && figsStaged));
   }
 
-  // Export is only allowed after a successful preview, with a folder chosen and
-  // at least one artifact ticked.
-  function updateExportButton() {
-    const dest = exportDir.value.trim();
-    const anyType = Object.keys(EXPORT_TYPES).some((id) => el(id).checked);
-    exportBtn.disabled = !(lastExportToken && dest && anyType);
-    exportBtn.title = lastExportToken ? "" : "Preview a conversion first";
-  }
-
   // Any change to the inputs makes the last preview stale, so its artifacts must
   // not be exported until the user previews again.
   function invalidatePreview() {
     lastExportToken = null;
-    updateExportButton();
+    window.LTXExport.update();
     // The review panel acts on the previewed session's token; once that is void
     // (inputs changed), review.js hides the now-stale corrections UI.
     window.LTXReview.reset();
+  }
+
+  // Warnings accumulate across convert + export flows in one shared panel.
+  function appendWarning(message) {
+    const li = document.createElement("li");
+    li.textContent = message;
+    warningsList.appendChild(li);
+    warningsPanel.classList.remove("hidden");
   }
 
   // -- dropzone + input wiring --
@@ -219,20 +216,60 @@
     if (evt.dataTransfer && evt.dataTransfer.files) addFiles(evt.dataTransfer.files);
   });
 
-  // -- journals --
+  // -- journals + citation-style default tracking --
+  const modeLabel = (mode) => CITATION_MODE_LABELS[mode] || mode;
+  const currentJournal = () => journals.find((j) => j.name === journalSelect.value);
+  const citationConfirmRow = el("citation-confirm");
+
+  function hideCitationConfirm() {
+    citationOverridePending = false;
+    citationConfirmRow.classList.add("hidden");
+  }
+
   function populateCitationModes() {
-    const journal = journals.find((j) => j.name === journalSelect.value);
+    const journal = currentJournal();
     citationSelect.innerHTML = "";
+    citationConfirmedJournal = null;
+    hideCitationConfirm();
     if (!journal) return;
     journal.modes.forEach((mode) => {
       const opt = document.createElement("option");
       opt.value = mode;
-      opt.textContent = CITATION_MODE_LABELS[mode] || mode;
+      opt.textContent = modeLabel(mode);
       citationSelect.appendChild(opt);
     });
+    // Follow the journal's house style; a different pick must be confirmed.
+    if (journal.modes.includes(journal.default_mode)) {
+      citationSelect.value = journal.default_mode;
+    }
     citationSelect.disabled = journal.modes.length === 1;
     citationSelect.title = journal.modes.length === 1 ? "This journal's class supports only this citation style." : "";
   }
+
+  function onCitationChange() {
+    const journal = currentJournal();
+    if (!journal) return;
+    if (citationSelect.value === journal.default_mode || citationConfirmedJournal === journal.name) {
+      hideCitationConfirm();
+    } else {
+      el("citation-confirm-text").textContent =
+        (journal.display_name || journal.name) + "'s standard is " + modeLabel(journal.default_mode) +
+        " — use " + modeLabel(citationSelect.value) + " anyway?";
+      citationOverridePending = true;
+      citationConfirmRow.classList.remove("hidden");
+    }
+    updateButton();
+  }
+  el("citation-confirm-yes").addEventListener("click", () => {
+    const journal = currentJournal();
+    if (journal) citationConfirmedJournal = journal.name;
+    hideCitationConfirm(); updateButton();
+  });
+  el("citation-confirm-no").addEventListener("click", () => {
+    const journal = currentJournal();
+    if (journal) citationSelect.value = journal.default_mode;
+    hideCitationConfirm(); updateButton();
+  });
 
   async function loadJournals() {
     try {
@@ -261,75 +298,8 @@
     (ctrl) => ctrl.addEventListener("change", invalidatePreview)
   );
   optNoFigs.addEventListener("change", updateOptionState);
+  citationSelect.addEventListener("change", onCitationChange);
   crossrefEmail.addEventListener("input", invalidatePreview);
-
-  // -- export folder browse --
-  async function browseFolder() {
-    browseBtn.disabled = true;
-    const previous = browseBtn.textContent;
-    browseBtn.textContent = "Opening…";
-    try {
-      const resp = await fetch("/api/pick-folder", { method: "POST" });
-      const body = await resp.json();
-      if (resp.ok && body.path) exportDir.value = body.path;
-    } catch (err) {
-      // A headless host has no dialog; the text field is the fallback.
-      showError("Folder picker unavailable — type a path instead: " + err.message);
-    } finally {
-      browseBtn.disabled = false;
-      browseBtn.textContent = previous;
-      updateExportButton();
-    }
-  }
-  browseBtn.addEventListener("click", browseFolder);
-
-  // The Export button only lights up with a fresh preview + a folder + a ticked box.
-  exportDir.addEventListener("input", updateExportButton);
-  Object.keys(EXPORT_TYPES).forEach((id) => el(id).addEventListener("change", updateExportButton));
-
-  // -- export the previewed result to a folder --
-  async function runExport() {
-    if (!lastExportToken) {
-      showError("Preview a conversion first, then export.");
-      return;
-    }
-    const dest = exportDir.value.trim();
-    const types = Object.entries(EXPORT_TYPES)
-      .filter(([id]) => el(id).checked)
-      .map(([, value]) => value);
-    if (!dest || !types.length) {
-      showError("Pick a destination folder and at least one file type to export.");
-      return;
-    }
-    clearError();
-    exportBtn.disabled = true;
-    exportStatus.textContent = "Exporting…";
-    try {
-      const resp = await fetch("/api/export", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ export_token: lastExportToken, export_dir: dest, export_types: types }),
-      });
-      const body = await resp.json();
-      if (!resp.ok) throw new Error(body.detail || "export failed (" + resp.status + ")");
-      const what = body.exported && body.exported.length ? body.exported.join(", ") : "nothing";
-      exportStatus.textContent = "Exported " + what + " to " + body.exported_to;
-      if (body.warnings && body.warnings.length) {
-        body.warnings.forEach((message) => {
-          const li = document.createElement("li");
-          li.textContent = message;
-          warningsList.appendChild(li);
-        });
-        warningsPanel.classList.remove("hidden");
-      }
-    } catch (err) {
-      exportStatus.textContent = "";
-      showError(err.message);
-    } finally {
-      updateExportButton();
-    }
-  }
-  exportBtn.addEventListener("click", runExport);
 
   // -- result rendering --
   function resetResultPanels() {
@@ -444,16 +414,9 @@
         + "Compiled from: " + body.output_dir;
       if (body.success) statusMsg += " · Choose a folder below and click Export to save.";
       setStatus(statusMsg);
-      updateExportButton();
+      window.LTXExport.update();
 
-      if (body.warnings && body.warnings.length) {
-        body.warnings.forEach((message) => {
-          const li = document.createElement("li");
-          li.textContent = message;
-          warningsList.appendChild(li);
-        });
-        warningsPanel.classList.remove("hidden");
-      }
+      (body.warnings || []).forEach(appendWarning);
       renderPdfTabs(body);
       renderDownloads(body);
       window.LTXReview.render(body.validation);
@@ -471,9 +434,16 @@
 
   convertBtn.addEventListener("click", runConvert);
 
-  // Bridge for review.js: read the live preview token and reuse the PDF-tab
-  // renderer after an apply-corrections recompile.
-  window.LTXApp = { exportToken: () => lastExportToken, renderPdfTabs: renderPdfTabs };
+  // Bridge for review.js + export.js: the live preview token, the PDF-tab
+  // renderer (reused after an apply-corrections recompile), and the shared
+  // error/warning surfaces.
+  window.LTXApp = {
+    exportToken: () => lastExportToken,
+    renderPdfTabs: renderPdfTabs,
+    showError: showError,
+    clearError: clearError,
+    appendWarning: appendWarning,
+  };
 
   loadJournals();
 })();

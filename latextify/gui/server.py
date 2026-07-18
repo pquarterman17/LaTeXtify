@@ -356,6 +356,7 @@ def create_app(
                     name=name,
                     display_name=journal.display_name,
                     modes=sorted(journal.bib_modes),
+                    default_mode=journal.default_mode,
                 )
             )
         # Alphabetical by the label the user actually reads.
