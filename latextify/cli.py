@@ -5,7 +5,11 @@ Current surface (plan items 5, 16, 18, 19, 20, 21, 23):
     latextify convert paper.docx --journal revtex4-2 [--output output] \\
         [--citation-style numeric|authoryear] [--pdf] [--report/--no-report] \\
         [--exclude-figures] \\  # text-only project (no figures)
+        [--columns default|one|two] [--line-numbers] [--double-spacing] \\
+        [--anonymize] [--figures-at-end] \\  # submission/layout options
         [--supplement si.docx] [--combine-supplement] \\  # Supplementary Material (item 21)
+        [--supplement-columns default|one|two] [--supplement-line-numbers] \\
+        [--supplement-double-spacing] \\
         [--check-references] [--review]  # online Crossref check + interactive review
     latextify batch folder --journal J [--citation-style S] [--pdf] \\
         [--output output] [--recursive]          # batch conversion (item 20)
@@ -20,20 +24,20 @@ Planned (later items):
 
 from __future__ import annotations
 
-import subprocess
 import sys
 import webbrowser
 from pathlib import Path
 
 import typer
 
-from latextify.audit.equations import write_equation_audit
 from latextify.citations.bib import entries_to_bib
 from latextify.citations.corrections import apply_corrections
 from latextify.cli_batch import batch
+from latextify.cli_equations import equations
 from latextify.cli_review import review_corrections
-from latextify.compile.tectonic import TectonicNotAvailableError, compile_document, ensure_tectonic
+from latextify.compile.tectonic import compile_document, ensure_tectonic
 from latextify.emit.project import emit_project
+from latextify.emit.submission import parse_layout_form
 from latextify.model.emit import EmitResult
 from latextify.report.render import write_report
 from latextify.templates import loader
@@ -86,6 +90,33 @@ def convert(
         "no captions) and copy no images. Tables, equations, and citations are "
         "kept. Applies to the supplement too. Off by default.",
     ),
+    columns: str = typer.Option(
+        "default",
+        "--columns",
+        help="Main document column mode: default|one|two.",
+    ),
+    line_numbers: bool = typer.Option(
+        False,
+        "--line-numbers/--no-line-numbers",
+        help="Reviewer line numbers on the main document.",
+    ),
+    double_spacing: bool = typer.Option(
+        False,
+        "--double-spacing/--no-double-spacing",
+        help="Double-space the main document body.",
+    ),
+    anonymize: bool = typer.Option(
+        False,
+        "--anonymize/--no-anonymize",
+        help="Double-blind submission: placeholder author, no affiliations, "
+        "acknowledgments stripped from the main document.",
+    ),
+    figures_at_end: bool = typer.Option(
+        False,
+        "--figures-at-end/--no-figures-at-end",
+        help="Gather figures/tables after the references (endfloat). Applies "
+        "to the supplement too.",
+    ),
     supplement: Path = typer.Option(
         None,
         "--supplement",
@@ -120,6 +151,21 @@ def convert(
         "(\\documentclass[11pt]{article}) instead of the journal class, keeping "
         "S-numbering and the shared references/figures. Needs --supplement.",
     ),
+    supplement_columns: str = typer.Option(
+        "default",
+        "--supplement-columns",
+        help="Supplement column mode: default|one|two. Needs --supplement.",
+    ),
+    supplement_line_numbers: bool = typer.Option(
+        False,
+        "--supplement-line-numbers/--no-supplement-line-numbers",
+        help="Reviewer line numbers on the supplement. Needs --supplement.",
+    ),
+    supplement_double_spacing: bool = typer.Option(
+        False,
+        "--supplement-double-spacing/--no-supplement-double-spacing",
+        help="Double-space the supplement. Needs --supplement.",
+    ),
     check_references: bool = typer.Option(
         False,
         "--check-references",
@@ -149,6 +195,17 @@ def convert(
         raise typer.Exit(code=1)
     # --review turns on the online check it reviews.
     check_references = check_references or review
+    # Per-document layout overrides (mirrors the GUI's convert-multi wiring in
+    # latextify/gui/server.py); a bad --columns value is a clean error naming
+    # the field, before anything touches disk.
+    try:
+        main_layout = parse_layout_form(columns, line_numbers, double_spacing)
+        supplement_layout = parse_layout_form(
+            supplement_columns, supplement_line_numbers, supplement_double_spacing
+        )
+    except ValueError as exc:
+        typer.echo(f"error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
     try:
         journal_obj = load(journal)
         result = emit_project(
@@ -159,6 +216,10 @@ def convert(
             crossref_mailto=crossref_mailto,
             report=report,
             exclude_figures=exclude_figures,
+            main_layout=main_layout,
+            supplement_layout=supplement_layout,
+            anonymize=anonymize,
+            figures_at_end=figures_at_end,
             supplement_docx_path=supplement,
             references_bib_path=references,
             supplement_onecolumn=supplement_onecolumn,
@@ -387,80 +448,11 @@ def make_kit_cmd(
         raise typer.Exit(code=1) from exc
 
 
-@app.command()
-def equations(
-    docx_path: Path = typer.Argument(
-        ..., exists=True, readable=True, help="Source .docx manuscript to audit."
-    ),
-    output: Path = typer.Option(
-        Path("equation_audit"),
-        "--output",
-        "-o",
-        help="Directory to write equations_audit.md (and audit.pdf with --pdf) into.",
-    ),
-    pdf: bool = typer.Option(
-        False,
-        "--pdf",
-        help="Also compile a numbered audit.pdf via Tectonic, for side-by-side "
-        "comparison against the Word document.",
-    ),
-) -> None:
-    """Extract every equation in DOCX_PATH and write a Word-vs-LaTeX conversion audit.
-
-    There is no way to render a Word equation object without Word itself, so
-    the comparison is textual: each equation's source paragraph snippet is
-    paired with pandoc's own converted LaTeX in equations_audit.md (and,
-    with --pdf, a numbered audit.pdf) for the user to scan against the
-    original .docx.
-    """
-    tectonic_path = None
-    if pdf:
-        try:
-            tectonic_path = ensure_tectonic()
-        except TectonicNotAvailableError as exc:
-            typer.echo(f"error: {exc}", err=True)
-            raise typer.Exit(code=1) from exc
-
-    try:
-        result = write_equation_audit(
-            docx_path, output, compile_pdf=pdf, tectonic_path=tectonic_path
-        )
-    except (ValueError, OSError, subprocess.SubprocessError) as exc:
-        # ValueError -- corrupt/unsupported docx (extraction, ingest boundary).
-        # OSError/SubprocessError -- compile_document's own documented escape
-        # hatches when --pdf is set (a hung compile raises
-        # subprocess.TimeoutExpired, a tectonic binary present but unable to
-        # execute raises OSError) -- never let either reach the user as a raw
-        # traceback.
-        typer.echo(f"error: {exc}", err=True)
-        raise typer.Exit(code=1) from exc
-
-    typer.echo(f"wrote {result.audit_md_path}")
-    if result.result.count_mismatch:
-        typer.echo(
-            f"warning: raw OMML equation count ({result.result.raw_omml_count}) != "
-            f"pandoc-converted count ({result.result.converted_count}) -- pandoc likely "
-            "dropped, merged, or invented an equation; see equations_audit.md",
-            err=True,
-        )
-
-    exit_code = 0
-    if pdf:
-        if result.audit_pdf_path is not None:
-            typer.echo(f"compiled {result.audit_pdf_path}")
-        else:
-            typer.echo("audit.pdf failed to compile (see equations_audit.md)", err=True)
-            exit_code = 1
-        for status in result.compile_statuses:
-            if not status.ok:
-                typer.echo(
-                    f"warning: equation {status.index + 1} failed to compile standalone: "
-                    f"{status.message}",
-                    err=True,
-                )
-
-    if exit_code != 0:
-        raise typer.Exit(code=exit_code)
+# --------------------------------------------------------------------------- #
+# Equation audit (item 23) lives in latextify.cli_equations to keep this
+# module focused; register its command on the shared app.
+# --------------------------------------------------------------------------- #
+app.command()(equations)
 
 
 @app.command()
