@@ -79,6 +79,17 @@ select, input[type="text"], input[type="email"], input[type="number"] {
 select.role { padding: 0.35rem 0.4rem; font-size: 0.88rem; }
 input.fignum { padding: 0.35rem 0.4rem; }
 
+fieldset.opt-group {
+  border: 1px solid var(--border); border-radius: 8px; min-width: 0;
+  padding: 0.35rem 1rem 0.9rem; margin: 1rem 0 0;
+}
+fieldset.opt-group legend {
+  font-size: 0.78rem; font-weight: 600; color: var(--muted);
+  text-transform: uppercase; letter-spacing: 0.04em; padding: 0 0.4rem;
+}
+.opt-group .controls { margin-top: 0.5rem; }
+.opt-group .options-grid { margin-top: 0.6rem; }
+
 .options-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0.6rem 1.5rem; margin-top: 1rem; }
 .checkbox-row { display: flex; align-items: center; gap: 0.55rem; font-size: 0.92rem; }
 .checkbox-row input { width: auto; }

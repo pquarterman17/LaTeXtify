@@ -46,6 +46,18 @@
   const reportPanel = el("report-panel");
   const reportText = el("report-text");
 
+  // Advertise the real accepted formats from the same lists role detection
+  // uses, and keep the file picker's filter in sync (one source of truth —
+  // the server's upload allowlists mirror these).
+  el("dropzone-text").innerHTML =
+    "Drag &amp; drop files here — manuscript <strong>.docx</strong>, figures (<strong>." +
+    IMAGE_EXTS.join(" .") + "</strong>), references (<strong>." + REF_EXTS.join(" .") +
+    "</strong>) — or click to choose";
+  fileInput.setAttribute(
+    "accept",
+    [".docx"].concat(IMAGE_EXTS.map((e) => "." + e), REF_EXTS.map((e) => "." + e)).join(",")
+  );
+
   // Each entry: {file, role, number}. `number` only meaningful for figures.
   let entries = [];
   let journals = [];
@@ -157,6 +169,21 @@
   function updateButton() {
     const hasMain = entries.filter((x) => x.role === "main").length === 1;
     convertBtn.disabled = !(hasMain && journalSelect.value);
+    updateOptionState();
+  }
+
+  // Input-aware options: supplement-dependent toggles only mean something
+  // once a Supplement file exists, and exclude-figures deserves a warning
+  // when it will silently ignore staged figure files.
+  function updateOptionState() {
+    const hasSupp = entries.some((x) => x.role === "supplement");
+    [optCombine, optSi1col].forEach((box) => {
+      box.disabled = !hasSupp;
+      if (!hasSupp) box.checked = false;
+      box.title = hasSupp ? "" : "Add a file with the Supplement role to enable.";
+    });
+    const figsStaged = entries.some((x) => x.role === "figure");
+    el("nofigs-warning").classList.toggle("hidden", !(optNoFigs.checked && figsStaged));
   }
 
   // Export is only allowed after a successful preview, with a folder chosen and
@@ -228,10 +255,12 @@
   journalSelect.addEventListener("change", () => {
     populateCitationModes(); updateButton(); invalidatePreview();
   });
-  // Changing any option makes an earlier preview stale.
-  [citationSelect, optPdf, optCombine, optSi1col, optZip, optAudit, optCheckRefs].forEach(
+  // Changing any option makes an earlier preview stale (opt-nofigs included:
+  // it changes what the conversion emits, so a prior preview no longer applies).
+  [citationSelect, optPdf, optCombine, optSi1col, optZip, optNoFigs, optAudit, optCheckRefs].forEach(
     (ctrl) => ctrl.addEventListener("change", invalidatePreview)
   );
+  optNoFigs.addEventListener("change", updateOptionState);
   crossrefEmail.addEventListener("input", invalidatePreview);
 
   // -- export folder browse --

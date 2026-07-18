@@ -29,33 +29,48 @@
 
   <section class="panel">
     <h2>Options</h2>
-    <div class="controls">
-      <div class="field">
-        <label for="journal-select">Journal</label>
-        <select id="journal-select"></select>
+    <fieldset class="opt-group">
+      <legend>Conversion</legend>
+      <div class="controls">
+        <div class="field">
+          <label for="journal-select" title="Journal template: sets the document class, bibliography style, and author/affiliation macros of the emitted project.">Journal</label>
+          <select id="journal-select"></select>
+        </div>
+        <div class="field">
+          <label for="citation-select" title="How in-text citations and the bibliography render: numeric brackets or author–year.">Citation style</label>
+          <select id="citation-select"></select>
+        </div>
       </div>
-      <div class="field">
-        <label for="citation-select">Citation style</label>
-        <select id="citation-select"></select>
+      <div class="options-grid">
+        <label class="checkbox-row" title="Emit a text-only project: embedded and dropped-in figure files are skipped and figure anchors are removed from the LaTeX."><input id="opt-nofigs" type="checkbox" /> Exclude figures (text only)</label>
+        <label class="checkbox-row" title="Build the supplement as a one-column article-style document instead of the journal's own layout."><input id="opt-si1col" type="checkbox" /> One-column (article) supplement</label>
       </div>
-    </div>
-    <div class="controls">
-      <div class="field">
-        <label for="crossref-email">Crossref email (for plain-text citation matching)</label>
-        <input id="crossref-email" type="email" placeholder="you@example.org" title="Optional. Sent only to Crossref as a contact address so reference lookups use their faster 'polite' server pool. Never published or stored in the output." />
-      </div>
-      <div class="field"></div>
-    </div>
+      <div id="nofigs-warning" class="hint hidden">“Exclude figures” is on while figure files are staged — those files will be ignored.</div>
+    </fieldset>
 
-    <div class="options-grid">
-      <label class="checkbox-row"><input id="opt-pdf" type="checkbox" checked /> Compile PDF</label>
-      <label class="checkbox-row"><input id="opt-combine" type="checkbox" /> Combine supplement into one PDF</label>
-      <label class="checkbox-row"><input id="opt-si1col" type="checkbox" /> One-column (article) supplement</label>
-      <label class="checkbox-row"><input id="opt-zip" type="checkbox" /> Download project as .zip</label>
-      <label class="checkbox-row"><input id="opt-nofigs" type="checkbox" /> Exclude figures (text only)</label>
-      <label class="checkbox-row"><input id="opt-audit" type="checkbox" /> Equation-audit PDF</label>
-      <label class="checkbox-row"><input id="opt-checkrefs" type="checkbox" checked /> Check references online (Crossref)</label>
-    </div>
+    <fieldset class="opt-group">
+      <legend>Outputs</legend>
+      <div class="options-grid">
+        <label class="checkbox-row" title="Compile the emitted LaTeX with Tectonic to produce main.pdf (and supplement.pdf). Off: you still get the complete LaTeX project."><input id="opt-pdf" type="checkbox" checked /> Compile PDF</label>
+        <label class="checkbox-row" title="Staple main + supplement into one combined.pdf. Needs a file with the Supplement role and Compile PDF on."><input id="opt-combine" type="checkbox" /> Combine supplement into one PDF</label>
+        <label class="checkbox-row" title="Also package the whole LaTeX project as latextify-project.zip for download."><input id="opt-zip" type="checkbox" /> Download project as .zip</label>
+        <label class="checkbox-row" title="Also produce audit.pdf: every converted equation, numbered, for side-by-side checking against the Word original. Useful for equation-heavy papers."><input id="opt-audit" type="checkbox" /> Equation-audit PDF</label>
+      </div>
+    </fieldset>
+
+    <fieldset class="opt-group">
+      <legend>Online checks</legend>
+      <div class="options-grid">
+        <label class="checkbox-row" title="Validate every reference against Crossref (needs internet): resolve each DOI, compare stored fields with the canonical record, flag dead DOIs, and suggest missing ones. Flagged references open the review panel after preview."><input id="opt-checkrefs" type="checkbox" checked /> Check references online (Crossref)</label>
+      </div>
+      <div class="controls">
+        <div class="field">
+          <label for="crossref-email">Crossref email (for plain-text citation matching)</label>
+          <input id="crossref-email" type="email" placeholder="you@example.org" title="Optional. Sent only to Crossref as a contact address so reference lookups use their faster 'polite' server pool. Never published or stored in the output." />
+        </div>
+        <div class="field"></div>
+      </div>
+    </fieldset>
 
     <div class="actions">
       <button id="convert-btn" type="button" disabled>Preview</button>

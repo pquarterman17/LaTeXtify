@@ -104,18 +104,8 @@ recorded in the 2026-07-18 discussion have exactly one home.
 
 ## Tier 1 — High Impact (round 1: frontend split + UX)
 
-2. **Grouped Options layout** — Conversion / Outputs / Online-checks
-   clusters; every option gets a one-line hint and a hover explanation
-
-3. **Input-aware toggles** — supplement options disabled without a
-   supplement file; exclude-figures warns when figure files are staged
-
 4. **Citation default + confirm** — manifests declare a default mode;
    dropdown follows the journal; non-default choice asks a one-time confirm
-
-5. **Advertise accepted formats** — dropzone/help text lists the real
-   accepted extensions from one source of truth (JS accept lists and server
-   allowlists already exist; stop hiding them)
 
 ## Tier 2 — Medium Impact (round 2: per-document emission + intake)
 
@@ -148,6 +138,17 @@ recorded in the 2026-07-18 discussion have exactly one home.
 
 ## Completed
 
+- ~~**#2 Grouped Options layout**~~ (2026-07-18) — three fieldset clusters
+  (Conversion / Outputs / Online checks), hover tooltip on every option
+  (hover-only per resolved decision; the unclear equation-audit toggle now
+  explains itself).
+- ~~**#3 Input-aware toggles**~~ (2026-07-18) — combine/one-column disabled
+  (and unchecked) without a Supplement file; exclude-figures shows an inline
+  warning over staged figure files. Also fixed a latent bug: opt-nofigs
+  changes now invalidate a stale preview like every other toggle.
+- ~~**#5 Advertise accepted formats**~~ (2026-07-18) — dropzone text and the
+  file-picker filter are generated from the same accept lists role detection
+  uses.
 - ~~**#1 Split the buildless page**~~ (2026-07-18) — index.html 905 → 133
   lines plus style.css (158) / app.js (450) / review.js (193), all under the
   500 ceiling; served via a `/static` mount; export helpers extracted to

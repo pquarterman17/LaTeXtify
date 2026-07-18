@@ -115,6 +115,42 @@ def test_split_static_assets_are_served(tmp_path):
     assert '/static/app.js' in html and '/static/review.js' in html
 
 
+def test_options_are_grouped_and_every_toggle_explained(tmp_path):
+    """Options cluster into labeled groups (plan item 2) and every checkbox
+    row carries a substantive hover explanation."""
+    html = _client(tmp_path).get("/").text
+    for legend in ("Conversion", "Outputs", "Online checks"):
+        assert f"<legend>{legend}</legend>" in html, legend
+    for opt in (
+        "opt-pdf", "opt-combine", "opt-si1col", "opt-zip",
+        "opt-nofigs", "opt-audit", "opt-checkrefs",
+    ):
+        pattern = rf'<label class="checkbox-row" title="[^"]{{30,}}"><input id="{opt}"'
+        assert re.search(pattern, html), f"{opt} lacks a tooltip"
+
+
+def test_dropzone_advertises_accepted_formats(tmp_path):
+    """The dropzone text + file-picker filter are built from the same accept
+    lists role detection uses (plan item 5)."""
+    js = _client(tmp_path).get("/static/app.js").text
+    assert "dropzone-text" in js
+    for advertised in ("webp", "eps", "svg", "ris"):
+        assert advertised in js, advertised
+
+
+def test_input_aware_toggle_wiring_present(tmp_path):
+    """Supplement-dependent toggles disable without a supplement and
+    exclude-figures warns over staged figure files (plan item 3) — the page
+    is buildless, so this pins the wiring rather than executing it."""
+    client = _client(tmp_path)
+    assert 'id="nofigs-warning"' in client.get("/").text
+    js = client.get("/static/app.js").text
+    assert "updateOptionState" in js
+    assert "Add a file with the Supplement role to enable." in js
+    # opt-nofigs invalidates a stale preview like every other option toggle.
+    assert re.search(r"optNoFigs[\s\S]{0,120}invalidatePreview", js)
+
+
 def test_index_wires_the_review_panel(tmp_path):
     """The static page carries the reference-review panel + apply wiring."""
     html = _ui_text(_client(tmp_path))
