@@ -10,8 +10,8 @@ safely.
 
 **Status:** Active
 **Created:** 2026-07-13
-**Updated:** 2026-07-18 — Tier 1 + items 3, 4, 5 fully shipped (core+CLI+GUI);
-only #7 (plaintext-citation export fidelity) and #6 (reverse→Word) remain
+**Updated:** 2026-07-18 — Tier 1 + items 3, 4, 5, 7 shipped; only #6
+(reverse→Word, deferred) remains
 
 ---
 
@@ -91,17 +91,7 @@ _Tier 1 is complete — see `## Completed`._
 
 ## Tier 2 — Medium Impact
 
-*(Items 3, 4, 5 shipped — see Completed.)*
-
-7. **Plaintext-citation fidelity on the HTML/MD export** — on the
-   no-field-codes path the export reconstructs a numbered reference list but
-   leaves in-text markers unlinked AND leaves the manuscript's own typed
-   reference list in the body, so the output carries **two** reference lists
-   (a loud warning fires). Port the plaintext linking + list-stripping
-   (`citations/plaintext.py::_link_plaintext_citations` and
-   `strip_reference_section_to_eof`, today LaTeX-escaped-text specific) to the
-   HTML/MD text. The LaTeX path already handles this; field-coded exports are
-   unaffected.
+*(Items 3, 4, 5, 7 shipped — see Completed.)*
 
 ## Tier 3 — Nice-to-Have
 
@@ -120,6 +110,20 @@ _(none open)_
 
 ## Completed
 
+- ~~**#7 Plaintext-citation fidelity on the HTML/MD export**~~ (2026-07-18) —
+  fixed the duplicate reference list on the no-field-codes path via an
+  AST-level strip: `emit/alt_formats.py::_strip_reconstructed_reference_section`
+  drops the typed reference `Header`-to-EOF from the panflute `Doc` before the
+  HTML/Markdown writer runs (writer-agnostic; avoids porting plaintext.py's
+  LaTeX-text regexes), gated on `strip_typed_list` so it fires ONLY when a list
+  was reconstructed. New public `citations/plaintext.py::is_reference_heading_text`
+  reuses the same heading classification `segment_reference_list` uses. Verified:
+  plaintext exports (bracket_cited) now carry exactly ONE reference list in both
+  targets; field-coded (zotero) and no-citation (clean) paths unchanged. Warning
+  revised accordingly. In-text markers are still left as plain `[N]` text
+  (numerically aligned with the reconstructed list) — hyperlinking them was
+  explicitly out of scope and is an optional cosmetic future nicety, not tracked.
+  9 tests; full suite green.
 - ~~**#4 HTML export** + **#5 Markdown export**~~ (2026-07-18) — self-contained
   single-file export reusing the docx→AST ingest via a safe refactor
   (`ingest/pandoc.py::convert_docx_to_ast`; `filters.py` byte-unchanged) and a
