@@ -51,6 +51,33 @@ Everything installs into this folder; nothing else on the system is touched.
    Drop `--pdf` to emit only the LaTeX project (also fully offline). List the
    available journals with `LaTeXtify.bat journals`.
 
+## If a binary is blocked
+
+LaTeXtify bundles two native executables: **pandoc** (required for *every*
+conversion) and **Tectonic** (required only for `--pdf`).
+
+On a machine with security lockdown (AppLocker, allow-listing, or similar):
+
+- **Soft lockdown** (no admin rights, but can execute files from user folders):
+  the kit works normally. The bundled binaries are just files — no approval
+  barrier.
+- **Hard lockdown** (AppLocker/allow-listing refuses non-approved binaries):
+  **pandoc will be blocked, and LaTeXtify cannot run at all.** This is
+  architectural — there is no pure-Python fallback for document conversion.
+  Even emit-only (no `--pdf`) requires pandoc.
+
+**Fallback:** If only **Tectonic** is blocked (or the kit was built without a
+TeX cache and has no internet), you can still produce the LaTeX project by
+omitting `--pdf`:
+
+```
+LaTeXtify.bat convert paper.docx -j revtex4-2
+```
+
+This emits the LaTeX project and assets without invoking Tectonic. You can then
+compile the result elsewhere with any LaTeX installation. Emit-only still
+requires pandoc — if pandoc is blocked, this fallback does not help.
+
 ## Offline citation note
 
 With no internet, LaTeXtify cannot reach Crossref to reconstruct a plain-text
