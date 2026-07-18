@@ -38,14 +38,19 @@ Simplifications this round (reported, not hidden):
       (Zotero/Mendeley/EndNote/Word-native -- the common case) only. A
       manuscript with no citation field codes still gets a numbered
       reference list (built the same way the LaTeX emitter's fallback
-      does, via :func:`latextify.citations.plaintext.reconstruct_citations`),
-      but its in-text markers are left exactly as typed and its own typed
-      reference list is not stripped from the body --
+      does, via :func:`latextify.citations.plaintext.reconstruct_citations`).
+      Its own typed reference list IS stripped from the body -- at the AST
+      level, before the writer runs, using the SAME heading-keyword
+      classification :func:`~latextify.citations.plaintext.
+      reconstruct_citations` used to find that list in the first place (see
+      ``_strip_reconstructed_reference_section`` below) -- so the output
+      never carries two reference lists. In-text markers, however, are left
+      exactly as typed and NOT linked to the reconstructed list:
       :mod:`latextify.citations.plaintext`'s marker-linking regexes match
       pandoc's ESCAPED LATEX text specifically (``{[}12{]}``,
       ``\\textsuperscript{...}``) and have no HTML/Markdown equivalent;
-      porting them is out of scope this round. A warning is emitted when
-      this path is taken.
+      porting them is out of scope this round. A warning noting the
+      unlinked markers is emitted when this path is taken.
     * Figure embedding (HTML): PNG/JPG/JPEG/GIF/WEBP/BMP and SVG figures are
       embedded as base64 ``data:`` URIs; PDF/EPS/TIFF figures (routine in a
       LaTeX-oriented workflow, meaningless to a browser ``<img>``) are NOT
@@ -75,7 +80,7 @@ import panflute as pf
 import pypandoc
 
 from latextify.citations.fields import extract_field_citations
-from latextify.citations.plaintext import reconstruct_citations
+from latextify.citations.plaintext import is_reference_heading_text, reconstruct_citations
 from latextify.citations.refs_import import parse_references_file
 from latextify.emit.alt_formats_render import (
     PORTABLE_FIGURE_HTML_RE,
@@ -164,19 +169,23 @@ def _prepare_reference_data(
     *,
     crossref_mailto: str | None,
     bib_entries: list[RefEntry] | None,
-) -> tuple[list[RefEntry], tuple[Citation, ...], bool, list[EmitWarning]]:
+) -> tuple[list[RefEntry], tuple[Citation, ...], bool, bool, list[EmitWarning]]:
     """Mirror ``emit_project``'s citation-path selection: field-coded citations
     win when present, else plain-text reconstruction (item 14's fallback) --
     reusing the exact same extraction functions the LaTeX emitter calls.
 
-    Returns ``(entries, citations, field_coded, warnings)``. ``citations`` is
-    only non-empty on the field-coded path -- see the module docstring's
-    "in-text citation LINKS" simplification for why the plaintext path's
-    markers are left unlinked.
+    Returns ``(entries, citations, field_coded, strip_typed_list, warnings)``.
+    ``citations`` is only non-empty on the field-coded path. ``strip_typed_list``
+    is ``True`` only on the plain-text path when a reference list was actually
+    reconstructed (``PlaintextResult.has_reference_list``) -- the caller uses it
+    to gate ``_strip_reconstructed_reference_section``, which removes the SAME
+    typed reference list from the AST so the output does not carry it twice; see
+    the module docstring's "in-text citation LINKS" simplification for why the
+    plaintext path's markers are still left unlinked.
     """
     citation_result = extract_field_citations(docx_path)
     if citation_result.citations:
-        return citation_result.entries, tuple(citation_result.citations), True, []
+        return citation_result.entries, tuple(citation_result.citations), True, False, []
 
     plaintext_result = reconstruct_citations(
         docx_path, mailto=crossref_mailto, bib_entries=bib_entries
@@ -187,15 +196,54 @@ def _prepare_reference_data(
             EmitWarning(
                 message=(
                     "no citation field codes found; a numbered reference list was "
-                    "reconstructed from the manuscript's typed bibliography, but "
-                    "in-text citation markers were left exactly as typed and the "
-                    "typed reference list was not removed from the body -- only "
-                    "the LaTeX export (latextify.emit.project) rewrites plain-text "
+                    "reconstructed from the manuscript's typed bibliography (the "
+                    "typed list itself was removed from the body to avoid a "
+                    "duplicate), but in-text citation markers were left exactly "
+                    "as typed -- not linked to the reconstructed list; only the "
+                    "LaTeX export (latextify.emit.project) rewrites plain-text "
                     "citation markers into linked references."
                 )
             )
         )
-    return plaintext_result.entries, (), False, warnings
+    return (
+        plaintext_result.entries,
+        (),
+        False,
+        plaintext_result.has_reference_list,
+        warnings,
+    )
+
+
+def _strip_reconstructed_reference_section(doc: pf.Doc) -> None:
+    """Remove the typed reference-list ``Header`` (and everything after it).
+
+    Called ONLY when ``_prepare_reference_data``'s ``strip_typed_list`` is
+    ``True`` -- i.e. the plain-text citation path found and reconstructed a
+    typed reference list (see :func:`~latextify.citations.plaintext.
+    reconstruct_citations`). That reconstructed list is appended separately
+    (:func:`~latextify.emit.alt_formats_render.render_reference_list_html` /
+    ``..._markdown``), so leaving the manuscript's own typed list in the body
+    would duplicate it. This is the AST-level counterpart of
+    :func:`~latextify.citations.plaintext.strip_reference_section_to_eof`
+    (which cuts already-rendered LaTeX text instead): it scans the top-level
+    blocks of ``doc.content`` for the first ``Header`` whose stringified text
+    reads as a reference-list heading -- using
+    :func:`~latextify.citations.plaintext.is_reference_heading_text`, the SAME
+    keyword/length classification :func:`~latextify.citations.plaintext.
+    segment_reference_list` used to find that heading in the raw manuscript in
+    the first place -- and drops it plus every block after it, to EOF.
+    Writer-agnostic (mutates the AST before either the HTML or the Markdown
+    writer ever sees it), unlike porting ``plaintext.py``'s LaTeX-text regexes
+    would have been. Mutates ``doc.content`` in place; a no-op if no matching
+    ``Header`` is found (the AST's own heading detection did not line up with
+    what ``segment_reference_list`` found in the raw OOXML -- not expected in
+    practice, but never a crash either way).
+    """
+    blocks = list(doc.content)
+    for index, block in enumerate(blocks):
+        if isinstance(block, pf.Header) and is_reference_heading_text(pf.stringify(block).strip()):
+            doc.content = blocks[:index]
+            return
 
 
 # --------------------------------------------------------------------------- #
@@ -219,7 +267,7 @@ def _export(
         parse_references_file(references_bib_path) if references_bib_path is not None else None
     )
     meta = load_meta(docx_path)
-    entries, citations, _field_coded, warnings = _prepare_reference_data(
+    entries, citations, _field_coded, strip_typed_list, warnings = _prepare_reference_data(
         docx_path, crossref_mailto=crossref_mailto, bib_entries=bib_entries
     )
     number_by_key = {entry.key: i for i, entry in enumerate(entries, start=1)}
@@ -233,6 +281,8 @@ def _export(
         media_dir = Path(tmp)
         doc, shared_findings = convert_docx_to_ast(docx_path, media_dir, strip_front_matter=True)
         figures = resolve_overrides(extract_figures(docx_path, media_dir), docx_path)
+        if strip_typed_list:
+            _strip_reconstructed_reference_section(doc)
         doc, _anchor_counts = plant_portable_anchors(doc)
         _insert_title_block(doc, meta, visible_header=target != "html")
 
