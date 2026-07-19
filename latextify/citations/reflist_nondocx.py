@@ -43,7 +43,11 @@ def _manuscript_paragraphs(manuscript_path: Path) -> list[tuple[str, bool]]:
     handles -- is fully supported.
     """
     fmt = pandoc_format_for(manuscript_path)
-    ast_json = pypandoc.convert_file(str(manuscript_path), to="json", format=fmt)
+    # verify_format=False: fmt is a hardcoded, always-valid pandoc name from
+    # pandoc_format_for -- skip pypandoc's two extra format-list subprocesses.
+    ast_json = pypandoc.convert_file(
+        str(manuscript_path), to="json", format=fmt, verify_format=False
+    )
     doc = pf.load(io.StringIO(ast_json))
     paragraphs: list[tuple[str, bool]] = []
     for block in doc.content:
