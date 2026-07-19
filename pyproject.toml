@@ -1,6 +1,6 @@
 [project]
 name = "latextify"
-version = "0.1.0"
+version = "0.2.0"
 description = "Convert Word manuscripts to journal-ready LaTeX projects and PDFs"
 readme = "README.md"
 license = "Apache-2.0"
