@@ -85,15 +85,16 @@ def test_candidate_from_item_parses_fields():
 
 def test_candidate_title_strips_mathml_and_jats_markup():
     # Crossref returns titles carrying MathML / JATS inline tags; none of it may
-    # reach references.bib (the observed klingler2018spintorque "YIG/Co" title).
+    # reach references.bib. A two-part material formula split by "/" is the tricky
+    # case: the slash sits between two <mml:mi> runs inside the math block.
     mathml = (
-        "Spin-Torque Excitation of Coupled "
+        "Magnetization Dynamics in Coupled "
         '<mml:math xmlns:mml="http://www.w3.org/1998/Math/MathML" display="inline">'
-        "<mml:mrow><mml:mi>YIG</mml:mi><mml:mo>/</mml:mo><mml:mi>Co</mml:mi></mml:mrow>"
+        "<mml:mrow><mml:mi>Ax</mml:mi><mml:mo>/</mml:mo><mml:mi>Bz</mml:mi></mml:mrow>"
         "</mml:math>\n Heterostructures"
     )
     cand = candidate_from_item(_work(title=[mathml]))
-    assert cand.title == "Spin-Torque Excitation of Coupled YIG/Co Heterostructures"
+    assert cand.title == "Magnetization Dynamics in Coupled Ax/Bz Heterostructures"
     assert "<" not in cand.title and "mml" not in cand.title
 
 

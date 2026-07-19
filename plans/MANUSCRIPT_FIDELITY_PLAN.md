@@ -181,7 +181,8 @@ loop above) to catch it._
 - ~~**Gap 13 — JATS/MathML in `.bib` titles**~~ (2026-07-12) — Crossref titles
   carrying `<mml:math>…` and JATS inline tags (`<i>`/`<sub>`/`<sup>`) now have
   markup stripped, entities decoded, and whitespace collapsed at the `_first`
-  cleaning boundary (`klingler2018spintorque` "YIG/Co"). `latextify/citations/crossref.py`.
+  cleaning boundary (a Crossref title with an embedded `<mml:math>` material
+  formula). `latextify/citations/crossref.py`.
 - ~~**Gap 14 — stray "Table N:" caption paragraph**~~ (2026-07-12) — a caption
   typed as a paragraph after the table (not Word's Caption style) is now moved
   into the table's `\caption{}` with the "Table N:" label stripped (revtex

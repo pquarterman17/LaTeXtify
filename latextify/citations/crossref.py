@@ -137,13 +137,12 @@ class CrossrefCandidate:
         )
 
 
-# Crossref titles carry JATS/MathML markup: "Coupled <mml:math ...><mml:mi>YIG
-# </mml:mi><mml:mo>/</mml:mo><mml:mi>Co</mml:mi></mml:math> Heterostructures",
+# Crossref titles carry JATS/MathML markup: e.g. "Coupled <mml:math ...><mml:mi>Ax
+# </mml:mi><mml:mo>/</mml:mo><mml:mi>Bz</mml:mi></mml:math> Heterostructures",
 # and inline <i>/<sub>/<sup>/<scp> tags. Left raw, that markup lands verbatim in
-# references.bib (an observed "klingler2018spintorque" title). Strip every tag
-# (keeping the text between them, so "<mml:mi>YIG</mml:mi>/<mml:mi>Co</mml:mi>"
-# -> "YIG/Co"), then decode HTML entities and collapse the whitespace the
-# removed multi-line math block leaves behind.
+# references.bib. Strip every tag (keeping the text between them, so
+# "<mml:mi>Ax</mml:mi>/<mml:mi>Bz</mml:mi>" -> "Ax/Bz"), then decode HTML
+# entities and collapse the whitespace the removed multi-line math block leaves behind.
 _MARKUP_TAG_RE = re.compile(r"<[^>]+>")
 _WHITESPACE_RE = re.compile(r"\s+")
 
