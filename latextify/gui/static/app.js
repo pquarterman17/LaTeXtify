@@ -422,11 +422,12 @@
       if (!resp.ok) throw new Error(body.detail || "conversion failed (" + resp.status + ")");
 
       lastExportToken = body.export_token || null;
-      let statusMsg = (body.success ? "Preview ready. " : "Finished with errors — check the report below. ")
+      let statusMsg = (body.success ? "Preview ready — see the panel to the right. " : "Finished with errors — check the report to the right. ")
         + "Compiled from: " + body.output_dir;
-      if (body.success) statusMsg += " · Choose a folder below and click Export to save.";
+      if (body.success) statusMsg += " · Choose a folder there and click Export to save.";
       setStatus(statusMsg);
       window.LTXExport.update();
+      window.LTXResults.hidePlaceholder();
 
       (body.warnings || []).forEach(window.LTXResults.appendWarning);
       window.LTXResults.renderPdfTabs(body);

@@ -12,6 +12,8 @@
   <p>Drop your manuscript, supplement, figures and reference library together — set each file's role, pick options, convert.</p>
 </header>
 <main>
+  <div class="layout-grid">
+  <div class="col-inputs">
   <section class="panel">
     <div id="dropzone" class="dropzone" tabindex="0" role="button" aria-label="Choose or drop files">
       <div id="dropzone-text">Drag &amp; drop files here (<strong>.docx</strong>, figures, <strong>.bib</strong>), or click to choose</div>
@@ -87,33 +89,23 @@
     <div id="status" class="status"></div>
     <div id="error-box" class="error-box hidden"></div>
   </section>
+  </div>
 
-  <section class="panel">
-    <h2>Export to a folder</h2>
-    <p class="hint">Preview first (above) to check the conversion compiled. A preview is kept in
-      temporary local storage (cleared automatically after about an hour and when the app closes);
-      Export copies the files you pick to a folder you choose to keep.</p>
-    <div class="controls">
-      <div class="field">
-        <label for="export-dir">Destination folder</label>
-        <input id="export-dir" type="text" placeholder="e.g. C:\Users\you\Documents\my-paper" />
-      </div>
-      <div class="field" style="align-self: end;">
-        <button id="browse-btn" type="button" class="secondary">Browse…</button>
-      </div>
-    </div>
-    <div class="options-grid">
-      <label class="checkbox-row"><input id="exp-project" type="checkbox" checked /> LaTeX project folder</label>
-      <label class="checkbox-row"><input id="exp-main_pdf" type="checkbox" /> Main PDF</label>
-      <label class="checkbox-row"><input id="exp-supplement_pdf" type="checkbox" /> Supplement PDF</label>
-      <label class="checkbox-row"><input id="exp-combined_pdf" type="checkbox" /> Combined PDF</label>
-      <label class="checkbox-row"><input id="exp-audit_pdf" type="checkbox" /> Equation-audit PDF</label>
-      <label class="checkbox-row"><input id="exp-zip" type="checkbox" /> Project .zip</label>
-    </div>
-    <div class="actions">
-      <button id="export-btn" type="button" disabled title="Preview a conversion first">Export</button>
-    </div>
-    <div id="export-status" class="status"></div>
+  <div class="col-outputs">
+  <section id="results-placeholder" class="panel placeholder-panel">
+    <p class="hint">Your PDF preview, compile report, and citation review will appear here after
+      you click Preview.</p>
+  </section>
+
+  <section id="pdf-panel" class="panel hidden">
+    <h2>PDF preview</h2>
+    <div id="pdf-tabs" class="tabs"></div>
+    <embed id="pdf-embed" class="pdf-frame" type="application/pdf" />
+  </section>
+
+  <section id="report-panel" class="panel hidden">
+    <h2>report.md</h2>
+    <pre id="report-text" class="report"></pre>
   </section>
 
   <section id="warnings-panel" class="panel hidden">
@@ -138,17 +130,37 @@
     <div id="downloads" class="downloads"></div>
   </section>
 
-  <section id="pdf-panel" class="panel hidden">
-    <h2>PDF preview</h2>
-    <div id="pdf-tabs" class="tabs"></div>
-    <embed id="pdf-embed" class="pdf-frame" type="application/pdf" />
+  <section class="panel">
+    <h2>Export to a folder</h2>
+    <p class="hint">Preview first (left) to check the conversion compiled. A preview is kept in
+      temporary local storage (cleared automatically after about an hour and when the app closes);
+      Export copies the files you pick to a folder you choose to keep.</p>
+    <div class="controls">
+      <div class="field">
+        <label for="export-dir">Destination folder</label>
+        <input id="export-dir" type="text" placeholder="e.g. C:\Users\you\Documents\my-paper" />
+      </div>
+      <div class="field" style="align-self: end;">
+        <button id="browse-btn" type="button" class="secondary">Browse…</button>
+      </div>
+    </div>
+    <div class="options-grid">
+      <label class="checkbox-row"><input id="exp-project" type="checkbox" checked /> LaTeX project folder</label>
+      <label class="checkbox-row"><input id="exp-main_pdf" type="checkbox" /> Main PDF</label>
+      <label class="checkbox-row"><input id="exp-supplement_pdf" type="checkbox" /> Supplement PDF</label>
+      <label class="checkbox-row"><input id="exp-combined_pdf" type="checkbox" /> Combined PDF</label>
+      <label class="checkbox-row"><input id="exp-audit_pdf" type="checkbox" /> Equation-audit PDF</label>
+      <label class="checkbox-row"><input id="exp-zip" type="checkbox" /> Project .zip</label>
+    </div>
+    <div class="actions">
+      <button id="export-btn" type="button" disabled title="Preview a conversion first">Export</button>
+    </div>
+    <div id="export-status" class="status"></div>
   </section>
+  </div>
+  </div>
 
-  <section id="report-panel" class="panel hidden">
-    <h2>report.md</h2>
-    <pre id="report-text" class="report"></pre>
-  </section>
-
+  <div class="tools-row">
   <section class="panel">
     <h2>Clean a .docx (strip metadata)</h2>
     <p class="hint">Standalone tool, independent of the conversion above: upload a manuscript to
@@ -192,6 +204,7 @@
     <div id="altexport-status" class="status"></div>
     <div id="altexport-report" class="hint hidden"></div>
   </section>
+  </div>
 </main>
 
 <script src="/static/app.js"></script>
