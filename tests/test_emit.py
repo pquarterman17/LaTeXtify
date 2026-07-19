@@ -894,6 +894,26 @@ def test_check_references_attaches_report_and_renders(tmp_path, monkeypatch):
     assert "`planted`" in report  # the flagged record is listed
 
 
+def test_check_references_partial_outage_warns(tmp_path, monkeypatch):
+    # Some (not all) references unchecked mid-run -> one visible warning so the
+    # author knows the check partially degraded; the emit itself still succeeds.
+    from latextify.emit import project as project_mod
+    from latextify.model.validate import ValidationRecord, ValidationReport
+
+    def fake_validate(entries, client, **kwargs):
+        records = [ValidationRecord(key=e.key, status="verified", doi=e.doi) for e in entries]
+        records[0] = ValidationRecord(key=records[0].key, status="unchecked")
+        return ValidationReport(records=tuple(records))
+
+    monkeypatch.setattr(project_mod, "validate_references", fake_validate)
+
+    docx = _copy_fixture(tmp_path, ZOTERO_DOCX)
+    result = emit_project(docx, "revtex4-2", tmp_path / "output", check_references=True)
+
+    assert result.validation is not None
+    assert any("could not be checked" in w.message for w in result.warnings)
+
+
 def test_check_references_skipped_when_no_entries(tmp_path, monkeypatch):
     # A citation-free manuscript has no entries, so validation is skipped
     # entirely (no client built, no network) even when requested.

@@ -80,7 +80,10 @@ def _client(*, by_doi=None, by_query=None, doi_status=200, query_status=200):
                 return httpx.Response(200, json={"message": {"items": items}})
         return httpx.Response(200, json={"message": {"items": []}})
 
-    return CrossrefClient(mailto="t@e.org", transport=httpx.MockTransport(handler))
+    # retry_backoff=0: error paths retry instantly, keeping the suite fast.
+    return CrossrefClient(
+        mailto="t@e.org", transport=httpx.MockTransport(handler), retry_backoff=0.0
+    )
 
 
 # --------------------------------------------------------------------------- #
@@ -263,9 +266,10 @@ def test_validate_references_reports_per_entry():
     assert report.any_checked is True
 
 
-def test_offline_after_first_failure_marks_rest_unchecked():
-    # Once Crossref is unreachable, every remaining reference is unchecked
-    # without a doomed request -- no wall of spurious flags, no dozens of timeouts.
+def test_offline_after_consecutive_failures_marks_rest_unchecked():
+    # Two consecutive exhausted-retry failures latch the run offline: every
+    # remaining reference is unchecked without a doomed request -- no wall of
+    # spurious flags, no dozens of timeouts.
     entries = [_entry(key="a"), _entry(key="b"), _entry(key="c")]
     with _client(by_doi={"10.1000/widgets.1998": _work()}, doi_status=500) as client:
         report = validate_references(entries, client)
@@ -291,3 +295,130 @@ def test_offline_short_circuit_engages_from_no_doi_outage():
         report = validate_references(entries, client)
     assert report.count("unchecked") == 2
     assert report.any_checked is False
+
+
+# --------------------------------------------------------------------------- #
+# failure containment (retries, isolation, degradation) -- all offline/mocked
+# --------------------------------------------------------------------------- #
+
+
+def _raw_client(handler):
+    """Bare mock client with instant retries, for stateful/failure handlers."""
+    return CrossrefClient(
+        mailto="t@e.org", transport=httpx.MockTransport(handler), retry_backoff=0.0
+    )
+
+
+def test_transient_429_then_success_still_verifies():
+    # One rate-limit blip is absorbed by the retry; the reference still verifies.
+    calls = {"n": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls["n"] += 1
+        if calls["n"] == 1:
+            return httpx.Response(429, text="slow down", headers={"Retry-After": "0"})
+        return httpx.Response(200, json={"message": _work()})
+
+    with _raw_client(handler) as client:
+        record = validate_entry(_entry(), client)
+    assert record.status == "verified"
+    assert calls["n"] == 2
+
+
+def test_repeated_5xx_marks_unchecked_with_reason():
+    with _client(by_doi={"10.1000/widgets.1998": _work()}, doi_status=503) as client:
+        record = validate_entry(_entry(), client)
+    assert record.status == "unchecked"
+    assert "Crossref could not be reached" in record.note
+
+
+def test_read_timeout_marks_unchecked():
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise httpx.ReadTimeout("read timed out", request=request)
+
+    with _raw_client(handler) as client:
+        record = validate_entry(_entry(), client)
+    assert record.status == "unchecked"
+    assert record.flagged is False
+
+
+def test_malformed_json_marks_unchecked():
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, content=b"<html>galaxy-brained proxy error</html>")
+
+    with _raw_client(handler) as client:
+        record = validate_entry(_entry(), client)
+    assert record.status == "unchecked"
+
+
+def test_total_outage_all_unchecked_and_run_completes():
+    # Crossref fully unreachable: the batch never raises, completes, and marks
+    # every reference unchecked -- the conversion itself is unaffected.
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("network is down", request=request)
+
+    entries = [_entry(key=f"k{i}", doi=f"10.1000/{i}") for i in range(5)]
+    with _raw_client(handler) as client:
+        report = validate_references(entries, client)
+    assert report.total == 5
+    assert report.count("unchecked") == 5
+    assert report.any_checked is False
+    assert report.flagged_count == 0
+
+
+def test_single_failure_does_not_disable_rest_of_run():
+    # THE core fix: one reference exhausting its retries used to latch the whole
+    # rest of the run offline. Now the streak resets on the next success.
+    good = _work()
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if "flaky" in request.url.path:
+            return httpx.Response(500, text="down")
+        return httpx.Response(200, json={"message": good})
+
+    entries = [
+        _entry(key="a"),
+        _entry(key="b", doi="10.9999/flaky"),
+        _entry(key="c"),
+    ]
+    with _raw_client(handler) as client:
+        report = validate_references(entries, client)
+    assert [r.status for r in report.records] == ["verified", "unchecked", "verified"]
+    assert report.any_checked is True
+
+
+def test_unexpected_exception_isolated_to_one_reference():
+    # A non-network bug while checking one reference degrades THAT reference to
+    # unchecked (with the reason) and the batch continues.
+    class _ExplodingClient:
+        def get_by_doi(self, doi):
+            if doi == "10.1/boom":
+                raise RuntimeError("candidate parser exploded")
+            from latextify.citations.crossref import candidate_from_item
+
+            return candidate_from_item(_work())
+
+        def query_bibliographic_checked(self, text, *, rows=3):
+            return []
+
+    entries = [_entry(key="a"), _entry(key="b", doi="10.1/boom"), _entry(key="c")]
+    report = validate_references(entries, _ExplodingClient())
+    assert [r.status for r in report.records] == ["verified", "unchecked", "verified"]
+    bad = report.records[1]
+    assert "check failed (RuntimeError" in bad.note
+
+
+def test_no_match_is_unverifiable_not_retried():
+    # A clean 200 with zero matches is a real answer: exactly one request, and
+    # the existing not-found classification -- never treated as an error.
+    captured: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured.append(request)
+        return httpx.Response(200, json={"message": {"items": []}})
+
+    entry = _entry(doi=None, title="An Utterly Untraceable Manuscript")
+    with _raw_client(handler) as client:
+        record = validate_entry(entry, client)
+    assert record.status == "unverifiable"
+    assert len(captured) == 1

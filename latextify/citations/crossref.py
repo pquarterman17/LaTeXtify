@@ -19,7 +19,17 @@ address is configurable three ways, highest precedence first:
 Operators SHOULD override the placeholder with a real address (CLI
 ``--crossref-mailto`` / ``emit_project(crossref_mailto=...)``). Requests are made
 serially -- at the scale of one manuscript's reference list that comfortably
-respects Crossref's rate limits without backoff machinery.
+respects Crossref's rate limits.
+
+Robustness
+----------
+Crossref returns intermittent 429/5xx responses and the occasional truncated
+body even in normal operation, so every request gets bounded retries with
+exponential backoff + jitter (429 honors ``Retry-After``, capped). A clean 404
+or an empty result set is a real answer and is never retried. On top of that a
+simple circuit breaker trips after several *consecutive* failed calls: once
+Crossref looks down, further calls fail fast instead of burning one full
+retry-and-timeout cycle per reference.
 
 Testing
 -------
@@ -32,8 +42,11 @@ from __future__ import annotations
 
 import html
 import os
+import random
 import re
+import time
 from dataclasses import dataclass
+from urllib.parse import quote
 
 import httpx
 
@@ -46,6 +59,36 @@ _MAILTO_ENV = "LATEXTIFY_CROSSREF_MAILTO"
 
 DEFAULT_BASE_URL = "https://api.crossref.org"
 _USER_AGENT_PRODUCT = "LaTeXtify/0.1 (https://github.com/latextify/latextify)"
+
+#: Retries after the first attempt for *transient* failures only (connect/read
+#: errors, 429, 5xx, malformed JSON body). A 404 / empty result is a real
+#: answer, never retried.
+DEFAULT_MAX_RETRIES = 2
+#: Base backoff in seconds; retry N sleeps ~ base * 2**(N-1) (+ up to 25%
+#: jitter). Tests pass ``retry_backoff=0.0`` so error paths stay instant.
+DEFAULT_RETRY_BACKOFF = 1.0
+#: Hard cap on any single inter-attempt sleep, including a server-sent
+#: ``Retry-After`` -- a GUI request must never hang for a minute on one ref.
+_MAX_BACKOFF = 10.0
+#: After this many consecutive failed *calls* (each already retried), the
+#: client fails fast without touching the network: Crossref is treated as down
+#: for the rest of the run. Any successful call closes the breaker again.
+_BREAKER_THRESHOLD = 3
+
+
+def _retry_delay(attempt: int, retry_after: str | None, backoff: float) -> float:
+    """Seconds to sleep before retry ``attempt`` (1-based), capped at ``_MAX_BACKOFF``.
+
+    A numeric ``Retry-After`` (the 429 convention) wins over the computed
+    exponential backoff; an HTTP-date or garbage value falls through to it.
+    """
+    if retry_after:
+        try:
+            return min(max(float(retry_after), 0.0), _MAX_BACKOFF)
+        except ValueError:
+            pass
+    delay = backoff * (2 ** (attempt - 1))
+    return min(delay + random.uniform(0.0, delay / 4.0), _MAX_BACKOFF)
 
 
 class CrossrefUnavailable(Exception):
@@ -240,15 +283,79 @@ class CrossrefClient:
         mailto: str | None = None,
         base_url: str = DEFAULT_BASE_URL,
         transport: httpx.BaseTransport | None = None,
-        timeout: float = 20.0,
+        timeout: float = 10.0,
+        max_retries: int = DEFAULT_MAX_RETRIES,
+        retry_backoff: float = DEFAULT_RETRY_BACKOFF,
     ) -> None:
         self.mailto = resolve_mailto(mailto)
+        self.max_retries = max(0, max_retries)
+        self.retry_backoff = max(0.0, retry_backoff)
+        self._consecutive_failures = 0
         user_agent = f"{_USER_AGENT_PRODUCT} mailto:{self.mailto}"
         self._client = httpx.Client(
             base_url=base_url,
             transport=transport,
             timeout=timeout,
             headers={"User-Agent": user_agent},
+        )
+
+    def _get_json(self, path: str, params: dict) -> dict | None:
+        """GET ``path`` and parse the JSON body, with bounded retries.
+
+        Returns the parsed payload dict, or ``None`` for a 404 (a real "not
+        found", never retried). Transient failures -- transport errors, 429
+        (honoring ``Retry-After``), 5xx, and a malformed/truncated body -- are
+        retried with backoff; exhausting the retries, or any non-transient
+        failure, raises :class:`CrossrefUnavailable`.
+
+        The circuit breaker wraps every call: once ``_BREAKER_THRESHOLD``
+        consecutive calls have failed, further calls raise immediately so a
+        full outage costs a few timeouts, not one per remaining reference.
+        """
+        if self._consecutive_failures >= _BREAKER_THRESHOLD:
+            raise CrossrefUnavailable(
+                f"skipped after {self._consecutive_failures} consecutive Crossref failures"
+            )
+        try:
+            payload = self._get_json_retrying(path, params)
+        except CrossrefUnavailable:
+            self._consecutive_failures += 1
+            raise
+        self._consecutive_failures = 0
+        return payload
+
+    def _get_json_retrying(self, path: str, params: dict) -> dict | None:
+        last_error = "unknown error"
+        retry_after: str | None = None
+        for attempt in range(self.max_retries + 1):
+            if attempt:
+                time.sleep(_retry_delay(attempt, retry_after, self.retry_backoff))
+                retry_after = None
+            try:
+                response = self._client.get(path, params=params)
+            except httpx.TransportError as exc:  # connect/read/write trouble: transient
+                last_error = f"{type(exc).__name__}: {exc}"
+                continue
+            except httpx.HTTPError as exc:  # redirect loops etc.: not transient
+                raise CrossrefUnavailable(str(exc)) from exc
+            if response.status_code == 404:
+                return None
+            if response.status_code == 429 or response.status_code >= 500:
+                retry_after = response.headers.get("Retry-After")
+                last_error = f"HTTP {response.status_code}"
+                continue
+            try:
+                response.raise_for_status()
+            except httpx.HTTPStatusError as exc:  # remaining 4xx: not transient
+                raise CrossrefUnavailable(str(exc)) from exc
+            try:
+                payload = response.json()
+            except ValueError:  # malformed/truncated body: usually transient
+                last_error = "malformed JSON body"
+                continue
+            return payload if isinstance(payload, dict) else {}
+        raise CrossrefUnavailable(
+            f"gave up after {self.max_retries + 1} attempt(s); last error: {last_error}"
         )
 
     def query_bibliographic(self, text: str, *, rows: int = 3) -> list[CrossrefCandidate]:
@@ -284,15 +391,10 @@ class CrossrefClient:
         query = (text or "").strip()
         if not query:
             return []
-        try:
-            response = self._client.get(
-                "/works",
-                params={"query.bibliographic": query, "rows": rows, "mailto": self.mailto},
-            )
-            response.raise_for_status()
-            payload = response.json()
-        except (httpx.HTTPError, ValueError) as exc:
-            raise CrossrefUnavailable(str(exc)) from exc
+        payload = self._get_json(
+            "/works",
+            {"query.bibliographic": query, "rows": rows, "mailto": self.mailto},
+        )
         message = payload.get("message") if isinstance(payload, dict) else None
         items = message.get("items") if isinstance(message, dict) else None
         if not isinstance(items, list):
@@ -309,24 +411,18 @@ class CrossrefClient:
         bad" apart from "I couldn't reach Crossref right now". A blank DOI
         returns ``None`` without a request.
 
-        The DOI is sent as the raw path (Crossref expects the bare DOI,
-        including its internal ``/``); a ``doi:`` or ``https://doi.org/`` prefix
-        is stripped first.
+        The DOI is percent-encoded into the path (``/`` kept literal, as
+        Crossref expects); a ``doi:`` or ``https://doi.org/`` prefix is
+        stripped first. Encoding matters: real DOIs contain ``<``, ``>``,
+        ``;``, ``#`` (the SICI-era Wiley style) and a raw ``#`` or ``?`` would
+        otherwise truncate the request path into a fragment/query.
         """
         cleaned = _normalize_doi(doi)
         if not cleaned:
             return None
-        try:
-            response = self._client.get("/works/" + cleaned, params={"mailto": self.mailto})
-        except httpx.HTTPError as exc:
-            raise CrossrefUnavailable(str(exc)) from exc
-        if response.status_code == 404:
-            return None
-        try:
-            response.raise_for_status()
-            payload = response.json()
-        except (httpx.HTTPError, ValueError) as exc:
-            raise CrossrefUnavailable(str(exc)) from exc
+        payload = self._get_json(
+            "/works/" + quote(cleaned, safe="/"), {"mailto": self.mailto}
+        )
         message = payload.get("message") if isinstance(payload, dict) else None
         if not isinstance(message, dict):
             return None
