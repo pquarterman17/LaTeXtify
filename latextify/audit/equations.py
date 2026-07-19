@@ -147,7 +147,12 @@ def _pandoc_math_nodes(docx_path: Path | str) -> list[pf.Math]:
     LaTeX writer, since that is the only way to recover per-equation text
     (the writer serializes the whole body to one opaque string).
     """
-    ast_json = pypandoc.convert_file(str(docx_path), to="json", format="docx")
+    # "docx"/"json" are always-valid pandoc format names -- see
+    # latextify.ingest.pandoc for the full reasoning behind skipping
+    # pypandoc's own (uncached, 2-subprocess) format check.
+    ast_json = pypandoc.convert_file(
+        str(docx_path), to="json", format="docx", verify_format=False
+    )
     doc = pf.load(io.StringIO(ast_json))
     nodes: list[pf.Math] = []
 

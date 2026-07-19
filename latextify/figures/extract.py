@@ -119,6 +119,11 @@ def extract_figures(docx_path: Path | str, media_dir: Path | str) -> tuple[Figur
             "--extract-media", str(media_dir),
             "--resource-path", str(docx_path.parent),
         ],
+        # format/to are always one of our own hardcoded, always-valid pandoc
+        # format names -- see latextify.ingest.pandoc's matching comment.
+        # Skipping pypandoc's own verification saves 2 extra `pandoc
+        # --list-*-formats` subprocess spawns on every call.
+        verify_format=False,
     )
     doc = pf.load(io.StringIO(ast_json))
     textbox_captions = _textbox_captions(docx_path)

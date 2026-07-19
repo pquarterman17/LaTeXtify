@@ -465,7 +465,7 @@ def _blocks_to_latex(blocks: list, api_version) -> str:
     sub_doc = pf.Doc(*blocks, api_version=api_version)
     buf = io.StringIO()
     pf.dump(sub_doc, buf)
-    tex = pypandoc.convert_text(buf.getvalue(), to="latex", format="json")
+    tex = pypandoc.convert_text(buf.getvalue(), to="latex", format="json", verify_format=False)
     lines = [line for line in tex.replace("\r\n", "\n").split("\n") if line.strip()]
     return " ".join(lines).strip()
 
@@ -722,7 +722,7 @@ def _degraded_blocks_to_latex(blocks: list, api_version) -> str:
     sub_doc = sub_doc.walk(flatten)
     buf = io.StringIO()
     pf.dump(sub_doc, buf)
-    tex = pypandoc.convert_text(buf.getvalue(), to="latex", format="json")
+    tex = pypandoc.convert_text(buf.getvalue(), to="latex", format="json", verify_format=False)
     lines = [line for line in tex.replace("\r\n", "\n").split("\n") if line.strip()]
     return " ".join(lines).strip()
 
