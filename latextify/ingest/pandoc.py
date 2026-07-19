@@ -160,6 +160,16 @@ def convert_docx_to_ast(
                     to="json",
                     format=pandoc_format,
                     extra_args=["--extract-media", str(media_dir)],
+                    # format/to are always one of our own hardcoded, always-
+                    # valid pandoc format names (see module docstring), never
+                    # attacker- or user-supplied -- pypandoc's own format
+                    # verification would only re-confirm what we already
+                    # know, at the cost of 2 extra `pandoc --list-*-formats`
+                    # subprocess spawns per call (get_pandoc_formats() is not
+                    # cached). A genuinely corrupt/unreadable document still
+                    # fails in the conversion subprocess itself and is caught
+                    # by the except clause below exactly as before.
+                    verify_format=False,
                 )
         else:
             # .odt/.rtf/.md: neither OOXML preprocessing pass above has an
@@ -175,6 +185,8 @@ def convert_docx_to_ast(
                     "--extract-media", str(media_dir),
                     "--resource-path", str(docx_path.parent),
                 ],
+                # See the verify_format=False comment above.
+                verify_format=False,
             )
         doc = pf.load(io.StringIO(ast_json))
         # The same five format-agnostic steps latextify.ingest.filters.apply_all
@@ -229,7 +241,12 @@ def convert_docx_to_body(
 
         filtered_json = io.StringIO()
         pf.dump(doc, filtered_json)
-        tex = pypandoc.convert_text(filtered_json.getvalue(), to="latex", format="json")
+        # See convert_docx_to_ast's verify_format=False comment: "json" and
+        # "latex" are always-valid pandoc format names here, never derived
+        # from input we haven't already validated.
+        tex = pypandoc.convert_text(
+            filtered_json.getvalue(), to="latex", format="json", verify_format=False
+        )
     except (RuntimeError, OSError) as exc:
         raise _corrupt_docx_error(docx_path, pandoc_format, exc) from exc
 

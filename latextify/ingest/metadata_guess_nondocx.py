@@ -32,7 +32,12 @@ def _first_heading_text(manuscript_path: Path) -> str:
     """
     try:
         fmt = pandoc_format_for(manuscript_path)
-        ast_json = pypandoc.convert_file(str(manuscript_path), to="json", format=fmt)
+        # verify_format=False: fmt is always one of our own hardcoded,
+        # always-valid pandoc format names -- see latextify.ingest.pandoc for
+        # the full reasoning. Any real failure is still caught below.
+        ast_json = pypandoc.convert_file(
+            str(manuscript_path), to="json", format=fmt, verify_format=False
+        )
         doc = pf.load(io.StringIO(ast_json))
     except Exception:
         return ""

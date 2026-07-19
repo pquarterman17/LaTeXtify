@@ -296,11 +296,17 @@ def _export(
                 to="html",
                 format="json",
                 extra_args=["--mathml", "--standalone", "--embed-resources"],
+                # "json"/"html" are always-valid pandoc format names here --
+                # see latextify.ingest.pandoc for the full reasoning behind
+                # skipping pypandoc's own (uncached, 2-subprocess) check.
+                verify_format=False,
             )
             for figure in figures:
                 figure_embeds[figure.number] = embed_data_uri(figure.resolved_path)
         else:
-            body_text = pypandoc.convert_text(json_str, to="markdown", format="json")
+            body_text = pypandoc.convert_text(
+                json_str, to="markdown", format="json", verify_format=False
+            )
             media_out_dir = output_path.parent / f"{output_path.stem}_files"
             for figure in figures:
                 src = figure.resolved_path
