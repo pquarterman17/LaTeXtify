@@ -148,11 +148,18 @@ def test_query_bibliographic_empty_text_makes_no_request():
     client.close()
 
 
+def _erroring_client(handler):
+    """Client for error-path tests: zero backoff so retries are instant."""
+    return CrossrefClient(
+        mailto="t@e.org", transport=httpx.MockTransport(handler), retry_backoff=0.0
+    )
+
+
 def test_query_bibliographic_degrades_on_non_200_response():
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(500, text="Internal Server Error")
 
-    with CrossrefClient(mailto="t@e.org", transport=httpx.MockTransport(handler)) as client:
+    with _erroring_client(handler) as client:
         # Must degrade to "no candidates", never raise HTTPStatusError -- the
         # plan's documented graceful-degradation contract for reconciliation.
         assert client.query_bibliographic("Some reference text") == []
@@ -162,7 +169,7 @@ def test_query_bibliographic_degrades_on_malformed_json():
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(200, content=b"not json{{{")
 
-    with CrossrefClient(mailto="t@e.org", transport=httpx.MockTransport(handler)) as client:
+    with _erroring_client(handler) as client:
         assert client.query_bibliographic("Some reference text") == []
 
 
@@ -170,7 +177,7 @@ def test_query_bibliographic_degrades_on_network_timeout():
     def handler(request: httpx.Request) -> httpx.Response:
         raise httpx.ConnectTimeout("timed out", request=request)
 
-    with CrossrefClient(mailto="t@e.org", transport=httpx.MockTransport(handler)) as client:
+    with _erroring_client(handler) as client:
         assert client.query_bibliographic("Some reference text") == []
 
 
@@ -181,7 +188,7 @@ def test_reconcile_survives_crossref_server_error(monkeypatch):
         return httpx.Response(503, text="Service Unavailable")
 
     references = [ReferenceItem(text=_REF_TEXT, number=1)]
-    with CrossrefClient(mailto="t@e.org", transport=httpx.MockTransport(handler)) as client:
+    with _erroring_client(handler) as client:
         outcome = reconcile_references(references, client)
 
     assert len(outcome.entries) == 1
@@ -201,7 +208,9 @@ def test_client_context_manager_closes():
 
 
 def _doi_client(handler):
-    return CrossrefClient(mailto="t@e.org", transport=httpx.MockTransport(handler))
+    return CrossrefClient(
+        mailto="t@e.org", transport=httpx.MockTransport(handler), retry_backoff=0.0
+    )
 
 
 def test_get_by_doi_returns_candidate_on_200():
@@ -266,6 +275,168 @@ def test_get_by_doi_raises_unavailable_on_timeout():
     with _doi_client(handler) as client:
         with pytest.raises(CrossrefUnavailable):
             client.get_by_doi("10.1000/widgets.1998")
+
+
+def test_get_by_doi_percent_encodes_reserved_characters():
+    # Real DOIs (the SICI-era Wiley style) carry <, >, ; and even #. A raw "#"
+    # would truncate the path into a URL fragment and 404 a perfectly good DOI.
+    sici = "10.1002/(SICI)1521-3951(199911)216:1<135::AID-PSSB135>3.0.CO;2-#"
+    captured: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured.append(request)
+        return httpx.Response(200, json={"message": _work(DOI=sici)})
+
+    with _doi_client(handler) as client:
+        cand = client.get_by_doi(sici)
+
+    assert cand is not None and cand.doi == sici
+    assert captured[0].url.fragment == ""  # the "#" stayed in the path
+    assert b"%23" in captured[0].url.raw_path
+
+
+# --------------------------------------------------------------------------- #
+# retries, backoff, and the circuit breaker
+# --------------------------------------------------------------------------- #
+
+
+def _flaky(responses):
+    """Handler that pops scripted responses; a callable raises, else returned."""
+    captured: list[httpx.Request] = []
+    script = list(responses)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured.append(request)
+        step = script.pop(0) if script else script_default
+        if callable(step):
+            return step(request)
+        return step
+
+    script_default = httpx.Response(200, json={"message": _work()})
+    return handler, captured
+
+
+def test_get_by_doi_retries_429_then_succeeds():
+    handler, captured = _flaky([httpx.Response(429, text="slow down")])
+    with _doi_client(handler) as client:
+        cand = client.get_by_doi("10.1000/widgets.1998")
+    assert cand is not None and cand.title == "A Fine Paper on Widgets"
+    assert len(captured) == 2  # one 429, one successful retry
+
+
+def test_get_by_doi_retries_5xx_then_succeeds():
+    handler, captured = _flaky([httpx.Response(502, text="bad gateway")])
+    with _doi_client(handler) as client:
+        assert client.get_by_doi("10.1000/widgets.1998") is not None
+    assert len(captured) == 2
+
+
+def test_read_timeout_retried_then_succeeds():
+    def boom(request: httpx.Request) -> httpx.Response:
+        raise httpx.ReadTimeout("read timed out", request=request)
+
+    handler, captured = _flaky([boom, boom])
+    with _doi_client(handler) as client:
+        assert client.get_by_doi("10.1000/widgets.1998") is not None
+    assert len(captured) == 3  # two timeouts, then success on the last retry
+
+
+def test_malformed_json_retried_then_succeeds():
+    handler, captured = _flaky([httpx.Response(200, content=b"{truncated")])
+    with _doi_client(handler) as client:
+        assert client.get_by_doi("10.1000/widgets.1998") is not None
+    assert len(captured) == 2
+
+
+def test_retries_exhausted_raises_unavailable():
+    captured: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured.append(request)
+        return httpx.Response(500, text="down")
+
+    with _doi_client(handler) as client:
+        with pytest.raises(CrossrefUnavailable):
+            client.get_by_doi("10.1000/widgets.1998")
+    assert len(captured) == crossref.DEFAULT_MAX_RETRIES + 1
+
+
+def test_404_is_not_retried():
+    captured: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured.append(request)
+        return httpx.Response(404, text="Not Found")
+
+    with _doi_client(handler) as client:
+        assert client.get_by_doi("10.9999/nope") is None
+    assert len(captured) == 1  # a clean "not found" is an answer, not an error
+
+
+def test_clean_no_match_query_is_not_retried():
+    captured: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured.append(request)
+        return httpx.Response(200, json={"message": {"items": []}})
+
+    with _erroring_client(handler) as client:
+        assert client.query_bibliographic_checked("unfindable reference") == []
+    assert len(captured) == 1
+
+
+def test_retry_delay_honors_numeric_retry_after():
+    assert crossref._retry_delay(1, "3", 1.0) == 3.0
+    # A huge server-sent delay is capped so a GUI request never hangs.
+    assert crossref._retry_delay(1, "9999", 1.0) == crossref._MAX_BACKOFF
+    # An HTTP-date (non-numeric) Retry-After falls back to computed backoff.
+    fallback = crossref._retry_delay(1, "Wed, 21 Oct 2026 07:28:00 GMT", 1.0)
+    assert 1.0 <= fallback <= 1.25
+
+
+def test_retry_delay_backoff_grows_and_is_capped():
+    d1 = crossref._retry_delay(1, None, 1.0)
+    d2 = crossref._retry_delay(2, None, 1.0)
+    assert 1.0 <= d1 <= 1.25 and 2.0 <= d2 <= 2.5
+    assert crossref._retry_delay(10, None, 1.0) == crossref._MAX_BACKOFF
+    assert crossref._retry_delay(3, None, 0.0) == 0.0  # test mode: instant
+
+
+def test_circuit_breaker_fails_fast_after_consecutive_failures():
+    captured: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured.append(request)
+        raise httpx.ConnectError("refused", request=request)
+
+    with _doi_client(handler) as client:
+        for _ in range(crossref._BREAKER_THRESHOLD):
+            with pytest.raises(CrossrefUnavailable):
+                client.get_by_doi("10.1000/widgets.1998")
+        requests_so_far = len(captured)
+        # Breaker open: the next call fails fast without touching the network.
+        with pytest.raises(CrossrefUnavailable):
+            client.get_by_doi("10.1000/widgets.1998")
+    assert len(captured) == requests_so_far
+
+
+def test_circuit_breaker_resets_on_success():
+    state = {"fail": True}
+    captured: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured.append(request)
+        if state["fail"]:
+            raise httpx.ConnectError("refused", request=request)
+        return httpx.Response(200, json={"message": _work()})
+
+    with _doi_client(handler) as client:
+        with pytest.raises(CrossrefUnavailable):
+            client.get_by_doi("10.1000/widgets.1998")
+        state["fail"] = False
+        assert client.get_by_doi("10.1000/widgets.1998") is not None
+        # The failure streak is cleared; a later blip starts counting from zero.
+        assert client._consecutive_failures == 0
 
 
 # --------------------------------------------------------------------------- #

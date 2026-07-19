@@ -217,24 +217,48 @@ def _query_text(entry: RefEntry) -> str:
     return " ".join(p for p in parts if p).strip()
 
 
+def _reason(exc: BaseException) -> str:
+    """One compact line describing a failure, safe for the report's note field."""
+    text = _WS_RE.sub(" ", str(exc)).strip() or type(exc).__name__
+    return text[:117] + "..." if len(text) > 120 else text
+
+
+def _unchecked(entry: RefEntry, note: str) -> ValidationRecord:
+    return ValidationRecord(key=entry.key, status="unchecked", doi=entry.doi, note=note)
+
+
 def validate_entry(
     entry: RefEntry, client: CrossrefClient, *, threshold: float = DEFAULT_THRESHOLD
 ) -> ValidationRecord:
-    """Validate one reference against Crossref.
+    """Validate one reference against Crossref. Never raises.
+
+    Any failure -- Crossref unreachable after the client's retries, or an
+    unexpected error while checking this one reference -- degrades to
+    ``unchecked`` with the reason in ``note``; it is never blamed on the
+    reference and never aborts the caller's batch.
+    """
+    try:
+        return _validate_entry_online(entry, client, threshold=threshold)
+    except CrossrefUnavailable as exc:
+        return _unchecked(entry, note=f"Crossref could not be reached ({_reason(exc)})")
+    except Exception as exc:  # one bad reference must degrade, not raise
+        return _unchecked(entry, note=f"check failed ({type(exc).__name__}: {_reason(exc)})")
+
+
+def _validate_entry_online(
+    entry: RefEntry, client: CrossrefClient, *, threshold: float = DEFAULT_THRESHOLD
+) -> ValidationRecord:
+    """Core validation; raises :class:`CrossrefUnavailable` on network trouble.
 
     DOI path: resolve the DOI. Missing DOI -> ``dead_doi``; resolved + all
     fields match -> ``verified``; resolved + a field differs -> ``mismatch``.
-    Crossref unreachable -> ``unchecked`` (never blamed on the reference).
 
     No-DOI path: bibliographic search; a candidate at/above ``threshold`` that
     itself carries a DOI -> ``doi_suggested`` (with the field comparison, so the
     author can sanity-check the suggestion); otherwise ``unverifiable``.
     """
     if entry.doi:
-        try:
-            canonical = client.get_by_doi(entry.doi)
-        except CrossrefUnavailable:
-            return ValidationRecord(key=entry.key, status="unchecked", doi=entry.doi)
+        canonical = client.get_by_doi(entry.doi)
         if canonical is None:
             return ValidationRecord(
                 key=entry.key,
@@ -252,14 +276,11 @@ def validate_entry(
             canonical_entry=canonical.to_refentry(),
         )
 
+    # The checked variant raises CrossrefUnavailable on an outage, so a no-DOI
+    # reference during an outage becomes "unchecked" upstream -- never
+    # mislabeled "unverifiable". A clean empty result set is a real no-match.
     query = _query_text(entry)
-    try:
-        candidates = client.query_bibliographic_checked(query)
-    except CrossrefUnavailable:
-        # An outage on the no-DOI path must trip the same offline short-circuit
-        # the DOI path does; otherwise validate_references keeps issuing doomed
-        # queries and mislabels every no-DOI reference "unverifiable".
-        return ValidationRecord(key=entry.key, status="unchecked", doi=entry.doi)
+    candidates = client.query_bibliographic_checked(query)
     candidate, score = best_candidate(query, candidates)
     if candidate is not None and score >= threshold and candidate.doi:
         checks = compare_entry_to_candidate(entry, candidate)
@@ -276,28 +297,52 @@ def validate_entry(
     )
 
 
+#: Consecutive network failures (each already retried inside the client) before
+#: the rest of the run is skipped as offline. Two, not one: a single flaky
+#: request that exhausts its retries must not silently disable checking for
+#: every remaining reference -- the original "errors a lot" failure mode.
+_OFFLINE_AFTER_CONSECUTIVE = 2
+
+
 def validate_references(
     entries: list[RefEntry], client: CrossrefClient, *, threshold: float = DEFAULT_THRESHOLD
 ) -> ValidationReport:
-    """Validate a whole bibliography, one serial Crossref pass.
+    """Validate a whole bibliography, one serial Crossref pass. Never raises.
 
     Requests are issued serially -- fine for a single manuscript's reference
-    list, and it keeps us in Crossref's polite pool. Once a request fails with
-    :class:`CrossrefUnavailable` we treat the network as down for the rest of
-    the run: every remaining reference is recorded ``unchecked`` without a
-    request, so a mid-run outage produces "couldn't check" rather than a wall of
-    spurious ``unverifiable`` flags (and dozens of doomed timeouts).
+    list, and it keeps us in Crossref's polite pool. Failure containment:
+
+    * an unexpected error while checking one reference marks *that* reference
+      ``unchecked`` (reason in ``note``) and the pass continues;
+    * a :class:`CrossrefUnavailable` (retries already exhausted in the client)
+      also degrades to ``unchecked``, and after
+      :data:`_OFFLINE_AFTER_CONSECUTIVE` such failures *in a row* the network
+      is treated as down: every remaining reference is recorded ``unchecked``
+      without a request. Any successful check resets the failure streak, so
+      one pathological reference cannot disable the rest of the run.
+
+    The report always comes back with one record per entry.
     """
     records: list[ValidationRecord] = []
     offline = False
+    network_failures_in_a_row = 0
     for entry in entries:
         if offline:
             records.append(
-                ValidationRecord(key=entry.key, status="unchecked", doi=entry.doi)
+                _unchecked(entry, note="Crossref unreachable earlier in the run; not checked")
             )
             continue
-        record = validate_entry(entry, client, threshold=threshold)
-        if record.status == "unchecked":
-            offline = True
+        try:
+            record = _validate_entry_online(entry, client, threshold=threshold)
+            network_failures_in_a_row = 0
+        except CrossrefUnavailable as exc:
+            network_failures_in_a_row += 1
+            record = _unchecked(entry, note=f"Crossref could not be reached ({_reason(exc)})")
+            if network_failures_in_a_row >= _OFFLINE_AFTER_CONSECUTIVE:
+                offline = True
+        except Exception as exc:  # isolate: one bad reference never sinks the batch
+            record = _unchecked(
+                entry, note=f"check failed ({type(exc).__name__}: {_reason(exc)})"
+            )
         records.append(record)
     return ValidationReport(records=tuple(records))

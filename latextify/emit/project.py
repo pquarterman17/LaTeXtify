@@ -729,6 +729,16 @@ def _run_reference_validation(
                 )
             )
         )
+    elif report.count("unchecked"):
+        warnings.append(
+            EmitWarning(
+                message=(
+                    f"{report.count('unchecked')} of {report.total} reference(s) could not "
+                    "be checked (Crossref errors mid-run); see the unchecked entries in "
+                    "report.md."
+                )
+            )
+        )
     return report, warnings
 
 
