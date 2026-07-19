@@ -8,17 +8,22 @@ established in tests/test_cli.py.
 
 from __future__ import annotations
 
+import asyncio
 import re
 import sys
+import time
 from pathlib import Path
+from unittest.mock import Mock
 
 import pytest
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from typer.testing import CliRunner
 
 from latextify.cli import app
 from latextify.compile.tectonic import find_tectonic
 from latextify.gui.guard import SECRET_HEADER
+from latextify.gui.lifecycle import _prune_stale_tabs, register_lifecycle, start_client_monitor
 from latextify.gui.server import create_app
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -130,6 +135,24 @@ def test_split_static_assets_are_served(tmp_path):
         "/static/app.js", "/static/results.js", "/static/export.js", "/static/review.js",
     ):
         assert script in html, script
+
+
+def test_index_cache_busts_static_css_and_js(tmp_path):
+    """A restarted server must never serve a browser's heuristically-cached
+    copy of a prior redesign's assets (Starlette's StaticFiles sets no
+    explicit Cache-Control) -- every /static/*.css|js reference in the served
+    page carries a per-process ?v= token, and the page itself asks for no
+    caching either."""
+    client = _client(tmp_path)
+    response = client.get("/")
+
+    assert response.headers.get("cache-control") == "no-cache"
+    html = response.text
+    assert re.search(r'/static/style\.css\?v=[0-9a-f]+"', html)
+    assert re.search(r'/static/app\.js\?v=[0-9a-f]+"', html)
+    # The token is stable within one process (repeat requests get the same
+    # cache-busted URL, not a fresh one per request).
+    assert client.get("/").text == html
 
 
 def test_options_are_grouped_and_every_toggle_explained(tmp_path):
@@ -904,6 +927,62 @@ def test_gui_command_help_documents_flags():
     assert "--port" in plain
     assert "--no-browser" in plain
     assert "--workdir" in plain
+    assert "--keep-alive" in plain
+
+
+def _patch_gui_launch(monkeypatch) -> dict[str, object]:
+    """Fake out uvicorn + create_app so `gui` can run to completion without a
+    real socket bind, and capture how it wired auto-shutdown."""
+    created: dict[str, object] = {}
+
+    def fake_create_app(*, workdir=None, auto_shutdown=False, **_kwargs):
+        created["auto_shutdown"] = auto_shutdown
+        fastapi_app = FastAPI()
+        created["app"] = fastapi_app
+        return fastapi_app
+
+    class FakeServer:
+        def __init__(self, config):
+            created["config"] = config
+            self.should_exit = False
+            created["server"] = self
+
+        def run(self):
+            created["ran"] = True
+
+    class FakeConfig:
+        def __init__(self, application, host, port):
+            self.app, self.host, self.port = application, host, port
+
+    monkeypatch.setattr("latextify.gui.server.create_app", fake_create_app)
+    monkeypatch.setattr("uvicorn.Config", FakeConfig)
+    monkeypatch.setattr("uvicorn.Server", FakeServer)
+    return created
+
+
+def test_gui_command_defaults_to_auto_shutdown_via_an_explicit_server(monkeypatch):
+    """Without --keep-alive, `gui` must ask create_app for auto_shutdown=True
+    and drive an explicit uvicorn.Server (not uvicorn.run) so app.state.shutdown
+    can request a clean stop from inside the app."""
+    created = _patch_gui_launch(monkeypatch)
+
+    result = runner.invoke(app, ["gui", "--no-browser"])
+
+    assert result.exit_code == 0, result.output
+    assert created["auto_shutdown"] is True
+    assert created["ran"] is True
+    # The app learns a real shutdown hook wired to the server it's running under.
+    created["app"].state.shutdown()  # type: ignore[union-attr]
+    assert created["server"].should_exit is True  # type: ignore[union-attr]
+
+
+def test_gui_command_keep_alive_disables_auto_shutdown(monkeypatch):
+    created = _patch_gui_launch(monkeypatch)
+
+    result = runner.invoke(app, ["gui", "--no-browser", "--keep-alive"])
+
+    assert result.exit_code == 0, result.output
+    assert created["auto_shutdown"] is False
 
 
 # --------------------------------------------------------------------------- #
@@ -1715,3 +1794,173 @@ def test_export_format_requires_secret(tmp_path):
 def test_alt_endpoint_unknown_token_is_404(tmp_path):
     client = _client(tmp_path)
     assert client.get("/api/alt/does-not-exist").status_code == 404
+
+
+# --------------------------------------------------------------------------- #
+# Tab-lifecycle heartbeat + local auto-shutdown (latextify.gui.lifecycle)
+# --------------------------------------------------------------------------- #
+
+
+def test_heartbeat_requires_the_gui_secret(tmp_path):
+    # Same guard as every other mutating /api/* route: loopback Host but no
+    # secret header is rejected, and the tab is never recorded.
+    client = _raw_client(tmp_path)
+    response = client.post("/api/heartbeat", content=b"tab-1")
+    assert response.status_code == 403
+    assert client.app.state.active_tabs == {}
+
+
+def test_heartbeat_registers_a_tab():
+    application = create_app(gui_secret=_TEST_SECRET)
+    client = _client_for(application)
+
+    response = client.post("/api/heartbeat", content=b"tab-1")
+
+    assert response.status_code == 204
+    assert "tab-1" in application.state.active_tabs
+    assert application.state.client_ever_seen is True
+
+
+def test_tab_closed_removes_a_tab_and_needs_no_secret():
+    # navigator.sendBeacon cannot set custom headers, so this route must
+    # accept the request even without the CSRF secret (see
+    # latextify/gui/lifecycle.py for why that's an acceptable trade-off).
+    application = create_app(gui_secret=_TEST_SECRET)
+    client = _client_for(application)
+    client.post("/api/heartbeat", content=b"tab-1")
+    assert "tab-1" in application.state.active_tabs
+
+    raw_client = TestClient(application, base_url="http://127.0.0.1")  # no secret header
+    response = raw_client.post("/api/tab-closed", content=b"tab-1")
+
+    assert response.status_code == 204
+    assert "tab-1" not in application.state.active_tabs
+
+
+def test_tab_closed_on_unknown_tab_is_a_no_op():
+    application = create_app(gui_secret=_TEST_SECRET)
+    client = TestClient(application, base_url="http://127.0.0.1")
+    response = client.post("/api/tab-closed", content=b"never-registered")
+    assert response.status_code == 204
+
+
+def test_prune_stale_tabs_drops_only_entries_past_the_threshold():
+    tabs = {"fresh": 100.0, "stale": 0.0}
+    _prune_stale_tabs(tabs, now=100.0, stale_after=50.0)
+    assert tabs == {"fresh": 100.0}
+
+
+def test_default_and_demo_apps_start_no_monitor(monkeypatch):
+    """A bare create_app() and the hosted demo (create_app(demo=True)) must
+    never start the auto-shutdown monitor -- only an explicit
+    auto_shutdown=True opts in."""
+    started = Mock(wraps=start_client_monitor)
+    monkeypatch.setattr("latextify.gui.server.start_client_monitor", started)
+
+    for kwargs in ({}, {"demo": True}):
+        started.reset_mock()
+        application = create_app(**kwargs)
+        with TestClient(application):  # runs the lifespan startup + shutdown
+            pass
+        started.assert_not_called()
+
+
+def test_auto_shutdown_app_starts_the_monitor(monkeypatch):
+    """The counterpart of the previous test: auto_shutdown=True must start
+    the monitor exactly once via the app lifespan."""
+    started = Mock(wraps=start_client_monitor)
+    monkeypatch.setattr("latextify.gui.server.start_client_monitor", started)
+
+    application = create_app(auto_shutdown=True)
+    with TestClient(application):
+        started.assert_called_once_with(application)
+
+
+async def _run_monitor(app: FastAPI, seconds: float) -> None:
+    """Advance a freshly started monitor task by ``seconds`` of real time,
+    then cancel it cleanly. Intervals below are tiny so this stays fast."""
+    task = start_client_monitor(
+        app, poll_interval=0.01, stale_after=1.0, reload_grace=0.03
+    )
+    try:
+        await asyncio.sleep(seconds)
+    finally:
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+
+
+def _monitor_app() -> FastAPI:
+    application = FastAPI()
+    register_lifecycle(application)
+    application.state.shutdown = Mock()
+    return application
+
+
+def test_monitor_never_shuts_down_before_any_client_connects():
+    application = _monitor_app()
+    # active_tabs stays empty and client_ever_seen stays False -- exactly the
+    # state of a server whose browser tab never opened (or is still loading).
+    asyncio.run(_run_monitor(application, 0.1))
+    application.state.shutdown.assert_not_called()
+
+
+def test_monitor_does_not_shut_down_while_a_tab_is_active():
+    application = _monitor_app()
+    application.state.active_tabs["tab-1"] = time.monotonic()
+    application.state.client_ever_seen = True
+    asyncio.run(_run_monitor(application, 0.1))
+    application.state.shutdown.assert_not_called()
+
+
+def test_monitor_shuts_down_after_the_last_tab_closes_and_grace_elapses():
+    application = _monitor_app()
+    application.state.active_tabs["tab-1"] = time.monotonic()
+    application.state.client_ever_seen = True
+
+    async def _drive():
+        task = start_client_monitor(
+            application, poll_interval=0.01, stale_after=1.0, reload_grace=0.03
+        )
+        await asyncio.sleep(0.03)  # the monitor sees the tab; must not fire yet
+        application.state.shutdown.assert_not_called()
+
+        del application.state.active_tabs["tab-1"]  # pagehide's beacon landed
+        await asyncio.sleep(0.15)  # one poll tick + the reload grace + margin
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+
+    asyncio.run(_drive())
+    application.state.shutdown.assert_called_once()
+
+
+def test_monitor_reload_within_grace_window_cancels_the_shutdown():
+    """A page reload fires pagehide (tab removed) and the reloaded page
+    re-registers a new tab id almost immediately. That must land inside the
+    reload grace window and cancel the pending shutdown."""
+    application = _monitor_app()
+    application.state.active_tabs["old-tab"] = time.monotonic()
+    application.state.client_ever_seen = True
+
+    async def _drive():
+        task = start_client_monitor(
+            application, poll_interval=0.01, stale_after=1.0, reload_grace=0.08
+        )
+        await asyncio.sleep(0.03)  # let the monitor see the tab as active first
+        del application.state.active_tabs["old-tab"]
+        await asyncio.sleep(0.03)  # monitor notices empty, enters its grace wait
+        application.state.active_tabs["new-tab"] = time.monotonic()  # reload
+        await asyncio.sleep(0.12)  # grace elapses; monitor rechecks and finds it
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+
+    asyncio.run(_drive())
+    application.state.shutdown.assert_not_called()

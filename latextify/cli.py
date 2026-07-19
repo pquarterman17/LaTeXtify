@@ -18,7 +18,8 @@ Current surface (plan items 3, 5, 16, 18, 19, 20, 21, 23):
     latextify clean paper.docx clean.docx  # strip metadata/tracked changes/comments (item 3)
     latextify export paper.docx --format html|markdown [--output FILE] \\
         [--crossref-mailto EMAIL] [--references FILE]  # HTML/Markdown export (items 4-5)
-    latextify gui [--port 8501] [--no-browser] [--workdir DIR]  # local web GUI (item 19)
+    latextify gui [--port 8501] [--no-browser] [--workdir DIR] \\
+        [--keep-alive]  # local web GUI (item 19)
 
 Planned (later items):
     latextify preflight paper.docx  # validation report only, no conversion
@@ -38,6 +39,7 @@ from latextify.cli_batch import batch
 from latextify.cli_clean import clean
 from latextify.cli_equations import equations
 from latextify.cli_export import export
+from latextify.cli_kit import make_kit_cmd
 from latextify.cli_review import review_corrections
 from latextify.compile.tectonic import compile_document, ensure_tectonic
 from latextify.emit.project import emit_project
@@ -388,66 +390,9 @@ def journals() -> None:
             typer.echo(f"{journal_name}: error loading manifest: {exc}", err=True)
 
 
-@app.command(name="make-kit")
-def make_kit_cmd(
-    target: str = typer.Option(
-        "current",
-        "--target",
-        help="Platform to build for: current, win-x64, linux-x64, or macos-arm64.",
-    ),
-    python_versions: list[str] = typer.Option(
-        None,
-        "--python-versions",
-        help="CPython versions to cover, e.g. --python-versions 3.11 --python-versions 3.13 "
-        "(default: 3.10 3.11 3.12 3.13 3.14).",
-    ),
-    output: Path = typer.Option(
-        Path("build"), "--output", "-o", help="Directory to write the kit folder into."
-    ),
-    warm_tex: bool = typer.Option(
-        True,
-        "--warm-tex/--no-warm-tex",
-        help="Pre-warm a TeX package cache so --pdf compiles offline (--no-warm-tex "
-        "makes a smaller emit-only kit).",
-    ),
-    journals: str = typer.Option(
-        None,
-        "--journals",
-        help="Comma-separated journals to warm (default: all registered). Ignored with "
-        "--no-warm-tex.",
-    ),
-    with_gui: bool = typer.Option(
-        False, "--with-gui", help="Also bundle the optional web-GUI dependency wheels."
-    ),
-    zip_kit: bool = typer.Option(
-        False, "--zip", help="Also produce a .zip of the kit folder for distribution."
-    ),
-) -> None:
-    """Build a self-contained offline install kit for an air-gapped machine.
-
-    Packs the LaTeXtify wheel, every dependency wheel (per covered Python
-    version), a Tectonic binary, and a pre-warmed TeX cache into
-    ``<output>/latextify-offline-<os>-<arch>/``. The target machine runs its
-    ``install.py`` with only a bare Python -- no internet, compiler, or admin
-    rights. See ``latextify/kit/README-OFFLINE.md``.
-    """
-    from latextify.kit.build import DEFAULT_PY_VERSIONS, KitBuildError, make_kit
-
-    py_versions = tuple(python_versions) if python_versions else DEFAULT_PY_VERSIONS
-    journal_list = [j.strip() for j in journals.split(",") if j.strip()] if journals else None
-    try:
-        make_kit(
-            target,
-            python_versions=py_versions,
-            output_dir=output,
-            warm_tex=warm_tex,
-            journals=journal_list,
-            with_gui=with_gui,
-            make_zip=zip_kit,
-        )
-    except KitBuildError as exc:
-        typer.echo(f"error: {exc}", err=True)
-        raise typer.Exit(code=1) from exc
+# Offline install kit (make-kit) lives in latextify.cli_kit to keep this
+# module focused; register its command on the shared app.
+app.command(name="make-kit")(make_kit_cmd)
 
 
 # Equation audit (item 23) lives in latextify.cli_equations to keep this
@@ -478,13 +423,20 @@ def gui(
         "--workdir",
         help="Directory for per-conversion working files (default: a fresh temp dir).",
     ),
+    keep_alive: bool = typer.Option(
+        False,
+        "--keep-alive",
+        help="Don't auto-exit when the last browser tab showing the GUI closes "
+        "(default: exits automatically, same as Ctrl+C).",
+    ),
 ) -> None:
     """Start a local web GUI (drag-and-drop, journal picker, PDF preview).
 
     Binds 127.0.0.1 only -- this is a local tool and uploaded manuscripts
     are private, never exposed on the network. Requires the optional 'gui'
     extra (fastapi, uvicorn, python-multipart); see the error message below
-    if it isn't installed.
+    if it isn't installed. Exits on its own once the browser tab is closed
+    (see latextify.gui.lifecycle); pass --keep-alive to require Ctrl+C instead.
     """
     try:
         import uvicorn
@@ -501,12 +453,19 @@ def gui(
         )
         raise typer.Exit(code=1) from exc
 
-    application = create_app(workdir=workdir)
+    application = create_app(workdir=workdir, auto_shutdown=not keep_alive)
     url = f"http://127.0.0.1:{port}"
     typer.echo(f"LaTeXtify GUI running at {url} (Ctrl+C to stop)")
     if not no_browser:
         webbrowser.open(url)
-    uvicorn.run(application, host="127.0.0.1", port=port)
+    # Built as an explicit Server (not uvicorn.run) so the app itself can
+    # request a clean stop once every browser tab closes -- see
+    # latextify.gui.lifecycle.start_client_monitor, wired up only when
+    # auto_shutdown=True.
+    config = uvicorn.Config(application, host="127.0.0.1", port=port)
+    server = uvicorn.Server(config)
+    application.state.shutdown = lambda: setattr(server, "should_exit", True)
+    server.run()
 
 
 def main() -> None:
