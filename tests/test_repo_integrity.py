@@ -35,7 +35,6 @@ PY_PINS = {
     "latextify/gui/server.py": 921,
     "latextify/ingest/filters.py": 1061,
     "latextify/ingest/metadata_guess.py": 919,
-    "latextify/cli.py": 517,
     "latextify/citations/plaintext.py": 637,
     "latextify/templates/loader.py": 539,
 }

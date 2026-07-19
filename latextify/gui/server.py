@@ -26,11 +26,16 @@ Endpoints
     GET  /api/alt/{token}     stream the exported HTML/Markdown (server-issued token only)
     POST /api/pick-folder     open a native folder dialog on the server host
     POST /api/export          copy a previewed conversion's artifacts to a folder
+    POST /api/heartbeat       tab-alive ping used by the local auto-shutdown launcher
+    POST /api/tab-closed      tab-closed beacon used by the local auto-shutdown launcher
 
 The two single-upload processing routes (``/api/clean-docx``,
 ``/api/export-format``) are registered by :mod:`latextify.gui.uploads_routes`
-rather than defined here -- moved out, with the token-gated GET downloads in
-:mod:`latextify.gui.downloads`, to keep this module under its size-ratchet pin.
+rather than defined here; the token-gated GET downloads live in
+:mod:`latextify.gui.downloads`; the heartbeat/tab-closed routes above live in
+:mod:`latextify.gui.lifecycle`; and the reference-review JSON shaping lives in
+:mod:`latextify.gui.validation_view` -- all moved out to keep this module
+under its size-ratchet pin.
 
 Security
 --------
@@ -53,6 +58,7 @@ and every upload is written under a fresh per-session subdirectory of
 
 from __future__ import annotations
 
+import re
 import shutil
 import tempfile
 import time
@@ -66,7 +72,7 @@ from fastapi.staticfiles import StaticFiles
 
 from latextify.audit.equations import write_equation_audit
 from latextify.citations.bib import entries_to_bib
-from latextify.citations.corrections import apply_corrections, entry_from_dict, entry_to_dict
+from latextify.citations.corrections import apply_corrections, entry_from_dict
 from latextify.compile.pdf import staple_pdfs
 from latextify.compile.tectonic import compile_document, ensure_tectonic
 from latextify.emit.project import emit_project
@@ -90,6 +96,7 @@ from latextify.gui.downloads import (
 from latextify.gui.exporting import _EXPORTABLE, _export_artifacts  # noqa: F401 - re-exported
 from latextify.gui.folder_picker import pick_folder_native
 from latextify.gui.guard import inject_gui_secret, new_gui_secret, require_gui_auth
+from latextify.gui.lifecycle import register_lifecycle, start_client_monitor
 from latextify.gui.schemas import (
     ApplyCorrectionsRequest,
     ApplyCorrectionsResponse,
@@ -97,11 +104,8 @@ from latextify.gui.schemas import (
     ConvertResponse,
     ExportRequest,
     ExportResponse,
-    FieldProblemOut,
     JournalInfo,
     PickFolderResponse,
-    ValidationOut,
-    ValidationRecordOut,
 )
 from latextify.gui.upload_utils import (
     _ALLOWED_FIGURE_EXTS,
@@ -113,6 +117,7 @@ from latextify.gui.upload_utils import (
     _stream_upload,
 )
 from latextify.gui.uploads_routes import register_upload_routes
+from latextify.gui.validation_view import build_validation_out
 from latextify.model.refs import RefEntry
 from latextify.model.validate import CorrectionDecision, ValidationReport
 from latextify.report.render import write_report
@@ -128,49 +133,18 @@ _DEMO_FS_DISABLED = (
     "project .zip instead"
 )
 
-
-_VALIDATION_STATUS_ORDER = (
-    "verified", "mismatch", "dead_doi", "doi_suggested", "unverifiable", "unchecked",
-)
-
-
-def _build_validation_out(
-    report: ValidationReport, entries: tuple[RefEntry, ...]
-) -> ValidationOut:
-    """Shape a ValidationReport + entries into the review panel's JSON.
-
-    Only flagged references become records (the panel reviews those); each
-    carries the current entry and Crossref's version as flat editable fields so
-    the UI can render approve/deny and prefill the whole-entry editor.
-    """
-    entries_by_key = {e.key: e for e in entries}
-    counts = {s: report.count(s) for s in _VALIDATION_STATUS_ORDER if report.count(s)}
-    records: list[ValidationRecordOut] = []
-    for rec in report.records:
-        entry = entries_by_key.get(rec.key)
-        if not rec.flagged or entry is None:
-            continue
-        records.append(
-            ValidationRecordOut(
-                key=rec.key,
-                status=rec.status,
-                doi=rec.doi,
-                suggested_doi=rec.suggested_doi,
-                problems=[
-                    FieldProblemOut(field=c.field, ours=c.ours, canonical=c.canonical)
-                    for c in rec.problems
-                ],
-                entry=entry_to_dict(entry),
-                canonical=entry_to_dict(rec.canonical_entry) if rec.canonical_entry else None,
-            )
-        )
-    return ValidationOut(
-        total=report.total, flagged=report.flagged_count, counts=counts, records=records
-    )
+#: Matches a served /static/*.css or /static/*.js reference in index.html so
+#: index() can append a per-process cache-busting query token to it (see
+#: create_app's cache_bust state and its docstring).
+_STATIC_ASSET_RE = re.compile(r'(/static/[\w.-]+\.(?:css|js))"')
 
 
 def create_app(
-    *, workdir: Path | None = None, gui_secret: str | None = None, demo: bool = False
+    *,
+    workdir: Path | None = None,
+    gui_secret: str | None = None,
+    demo: bool = False,
+    auto_shutdown: bool = False,
 ) -> FastAPI:
     """Build the GUI FastAPI app.
 
@@ -188,6 +162,11 @@ def create_app(
             the server-filesystem export endpoints, lowers the upload cap,
             rate-limits conversions per client, and injects a privacy banner.
             The default (off) is the unchanged local tool.
+        auto_shutdown: start the background monitor (see
+            :mod:`latextify.gui.lifecycle`) that stops the server once every
+            browser tab showing this page has closed. Off by default; the
+            local ``gui`` CLI command turns it on unless ``--keep-alive`` is
+            given, and the hosted demo never turns it on.
     """
     root = (
         Path(workdir) if workdir is not None else Path(tempfile.mkdtemp(prefix="latextify-gui-"))
@@ -199,7 +178,12 @@ def create_app(
 
     @asynccontextmanager
     async def _lifespan(app: FastAPI):
+        # The auto-shutdown monitor is an asyncio task, not a thread, so it
+        # starts/stops on this same app lifecycle rather than atexit.
+        monitor_task = start_client_monitor(app) if auto_shutdown else None
         yield
+        if monitor_task is not None:
+            monitor_task.cancel()
         # Shutdown: drop the temp tree holding uploaded manuscripts + artifacts.
         # Wired to the app lifecycle (not atexit) so it runs on a clean stop.
         if owns_root:
@@ -239,6 +223,11 @@ def create_app(
     app.state.demo_mode = demo
     app.state.rate_limiter = RateLimiter() if demo else None
     max_upload_bytes = DEMO_MAX_UPLOAD_BYTES if demo else _MAX_UPLOAD_BYTES
+    # A fresh token per process start: appended to every served /static/*.css
+    # or /static/*.js reference (see index() below) so a browser that cached
+    # a prior run's assets always fetches this run's files instead of a
+    # stale, heuristically-cached copy of an earlier redesign.
+    app.state.cache_bust = uuid.uuid4().hex[:8]
 
     @app.get("/", include_in_schema=False)
     def index() -> HTMLResponse:
@@ -247,7 +236,10 @@ def create_app(
         html = _INDEX_HTML.read_text(encoding="utf-8")
         if demo:
             html = inject_demo_banner(html)
-        return HTMLResponse(inject_gui_secret(html, app.state.gui_secret))
+        html = _STATIC_ASSET_RE.sub(rf'\1?v={app.state.cache_bust}"', html)
+        response = HTMLResponse(inject_gui_secret(html, app.state.gui_secret))
+        response.headers["Cache-Control"] = "no-cache"
+        return response
 
     # The page's stylesheet + scripts (no secret material lives in them; the
     # secret wrapper is injected only into the served index above).
@@ -713,7 +705,7 @@ def create_app(
             report_md = result.report_path.read_text(encoding="utf-8")
 
         validation_out = (
-            _build_validation_out(result.validation, result.entries)
+            build_validation_out(result.validation, result.entries)
             if result.validation is not None
             else None
         )
@@ -743,6 +735,9 @@ def create_app(
     # size-ratchet pin.
     register_upload_routes(app, root=root, max_upload_bytes=max_upload_bytes)
     register_download_routes(app)
+    # Tab-heartbeat routes (always registered; only start_client_monitor
+    # above, gated on auto_shutdown, ever acts on them).
+    register_lifecycle(app)
 
     @app.post(
         "/api/pick-folder",
