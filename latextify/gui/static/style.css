@@ -25,17 +25,45 @@ body {
 }
 header {
   padding: 1.5rem 2rem 0.5rem;
-  max-width: 960px;
+  max-width: 1400px;
   margin: 0 auto;
 }
 header h1 { font-size: 1.4rem; margin: 0 0 0.15rem; }
 header p { margin: 0; color: var(--muted); font-size: 0.92rem; }
 main {
-  max-width: 960px;
+  max-width: 1400px;
   margin: 0 auto;
   padding: 1rem 2rem 3rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+/* Two-pane layout (plan: inputs left, outputs right): the left column holds
+   everything visible at startup (dropzone, file roles, options, Preview);
+   the right column fills with results the instant Preview finishes, in view
+   beside the controls instead of far below them. Falls back to a single
+   stacked column -- inputs above outputs -- on narrow screens below. */
+.layout-grid {
+  display: grid;
+  grid-template-columns: minmax(320px, 400px) 1fr;
+  gap: 1.25rem;
+  align-items: start;
+}
+.col-inputs, .col-outputs {
   display: grid;
   gap: 1.25rem;
+  min-width: 0;
+}
+/* The two standalone tools (Clean .docx / Export HTML-MD) are independent of
+   the preview flow and each self-contained (upload + action + result), so
+   they sit side by side below the main grid rather than in either column. */
+.tools-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1.25rem;
+}
+@media (max-width: 900px) {
+  .layout-grid, .tools-row { grid-template-columns: 1fr; }
 }
 .panel {
   background: var(--panel);
@@ -43,6 +71,15 @@ main {
   border-radius: 10px;
   padding: 1.25rem;
 }
+/* Narrower left column: two-up control/option grids get cramped there, so
+   collapse them to one column. The wider right column and tools row keep
+   the normal two-up grids below. */
+.col-inputs .controls, .col-inputs .options-grid { grid-template-columns: 1fr; }
+.placeholder-panel {
+  display: flex; align-items: center; justify-content: center;
+  min-height: 140px; text-align: center; border-style: dashed;
+}
+.placeholder-panel .hint { font-size: 0.88rem; max-width: 32rem; }
 .dropzone {
   border: 2px dashed var(--border);
   border-radius: 10px;

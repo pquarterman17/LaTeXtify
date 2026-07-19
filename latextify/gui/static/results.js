@@ -7,6 +7,7 @@
   "use strict";
 
   const el = (id) => document.getElementById(id);
+  const resultsPlaceholder = el("results-placeholder");
   const warningsPanel = el("warnings-panel");
   const warningsList = el("warnings-list");
   const downloadsPanel = el("downloads-panel");
@@ -17,6 +18,11 @@
   const reportPanel = el("report-panel");
   const reportText = el("report-text");
 
+  // The right (outputs) column shows this empty-state prompt until the first
+  // conversion produces something to look at; app.js hides it right after a
+  // successful convert/apply-corrections response, before rendering results.
+  function hidePlaceholder() { resultsPlaceholder.classList.add("hidden"); }
+
   // Warnings accumulate across convert + export flows in one shared panel.
   function appendWarning(message) {
     const li = document.createElement("li");
@@ -26,6 +32,7 @@
   }
 
   function reset() {
+    resultsPlaceholder.classList.remove("hidden");
     warningsPanel.classList.add("hidden"); warningsList.innerHTML = "";
     downloadsPanel.classList.add("hidden"); downloads.innerHTML = "";
     reportPanel.classList.add("hidden"); reportText.textContent = "";
@@ -84,5 +91,6 @@
     renderDownloads: renderDownloads,
     appendWarning: appendWarning,
     showReport: showReport,
+    hidePlaceholder: hidePlaceholder,
   };
 })();
