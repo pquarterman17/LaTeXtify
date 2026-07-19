@@ -9,6 +9,15 @@ name: Release kits
 on:
   push:
     tags: ["v*"]
+  # Manual re-run for an EXISTING tag whose release already exists (e.g. one
+  # created directly via `gh release create`, which also fires publish.yml).
+  # This path uploads the kits to that release instead of trying to create it.
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing tag to build offline kits for and attach (e.g. v0.1.0)"
+        required: true
+        type: string
 
 permissions:
   contents: write # create the release and upload assets
@@ -23,6 +32,8 @@ jobs:
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref_name }}
       - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7
         with:
           python-version: "3.13"
@@ -105,16 +116,26 @@ jobs:
           ls -lh *.zip SHA256SUMS.txt
           cat SHA256SUMS.txt
 
-      - name: Create release and upload assets
+      - name: Create release (if missing) and upload assets
         env:
           GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.inputs.tag || github.ref_name }}
         run: |
           cd build
-          gh release create "${GITHUB_REF_NAME}" \
-            --title "LaTeXtify ${GITHUB_REF_NAME}" \
-            --generate-notes \
-            latextify-offline-windows-x64.zip \
-            latextify-offline-linux-x64.zip \
-            latextify-offline-macos-arm64.zip \
-            latextify-source.zip \
+          assets=(
+            latextify-offline-windows-x64.zip
+            latextify-offline-linux-x64.zip
+            latextify-offline-macos-arm64.zip
+            latextify-source.zip
             SHA256SUMS.txt
+          )
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            # Release already exists (created directly, or by a prior run) --
+            # attach/replace the kit assets without touching the release itself.
+            gh release upload "$TAG" "${assets[@]}" --clobber
+          else
+            gh release create "$TAG" \
+              --title "LaTeXtify $TAG" \
+              --generate-notes \
+              "${assets[@]}"
+          fi
