@@ -9,7 +9,7 @@ reverse-to-Word note.
 
 **Status:** Active
 **Created:** 2026-08-10
-**Updated:** 2026-08-10 — items 1-10 shipped; only Tier 3 (11-12) remains
+**Updated:** 2026-08-10 (second round: items 13-16 booked)
 
 ---
 
@@ -86,7 +86,38 @@ registered; CLI and GUI accept-lists derive from it rather than restating it.
 
 ---
 
-_Tiers 1 and 2 are complete — see `## Completed`._
+_Original Tiers 1 and 2 are complete — see `## Completed`. Second round (13-16) in progress._
+
+## Tier 1 — High Impact
+
+13. **Strip figure metadata on the conversion path** — the highest-value gap.
+    - [ ] Integrate stripping at `latextify/figures/convert.py::convert_for_latex` (~line 121), the single funnel every figure passes through
+    - [ ] Add `--keep-figure-metadata` escape hatch to `latextify convert` command (privacy-safe default)
+    - [ ] Reuse `privacy/images.py::sanitize` for stripping; preserve ICC colour profile, dimensions, format
+    - [ ] Compose with existing alpha-flattening and TIFF→PNG steps
+    - [ ] Stripping failure must degrade to warning, never break conversion
+
+14. **`inspect --fail-on` severity gate** — command currently unusable as CI gate.
+    - [ ] Add `--fail-on high|medium|low|never` flag, defaulting to `high`
+    - [ ] Exit code 2 for file-read errors (distinct from findings)
+    - [ ] Invalid value produces clean error naming valid choices
+    - [ ] Update command docstring (currently claims exit 1 always)
+
+## Tier 2 — Medium Impact
+
+15. **Surface privacy findings during conversion (preflight)** — put "this has tracked changes" in front of user at submission time.
+    - [ ] Reuse `privacy/docx_adapter.py::inspect` rather than writing new detection
+    - [ ] Convert Finding objects into preflight's existing warning type
+    - [ ] Keep informational, not a hard error — author names are normal
+    - [ ] Update preflight module conventions
+
+16. **Make PDF redaction detection precise** — current detector false-positives on black figures/table rules.
+    - [ ] Only flag when text actually falls INSIDE dark-filled rectangle bounding box
+    - [ ] Reuse pypdf visitor callbacks for text coordinates + parsing `re` operators
+    - [ ] Keep "possible" wording and `removable=False`
+    - [ ] Fallback to coarser heuristic or warn if content stream cannot be parsed (false "clean" is worst outcome)
+    - [ ] Add NEGATIVE fixture (black box, no covered text) to `tests/fixtures/make_leaky_files.py` + `.truth.json`
+    - [ ] Extract content-stream parsing to new `latextify/privacy/pdf_content.py` (pdf.py at ~365 lines, hard 500 ceiling)
 
 ## Tier 3 — Nice-to-Have
 
