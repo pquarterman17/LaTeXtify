@@ -11,7 +11,7 @@ from __future__ import annotations
 import zipfile
 from pathlib import Path
 
-from latextify.citations.plaintext import strip_reference_section_to_eof
+from latextify.citations.body_markers import strip_reference_section_to_eof
 from latextify.emit.project import emit_project
 from latextify.figures.extract import _textbox_captions
 

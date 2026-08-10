@@ -3,7 +3,7 @@
 Split out of :mod:`latextify.citations.plaintext` (which sits at its own
 line-count ratchet pin, ``tests/test_repo_integrity.py``) since this is a
 self-contained unit: build a ``(surname, year) -> [key, ...]`` index over a
-reconstructed reference list, for :func:`~latextify.citations.plaintext.link_body_markers`
+reconstructed reference list, for :func:`~latextify.citations.body_markers.link_body_markers`
 to resolve ``(Smith et al., 2020)``-style in-text markers against.
 """
 
