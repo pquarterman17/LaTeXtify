@@ -42,8 +42,7 @@ _NOTABLE_TAGS = {
     "BodySerialNumber": (
         "serial-number",
         "high",
-        "the camera body's serial number, which links every photo from this "
-        "body to the same owner",
+        "the camera body's serial number, which links every photo from this body to the same owner",
     ),
     "LensSerialNumber": ("serial-number", "high", "the lens serial number"),
     "Software": ("software", "low", "the editing software and version"),
@@ -199,8 +198,7 @@ def sanitize(
 
     if frames > 1:
         warnings.append(
-            f"Only the first of {frames} frames was written; the cleaned file is a "
-            "still image."
+            f"Only the first of {frames} frames was written; the cleaned file is a still image."
         )
     if not removed:
         warnings.append("No embedded metadata was found; the copy is a re-encode.")

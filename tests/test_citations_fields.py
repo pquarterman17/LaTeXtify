@@ -12,9 +12,7 @@ W = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
 
 
 def _doc(body: str) -> bytes:
-    return (
-        f'<w:document xmlns:w="{W}"><w:body>{body}</w:body></w:document>'
-    ).encode()
+    return (f'<w:document xmlns:w="{W}"><w:body>{body}</w:body></w:document>').encode()
 
 
 def _begin() -> str:
@@ -34,9 +32,17 @@ def _instr(text: str) -> str:
 
 
 def test_instr_text_concatenated_across_runs():
-    body = "<w:p>" + _begin() + _instr("ADDIN ZOTE") + _instr("RO_ITEM ") + _instr(
-        "CSL_CITATION {}"
-    ) + _sep() + "<w:r><w:t>[1]</w:t></w:r>" + _end() + "</w:p>"
+    body = (
+        "<w:p>"
+        + _begin()
+        + _instr("ADDIN ZOTE")
+        + _instr("RO_ITEM ")
+        + _instr("CSL_CITATION {}")
+        + _sep()
+        + "<w:r><w:t>[1]</w:t></w:r>"
+        + _end()
+        + "</w:p>"
+    )
     fields = flatten_fields(assemble_fields(_doc(body)))
     assert len(fields) == 1
     assert fields[0].instruction == "ADDIN ZOTERO_ITEM CSL_CITATION {}"

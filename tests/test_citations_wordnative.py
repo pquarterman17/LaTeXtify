@@ -47,15 +47,18 @@ def test_single_tag_with_locale_switch():
 
 
 def test_multi_tag_with_m_switch():
-    assert wordnative.parse_tag_list(
-        "CITATION Kit05 \\l 1033 \\m Tur50 \\l 1033"
-    ) == ["Kit05", "Tur50"]
+    assert wordnative.parse_tag_list("CITATION Kit05 \\l 1033 \\m Tur50 \\l 1033") == [
+        "Kit05",
+        "Tur50",
+    ]
 
 
 def test_three_tags():
-    assert wordnative.parse_tag_list(
-        "CITATION A1 \\l 1033 \\m A2 \\l 1033 \\m A3 \\l 1033"
-    ) == ["A1", "A2", "A3"]
+    assert wordnative.parse_tag_list("CITATION A1 \\l 1033 \\m A2 \\l 1033 \\m A3 \\l 1033") == [
+        "A1",
+        "A2",
+        "A3",
+    ]
 
 
 def test_non_citation_instruction_yields_no_tags():
@@ -125,9 +128,7 @@ def test_load_sources_ignores_unrelated_customxml_part(tmp_path: Path):
 
 def test_load_sources_skips_source_missing_tag(tmp_path: Path):
     docx = tmp_path / "test.docx"
-    bad_source = (
-        "<b:Source><b:SourceType>Book</b:SourceType><b:Title>No Tag</b:Title></b:Source>"
-    )
+    bad_source = "<b:Source><b:SourceType>Book</b:SourceType><b:Title>No Tag</b:Title></b:Source>"
     good_source = _journal_source("Ok1", "Fine Title", "Ok", "P", "2021")
     with zipfile.ZipFile(docx, "w") as zf:
         zf.writestr("customXml/item1.xml", _source_xml(bad_source, good_source))

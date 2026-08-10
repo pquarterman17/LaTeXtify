@@ -320,9 +320,7 @@ runner = CliRunner()
 
 def test_cli_equations_writes_audit_md(tmp_path):
     output = tmp_path / "audit"
-    cli_result = runner.invoke(
-        app, ["equations", str(EQUATIONS_DOCX), "--output", str(output)]
-    )
+    cli_result = runner.invoke(app, ["equations", str(EQUATIONS_DOCX), "--output", str(output)])
 
     assert cli_result.exit_code == 0, cli_result.output
     assert (output / "equations_audit.md").is_file()

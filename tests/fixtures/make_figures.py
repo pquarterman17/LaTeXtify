@@ -67,9 +67,7 @@ def build() -> None:
 
     document.add_paragraph("The second result follows.")
     document.add_picture(_solid_png((40, 160, 40)), width=Inches(1))
-    document.add_paragraph(
-        "Figure 2: A green placeholder figure, captioned via a plain paragraph."
-    )
+    document.add_paragraph("Figure 2: A green placeholder figure, captioned via a plain paragraph.")
 
     document.add_paragraph("The third and final result is shown last.")
     document.add_picture(_solid_png((40, 40, 220)), width=Inches(1))

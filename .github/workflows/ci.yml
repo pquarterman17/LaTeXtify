@@ -22,8 +22,12 @@ jobs:
           python-version: "3.12"
       - name: Install
         run: uv sync --locked
-      - name: Ruff
+      - name: Ruff lint
         run: uv run ruff check .
+      # The formatter is enforced, not merely available: before this check
+      # existed, 82 of 189 files had drifted from what `ruff format` produces.
+      - name: Ruff format
+        run: uv run ruff format --check .
 
   test:
     name: test (${{ matrix.os }}, py${{ matrix.python }})

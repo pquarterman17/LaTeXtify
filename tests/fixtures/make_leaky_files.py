@@ -83,9 +83,7 @@ def build_deck() -> dict[str, object]:
 
     visible = prs.slides.add_slide(title_layout)
     visible.shapes.title.text = "Perfectly Ordinary Results"
-    visible.notes_slide.notes_text_frame.text = (
-        "Do NOT mention that the third replicate failed."
-    )
+    visible.notes_slide.notes_text_frame.text = "Do NOT mention that the third replicate failed."
 
     second = prs.slides.add_slide(blank)
     box = second.shapes.add_textbox(Inches(1), Inches(1), Inches(4), Inches(1))
@@ -118,7 +116,7 @@ def build_deck() -> dict[str, object]:
     app_xml = set_app_property(app_xml, "TotalTime", "4242")
     ct_xml = ct_xml.replace(
         b"<Types ",
-        b'<Types ',
+        b"<Types ",
     ).replace(
         b"</Types>",
         b'<Default Extension="xlsx" ContentType="application/vnd.openxmlformats-'
@@ -128,8 +126,11 @@ def build_deck() -> dict[str, object]:
     workbook_bytes = _tiny_xlsx_bytes()
     rewrite_zip(
         dest,
-        replacements={slide3: hidden_xml, "docProps/app.xml": app_xml,
-                      "[Content_Types].xml": ct_xml},
+        replacements={
+            slide3: hidden_xml,
+            "docProps/app.xml": app_xml,
+            "[Content_Types].xml": ct_xml,
+        },
         additions={"ppt/embeddings/Microsoft_Excel_Worksheet1.xlsx": workbook_bytes},
     )
 

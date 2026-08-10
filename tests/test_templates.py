@@ -345,9 +345,7 @@ def three_author_two_affiliation_meta() -> Meta:
             Author(name="Carol Chen", affiliations=(0,)),
         ),
         affiliations=(
-            Affiliation(
-                "Department of Electrical Engineering, University A, City A, Country A"
-            ),
+            Affiliation("Department of Electrical Engineering, University A, City A, Country A"),
             Affiliation("Signal Processing Laboratory, Institute B, City B, Country B"),
         ),
         abstract=(
@@ -495,19 +493,17 @@ def test_ieeetran_rendered_project_compiles_via_tectonic(tmp_path):
     preamble = j.render_preamble()
     metadata = j.render_metadata(three_author_two_affiliation_meta())
 
-    tex = (
-        preamble
-        + "\\begin{document}\n"
-        + metadata
-        + "Hello, IEEE world!\n"
-        + "\\end{document}\n"
-    )
+    tex = preamble + "\\begin{document}\n" + metadata + "Hello, IEEE world!\n" + "\\end{document}\n"
     tex_path = tmp_path / "main.tex"
     tex_path.write_text(tex, encoding="utf-8")
 
     vendor_dir = (
         Path(__file__).parent.parent
-        / "latextify" / "templates" / "journals" / "ieeetran" / "vendor"
+        / "latextify"
+        / "templates"
+        / "journals"
+        / "ieeetran"
+        / "vendor"
     )
     result = compile_document(tex_path, vendor_dir=vendor_dir if vendor_dir.is_dir() else None)
 

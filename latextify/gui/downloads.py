@@ -125,9 +125,7 @@ def register_download_routes(app: FastAPI) -> None:
             raise HTTPException(status_code=404, detail="unknown or expired clean-docx token")
         return FileResponse(
             clean_path,
-            media_type=(
-                "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-            ),
+            media_type=("application/vnd.openxmlformats-officedocument.wordprocessingml.document"),
             filename="cleaned.docx",
         )
 

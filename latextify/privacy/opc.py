@@ -228,8 +228,7 @@ _APP_FIELDS = (
         "Template",
         "template",
         "medium",
-        "the template the file was built from -- can name an internal or a "
-        "journal-specific path",
+        "the template the file was built from -- can name an internal or a journal-specific path",
     ),
     (
         "TotalTime",

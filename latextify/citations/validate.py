@@ -341,8 +341,6 @@ def validate_references(
             if network_failures_in_a_row >= _OFFLINE_AFTER_CONSECUTIVE:
                 offline = True
         except Exception as exc:  # isolate: one bad reference never sinks the batch
-            record = _unchecked(
-                entry, note=f"check failed ({type(exc).__name__}: {_reason(exc)})"
-            )
+            record = _unchecked(entry, note=f"check failed ({type(exc).__name__}: {_reason(exc)})")
         records.append(record)
     return ValidationReport(records=tuple(records))

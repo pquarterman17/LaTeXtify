@@ -67,9 +67,7 @@ def convert(
     journal: str = typer.Option(
         ..., "--journal", "-j", help="Target journal template (e.g. 'revtex4-2')."
     ),
-    output: Path = typer.Option(
-        Path("output"), "--output", "-o", help="Output root directory."
-    ),
+    output: Path = typer.Option(Path("output"), "--output", "-o", help="Output root directory."),
     citation_style: str = typer.Option(
         None,
         "--citation-style",
@@ -310,9 +308,7 @@ def convert(
                 from latextify.compile.pdf import staple_pdfs
 
                 combined = result.output_dir / "combined.pdf"
-                staple_pdfs(
-                    [compile_result.pdf_path, supplement_compile_result.pdf_path], combined
-                )
+                staple_pdfs([compile_result.pdf_path, supplement_compile_result.pdf_path], combined)
                 typer.echo(f"combined {combined}")
         except Exception as exc:
             typer.echo(f"error: compilation failed: {exc}", err=True)
@@ -363,9 +359,7 @@ def _run_interactive_review(result: EmitResult) -> None:
         )
         return
 
-    decisions = review_corrections(
-        list(result.entries), validation, prompt=input, echo=typer.echo
-    )
+    decisions = review_corrections(list(result.entries), validation, prompt=input, echo=typer.echo)
     applied = [d for d in decisions if d.action in ("approve", "edit")]
     if not applied:
         typer.echo("no corrections applied.")
@@ -382,6 +376,8 @@ def _run_interactive_review(result: EmitResult) -> None:
 # Batch conversion (item 20) lives in latextify.cli_batch to keep this
 # module focused; register its command on the shared app.
 app.command()(batch)
+
+
 @app.command()
 def journals() -> None:
     """List registered journal templates with their available citation modes."""
@@ -424,9 +420,7 @@ app.command(name="export")(export)
 
 @app.command()
 def gui(
-    port: int = typer.Option(
-        8501, "--port", help="Port to bind the local GUI server to."
-    ),
+    port: int = typer.Option(8501, "--port", help="Port to bind the local GUI server to."),
     no_browser: bool = typer.Option(
         False,
         "--no-browser",

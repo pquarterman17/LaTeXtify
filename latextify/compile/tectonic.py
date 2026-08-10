@@ -158,9 +158,7 @@ def _download_verified_archive(
                     digest.update(chunk)
                     out.write(chunk)
     except httpx.HTTPError as exc:
-        raise TectonicNotAvailableError(
-            f"Could not download Tectonic from {url}: {exc}"
-        ) from exc
+        raise TectonicNotAvailableError(f"Could not download Tectonic from {url}: {exc}") from exc
     actual = digest.hexdigest()
     if actual != expected_sha256:
         raise TectonicNotAvailableError(
@@ -301,9 +299,7 @@ def download_tectonic(*, client: httpx.Client | None = None, force: bool = False
     dest = cache_dir() / _binary_name()
     if dest.is_file() and not force:
         return dest
-    return download_tectonic_release(
-        _target_triple(), _binary_name(), cache_dir(), client=client
-    )
+    return download_tectonic_release(_target_triple(), _binary_name(), cache_dir(), client=client)
 
 
 def ensure_tectonic() -> Path:

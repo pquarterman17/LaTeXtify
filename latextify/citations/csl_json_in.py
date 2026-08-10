@@ -25,8 +25,7 @@ from ..model.refs import RefEntry
 from .zotero import csl_item_to_refentry
 
 _NOT_CSL_JSON = (
-    "not valid CSL-JSON (expected a JSON array of items, or an object with "
-    'an "items" array)'
+    'not valid CSL-JSON (expected a JSON array of items, or an object with an "items" array)'
 )
 
 

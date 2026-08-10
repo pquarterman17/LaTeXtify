@@ -44,8 +44,11 @@ def test_supplement_onecolumn_emits_plain_article(tmp_path):
     docx = _copy_fixture(tmp_path, FIGURES_DOCX)
     si = _copy_fixture(tmp_path, SUPPLEMENT_DOCX)
     result = emit_project(
-        docx, "revtex4-2", tmp_path / "out",
-        supplement_docx_path=si, supplement_onecolumn=True,
+        docx,
+        "revtex4-2",
+        tmp_path / "out",
+        supplement_docx_path=si,
+        supplement_onecolumn=True,
     )
     preamble, metadata = _supplement_generated(result)
 
@@ -63,7 +66,10 @@ def test_supplement_default_uses_journal_class(tmp_path):
     docx = _copy_fixture(tmp_path, FIGURES_DOCX)
     si = _copy_fixture(tmp_path, SUPPLEMENT_DOCX)
     result = emit_project(
-        docx, "revtex4-2", tmp_path / "out", supplement_docx_path=si,
+        docx,
+        "revtex4-2",
+        tmp_path / "out",
+        supplement_docx_path=si,
     )
     preamble, _ = _supplement_generated(result)
     assert "\\documentclass[aps,prb,reprint]{revtex4-2}" in preamble
@@ -116,9 +122,7 @@ def test_supplement_tex_written_once(tmp_path):
     docx = _copy_fixture(tmp_path, ZOTERO_DOCX)
     supplement = _copy_fixture(tmp_path, SUPPLEMENT_DOCX)
 
-    result = emit_project(
-        docx, "revtex4-2", tmp_path / "output", supplement_docx_path=supplement
-    )
+    result = emit_project(docx, "revtex4-2", tmp_path / "output", supplement_docx_path=supplement)
 
     assert result.supplement is not None
     assert result.supplement.supplement_tex_written is True
@@ -132,9 +136,7 @@ def test_supplement_tex_inputs_generated_files(tmp_path):
     docx = _copy_fixture(tmp_path, ZOTERO_DOCX)
     supplement = _copy_fixture(tmp_path, SUPPLEMENT_DOCX)
 
-    result = emit_project(
-        docx, "revtex4-2", tmp_path / "output", supplement_docx_path=supplement
-    )
+    result = emit_project(docx, "revtex4-2", tmp_path / "output", supplement_docx_path=supplement)
 
     supplement_tex = result.supplement.supplement_tex_path.read_text(encoding="utf-8")
     assert "\\input{generated/supplement_preamble}" in supplement_tex
@@ -186,9 +188,7 @@ def test_supplement_preamble_carries_s_numbering_commands(tmp_path):
     docx = _copy_fixture(tmp_path, ZOTERO_DOCX)
     supplement = _copy_fixture(tmp_path, SUPPLEMENT_DOCX)
 
-    result = emit_project(
-        docx, "revtex4-2", tmp_path / "output", supplement_docx_path=supplement
-    )
+    result = emit_project(docx, "revtex4-2", tmp_path / "output", supplement_docx_path=supplement)
 
     preamble = result.supplement.supplement_preamble_tex_path.read_text(encoding="utf-8")
     assert "\\renewcommand{\\thefigure}{S\\arabic{figure}}" in preamble
@@ -204,9 +204,7 @@ def test_main_preamble_has_no_s_numbering(tmp_path):
     docx = _copy_fixture(tmp_path, ZOTERO_DOCX)
     supplement = _copy_fixture(tmp_path, SUPPLEMENT_DOCX)
 
-    result = emit_project(
-        docx, "revtex4-2", tmp_path / "output", supplement_docx_path=supplement
-    )
+    result = emit_project(docx, "revtex4-2", tmp_path / "output", supplement_docx_path=supplement)
 
     main_preamble = result.preamble_tex_path.read_text(encoding="utf-8")
     assert "\\thefigure" not in main_preamble
@@ -229,14 +227,10 @@ def test_supplement_title_derived_from_main_title_no_guessing(tmp_path):
     docx = _copy_fixture(main_dir, ZOTERO_DOCX)
     supplement = _copy_fixture(si_dir, SUPPLEMENT_DOCX)
 
-    result = emit_project(
-        docx, "revtex4-2", tmp_path / "output", supplement_docx_path=supplement
-    )
+    result = emit_project(docx, "revtex4-2", tmp_path / "output", supplement_docx_path=supplement)
 
     main_metadata = result.metadata_tex_path.read_text(encoding="utf-8")
-    supplement_metadata = result.supplement.supplement_metadata_tex_path.read_text(
-        encoding="utf-8"
-    )
+    supplement_metadata = result.supplement.supplement_metadata_tex_path.read_text(encoding="utf-8")
 
     # Pull the main \title{...} text out and confirm it reappears prefixed.
     main_title_start = main_metadata.index("\\title{") + len("\\title{")
@@ -260,9 +254,7 @@ def test_supplement_figures_land_as_figs_prefixed_files(tmp_path):
     docx = _copy_fixture(tmp_path, ZOTERO_DOCX)
     supplement = _copy_fixture(tmp_path, SUPPLEMENT_DOCX)
 
-    result = emit_project(
-        docx, "revtex4-2", tmp_path / "output", supplement_docx_path=supplement
-    )
+    result = emit_project(docx, "revtex4-2", tmp_path / "output", supplement_docx_path=supplement)
 
     copied = sorted(p.name for p in result.figures_dir.iterdir())
     assert copied == ["figS1.png", "figS2.png"]
@@ -296,9 +288,7 @@ def test_supplement_figure_anchors_resolve_to_s_numbered_files_not_main(tmp_path
     docx = _copy_fixture(tmp_path, FIGURES_DOCX)  # main doc has its OWN fig1/fig2/fig3
     supplement = _copy_fixture(tmp_path, SUPPLEMENT_DOCX)
 
-    result = emit_project(
-        docx, "revtex4-2", tmp_path / "output", supplement_docx_path=supplement
-    )
+    result = emit_project(docx, "revtex4-2", tmp_path / "output", supplement_docx_path=supplement)
 
     supplement_body = result.supplement.supplement_body_tex_path.read_text(encoding="utf-8")
     assert "\\includegraphics[width=\\linewidth]{figures/figS1.png}" in supplement_body
@@ -320,9 +310,7 @@ def test_shared_doi_citation_deduplicates_to_one_bib_entry(tmp_path):
     docx = _copy_fixture(tmp_path, ZOTERO_DOCX)
     supplement = _copy_fixture(tmp_path, SUPPLEMENT_DOCX)
 
-    result = emit_project(
-        docx, "revtex4-2", tmp_path / "output", supplement_docx_path=supplement
-    )
+    result = emit_project(docx, "revtex4-2", tmp_path / "output", supplement_docx_path=supplement)
 
     bib = result.bib_path.read_text(encoding="utf-8")
     # The shared DOI (zotero_cited.docx's ARTICLE == supplement.docx's
@@ -340,9 +328,7 @@ def test_new_si_only_reference_is_added_to_bib(tmp_path):
     docx = _copy_fixture(tmp_path, ZOTERO_DOCX)
     supplement = _copy_fixture(tmp_path, SUPPLEMENT_DOCX)
 
-    result = emit_project(
-        docx, "revtex4-2", tmp_path / "output", supplement_docx_path=supplement
-    )
+    result = emit_project(docx, "revtex4-2", tmp_path / "output", supplement_docx_path=supplement)
 
     bib = result.bib_path.read_text(encoding="utf-8")
     assert "10.1103/PhysRevApplied.15.054001" in bib
@@ -377,13 +363,11 @@ def test_supplement_bibliography_include_has_the_line_when_citations_exist(tmp_p
     docx = _copy_fixture(tmp_path, ZOTERO_DOCX)
     supplement = _copy_fixture(tmp_path, SUPPLEMENT_DOCX)
 
-    result = emit_project(
-        docx, "revtex4-2", tmp_path / "output", supplement_docx_path=supplement
-    )
+    result = emit_project(docx, "revtex4-2", tmp_path / "output", supplement_docx_path=supplement)
 
-    bib_include = (
-        result.output_dir / "generated" / "supplement_bibliography.tex"
-    ).read_text(encoding="utf-8")
+    bib_include = (result.output_dir / "generated" / "supplement_bibliography.tex").read_text(
+        encoding="utf-8"
+    )
     assert bib_include.strip() == "\\bibliography{references}"
 
 
@@ -396,9 +380,7 @@ def test_report_supplement_section_has_counts_and_no_warnings(tmp_path):
     docx = _copy_fixture(tmp_path, ZOTERO_DOCX)
     supplement = _copy_fixture(tmp_path, SUPPLEMENT_DOCX)
 
-    result = emit_project(
-        docx, "revtex4-2", tmp_path / "output", supplement_docx_path=supplement
-    )
+    result = emit_project(docx, "revtex4-2", tmp_path / "output", supplement_docx_path=supplement)
 
     report_text = result.report_path.read_text(encoding="utf-8")
     assert "## Supplement" in report_text

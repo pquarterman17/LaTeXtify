@@ -18,7 +18,8 @@ from pathlib import Path
 
 import pytest
 
-from latextify.kit import build
+from latextify.kit import build, tex_cache
+from latextify.kit import target as kit_target
 from latextify.templates import loader
 
 KIT_PKG = Path(build.__file__).resolve().parent
@@ -31,24 +32,25 @@ KIT_PKG = Path(build.__file__).resolve().parent
 
 def test_resolve_target_canonical_names():
     for name in ("win-x64", "linux-x64", "macos-arm64"):
-        assert build.resolve_target(name).name == name
+        assert kit_target.resolve_target(name).name == name
 
 
 def test_resolve_current_matches_a_known_target():
-    resolved = build.resolve_target("current")
-    assert resolved.name in build.TARGETS
+    resolved = kit_target.resolve_target("current")
+    assert resolved.name in kit_target.TARGETS
     # 'current' and the host's canonical name resolve to the same Target.
-    assert resolved is build.resolve_target(resolved.name)
+    assert resolved is kit_target.resolve_target(resolved.name)
 
 
 def test_resolve_unknown_target_raises():
-    with pytest.raises(build.KitBuildError):
-        build.resolve_target("solaris-sparc")
+    with pytest.raises(kit_target.KitBuildError):
+        kit_target.resolve_target("solaris-sparc")
 
 
 def test_kit_dir_name_shape():
-    assert build.kit_dir_name(build.TARGETS["win-x64"]) == "latextify-offline-windows-x64"
-    assert build.kit_dir_name(build.TARGETS["macos-arm64"]) == "latextify-offline-macos-arm64"
+    name = kit_target.kit_dir_name
+    assert name(kit_target.TARGETS["win-x64"]) == "latextify-offline-windows-x64"
+    assert name(kit_target.TARGETS["macos-arm64"]) == "latextify-offline-macos-arm64"
 
 
 # --------------------------------------------------------------------------- #
@@ -57,21 +59,21 @@ def test_kit_dir_name_shape():
 
 
 def test_pip_platform_args_are_paired_flags():
-    args = build.pip_platform_args(build.TARGETS["linux-x64"])
+    args = kit_target.pip_platform_args(kit_target.TARGETS["linux-x64"])
     assert args[0] == "--platform"
     assert "manylinux2014_x86_64" in args
     # every tag is preceded by its own --platform flag
-    assert args.count("--platform") == len(build.TARGETS["linux-x64"].pip_platforms)
+    assert args.count("--platform") == len(kit_target.TARGETS["linux-x64"].pip_platforms)
 
 
 def test_cross_build_detection_is_reflexive_for_host():
-    host = build.resolve_target("current")
-    assert build.is_cross_build(host) is False
-    assert build.pip_platform_args(host) or not build.is_cross_build(host)
+    host = kit_target.resolve_target("current")
+    assert kit_target.is_cross_build(host) is False
+    assert kit_target.pip_platform_args(host) or not kit_target.is_cross_build(host)
 
 
 def test_every_target_has_a_tectonic_triple_and_binary():
-    for target in build.TARGETS.values():
+    for target in kit_target.TARGETS.values():
         assert target.tectonic_triple
         assert target.tectonic_binary in ("tectonic", "tectonic.exe")
         # windows -> .exe, posix -> no extension
@@ -84,9 +86,13 @@ def test_every_target_has_a_tectonic_triple_and_binary():
 
 
 def test_bundle_info_manifest_shape():
-    info = build.build_bundle_info(
-        build.TARGETS["linux-x64"], "0.1.0", ["3.10", "3.11"],
-        warm_tex=True, with_gui=False, journals=["revtex4-2", "iopart"],
+    info = kit_target.build_bundle_info(
+        kit_target.TARGETS["linux-x64"],
+        "0.1.0",
+        ["3.10", "3.11"],
+        warm_tex=True,
+        with_gui=False,
+        journals=["revtex4-2", "iopart"],
     )
     assert info["name"] == "latextify"
     assert info["os"] == "linux" and info["arch"] == "x64"
@@ -97,9 +103,13 @@ def test_bundle_info_manifest_shape():
 
 
 def test_bundle_info_emit_only_lists_no_warmed_journals():
-    info = build.build_bundle_info(
-        build.TARGETS["win-x64"], "0.1.0", ["3.12"],
-        warm_tex=False, with_gui=True, journals=["revtex4-2"],
+    info = kit_target.build_bundle_info(
+        kit_target.TARGETS["win-x64"],
+        "0.1.0",
+        ["3.12"],
+        warm_tex=False,
+        with_gui=True,
+        journals=["revtex4-2"],
     )
     assert info["warm_tex"] is False
     assert info["warmed_journals"] == []
@@ -155,11 +165,11 @@ def _mkdirs(path: Path) -> None:
     Plain ``Path.mkdir`` can itself fail past Windows' 260-char limit, so the
     fixture needs the identical `\\\\?\\` prefix `_zip_kit` relies on.
     """
-    os.makedirs(build._long_path(path.resolve()), exist_ok=True)
+    os.makedirs(tex_cache.long_path(path.resolve()), exist_ok=True)
 
 
 def _write(path: Path, data: bytes) -> None:
-    with open(build._long_path(path.resolve()), "wb") as fh:
+    with open(tex_cache.long_path(path.resolve()), "wb") as fh:
         fh.write(data)
 
 
@@ -206,10 +216,8 @@ def test_zip_kit_round_trips_a_path_deep_enough_to_exceed_windows_max_path(tmp_p
     with zipfile.ZipFile(archive) as zf:
         assert zf.testzip() is None
         prefix = kit_dir.name
-        assert (zf.read(f"{prefix}/tex-bundle-cache/bundles/data/{deep_name}")
-                == b"deep cache entry")
-        assert (zf.read(f"{prefix}/wheelhouse/latextify-0.1.0-py3-none-any.whl")
-                == b"wheel bytes")
+        assert zf.read(f"{prefix}/tex-bundle-cache/bundles/data/{deep_name}") == b"deep cache entry"
+        assert zf.read(f"{prefix}/wheelhouse/latextify-0.1.0-py3-none-any.whl") == b"wheel bytes"
         assert zf.read(f"{prefix}/bundle-info.json") == b'{"name": "latextify"}'
 
 
@@ -233,8 +241,10 @@ def test_zip_kit_matches_shutil_make_archive_layout(tmp_path):
     reference_root = tmp_path / "reference"
     shutil.copytree(kit_dir, reference_root / kit_dir.name)
     ref_archive = shutil.make_archive(
-        str(reference_root / kit_dir.name), "zip",
-        root_dir=str(reference_root), base_dir=kit_dir.name,
+        str(reference_root / kit_dir.name),
+        "zip",
+        root_dir=str(reference_root),
+        base_dir=kit_dir.name,
     )
     with zipfile.ZipFile(ref_archive) as zf:
         want = sorted(zf.namelist())

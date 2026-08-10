@@ -95,16 +95,12 @@ def test_demo_still_requires_the_secret(tmp_path):
 
 
 def test_demo_rejects_cross_origin_requests(tmp_path):
-    response = _post_corrupt_convert(
-        _demo_client(tmp_path), Origin="https://evil.example.com"
-    )
+    response = _post_corrupt_convert(_demo_client(tmp_path), Origin="https://evil.example.com")
     assert response.status_code == 403
 
 
 def test_demo_allows_same_origin_requests(tmp_path):
-    response = _post_corrupt_convert(
-        _demo_client(tmp_path), Origin=f"https://{_PUBLIC_HOST}"
-    )
+    response = _post_corrupt_convert(_demo_client(tmp_path), Origin=f"https://{_PUBLIC_HOST}")
     assert response.status_code == 400  # corrupt docx, not forbidden
 
 

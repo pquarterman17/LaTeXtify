@@ -113,9 +113,7 @@ def test_double_html_encoded_fragment_is_parsed():
     # string still contains literal "&lt;EndNote&gt;..." rather than raw XML.
     encoded = SINGLE.replace("ADDIN EN.CITE ", "ADDIN EN.CITE ")
     xml_part = encoded[encoded.index("<EndNote>") :]
-    double_encoded = (
-        xml_part.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-    )
+    double_encoded = xml_part.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
     instruction = "ADDIN EN.CITE " + double_encoded
     entries = endnote.parse_instruction(instruction)
     assert len(entries) == 1

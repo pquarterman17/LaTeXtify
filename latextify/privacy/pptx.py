@@ -237,8 +237,7 @@ def inspect(path: Path) -> tuple[list[Finding], list[str]]:
                     severity="medium",
                     summary=f"{len(comments)} comment/author part(s)",
                     detail=(
-                        "Review comments and the list of commenter names are stored "
-                        "in the deck."
+                        "Review comments and the list of commenter names are stored in the deck."
                     ),
                     location=comments[0],
                     count=len(comments),
@@ -388,9 +387,7 @@ def sanitize(
                 "found but NOT removed -- they are still in the cleaned file."
             )
 
-        opc.rewrite_package(
-            zin, dest, parts_to_remove=parts_to_remove, replacements=replacements
-        )
+        opc.rewrite_package(zin, dest, parts_to_remove=parts_to_remove, replacements=replacements)
 
     return removed, warnings
 

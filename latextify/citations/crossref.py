@@ -100,6 +100,7 @@ class CrossrefUnavailable(Exception):
     reference.
     """
 
+
 # Crossref ``type`` values differ from Zotero/CSL ones; map the common ones and
 # fall back to the shared CSL table (then ``misc``) for anything unlisted.
 _CROSSREF_TO_BIBTEX = {
@@ -375,9 +376,7 @@ class CrossrefClient:
         except CrossrefUnavailable:
             return []
 
-    def query_bibliographic_checked(
-        self, text: str, *, rows: int = 3
-    ) -> list[CrossrefCandidate]:
+    def query_bibliographic_checked(self, text: str, *, rows: int = 3) -> list[CrossrefCandidate]:
         """Like :meth:`query_bibliographic` but *raises* :class:`CrossrefUnavailable`
         when Crossref is unreachable (network failure, timeout, 5xx, or a
         malformed body), so a caller can record "couldn't check" instead of
@@ -420,9 +419,7 @@ class CrossrefClient:
         cleaned = _normalize_doi(doi)
         if not cleaned:
             return None
-        payload = self._get_json(
-            "/works/" + quote(cleaned, safe="/"), {"mailto": self.mailto}
-        )
+        payload = self._get_json("/works/" + quote(cleaned, safe="/"), {"mailto": self.mailto})
         message = payload.get("message") if isinstance(payload, dict) else None
         if not isinstance(message, dict):
             return None

@@ -95,8 +95,15 @@ def test_compare_all_fields_match():
     from latextify.citations.crossref import candidate_from_item
 
     checks = compare_entry_to_candidate(_entry(), candidate_from_item(_work()))
-    assert {c.field for c in checks} == {"title", "authors", "year", "journal", "volume", "issue",
-                                         "pages"}
+    assert {c.field for c in checks} == {
+        "title",
+        "authors",
+        "year",
+        "journal",
+        "volume",
+        "issue",
+        "pages",
+    }
     assert all(c.ok for c in checks)
 
 
@@ -242,8 +249,12 @@ def test_validate_suggests_doi_for_doiless_reference():
 
 
 def test_validate_unverifiable_when_no_match():
-    entry = _entry(doi=None, title="An Utterly Untraceable Manuscript", container_title=None,
-                   authors=(Name(family="Nobody"),))
+    entry = _entry(
+        doi=None,
+        title="An Utterly Untraceable Manuscript",
+        container_title=None,
+        authors=(Name(family="Nobody"),),
+    )
     with _client(by_query={}) as client:
         record = validate_entry(entry, client)
     assert record.status == "unverifiable"

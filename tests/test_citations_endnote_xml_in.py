@@ -100,9 +100,7 @@ def test_missing_fields_tolerated():
 
 def test_record_without_rec_number_stays_keyless():
     no_rec_number = (
-        b"<xml><records><record>"
-        b"<titles><title>No id</title></titles>"
-        b"</record></records></xml>"
+        b"<xml><records><record><titles><title>No id</title></titles></record></records></xml>"
     )
     (entry,) = parse_endnote_xml(no_rec_number)
     assert entry.key == ""

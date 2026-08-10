@@ -97,7 +97,7 @@ def _fldchar(char_type: str) -> str:
 
 
 def _text_run(text: str) -> str:
-    return f"<w:r><w:t xml:space=\"preserve\">{_xml_escape(text)}</w:t></w:r>"
+    return f'<w:r><w:t xml:space="preserve">{_xml_escape(text)}</w:t></w:r>'
 
 
 def _field(instr_chunks: list[str], result: str) -> str:
@@ -118,7 +118,7 @@ def _split_three(text: str) -> list[str]:
 def _sdt_citation(field_xml: str) -> str:
     """A citation content control: w:sdtPr/w:citation marker wrapping a field."""
     return (
-        "<w:sdt><w:sdtPr><w:id w:val=\"1\"/><w:citation/></w:sdtPr>"
+        '<w:sdt><w:sdtPr><w:id w:val="1"/><w:citation/></w:sdtPr>'
         "<w:sdtEndPr/>"
         f"<w:sdtContent>{field_xml}</w:sdtContent></w:sdt>"
     )

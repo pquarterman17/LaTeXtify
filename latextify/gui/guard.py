@@ -122,7 +122,7 @@ def inject_gui_secret(html: str, secret: str) -> str:
     wrapper = (
         "<script>(function(){"
         f"var S={literal};var f=window.fetch;"
-        'window.fetch=function(i,o){o=o||{};'
+        "window.fetch=function(i,o){o=o||{};"
         'var u=(typeof i==="string")?i:(i&&i.url)||"";'
         'if(u.indexOf("/api/")>-1){'
         'o.headers=Object.assign({},o.headers,{"' + SECRET_HEADER + '":S});}'

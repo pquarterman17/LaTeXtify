@@ -364,9 +364,7 @@ def test_supplement_figures_are_stripped_too(tmp_path):
     _manuscript_with(LEAKY_PHOTO, main_docx)
     _manuscript_with(si_photo, si_docx)
 
-    result = emit_project(
-        main_docx, "revtex4-2", tmp_path / "out", supplement_docx_path=si_docx
-    )
+    result = emit_project(main_docx, "revtex4-2", tmp_path / "out", supplement_docx_path=si_docx)
 
     emitted = result.output_dir / "figures" / "figS1.jpg"
     assert emitted.is_file()

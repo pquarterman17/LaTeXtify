@@ -248,8 +248,7 @@ def _build_unstyled_manuscript(path: Path) -> Path:
 
     doc.add_paragraph("INTRODUCTION")  # bare all-caps section heading, no style
     doc.add_paragraph(
-        "The study of magnetic frustration has a long history in condensed "
-        "matter physics."
+        "The study of magnetic frustration has a long history in condensed matter physics."
     )
 
     doc.save(path)

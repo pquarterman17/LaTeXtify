@@ -388,9 +388,15 @@ def test_citation_anchors_resolve_to_cite_in_document_order(tmp_path, monkeypatc
     assert result.warnings == ()
 
     # Document order: cite commands appear in the same order as the anchors.
-    positions = [body.index(needle) for needle in ["muller2020quantum", "kittel2005introduction",
-                                                     "garcia2018topological",
-                                                     "smith2021superconductivity"]]
+    positions = [
+        body.index(needle)
+        for needle in [
+            "muller2020quantum",
+            "kittel2005introduction",
+            "garcia2018topological",
+            "smith2021superconductivity",
+        ]
+    ]
     assert positions == sorted(positions)
 
 
@@ -482,9 +488,7 @@ def test_hyperref_is_appended_when_journal_preamble_lacks_it(tmp_path):
     docx = _copy_fixture(tmp_path, FIGURES_DOCX)
     journals_dir = _write_bare_journal(tmp_path)
 
-    result = emit_project(
-        docx, "bare", tmp_path / "output", journals_dir=journals_dir
-    )
+    result = emit_project(docx, "bare", tmp_path / "output", journals_dir=journals_dir)
 
     preamble = result.preamble_tex_path.read_text(encoding="utf-8")
     assert "\\usepackage[colorlinks=true" in preamble
@@ -500,9 +504,7 @@ def _active_lines(preamble: str) -> list[str]:
     """Non-comment, non-blank preamble lines (a ``\\flushbottom`` in a comment
     is documentation, not a directive)."""
     return [
-        ln.strip()
-        for ln in preamble.splitlines()
-        if ln.strip() and not ln.lstrip().startswith("%")
+        ln.strip() for ln in preamble.splitlines() if ln.strip() and not ln.lstrip().startswith("%")
     ]
 
 
@@ -704,16 +706,11 @@ def test_generated_bibliography_omits_the_line_when_no_citations(tmp_path):
     result = emit_project(docx, "ieeetran", tmp_path / "output")
 
     assert result.bib_path.read_text(encoding="utf-8").strip() == ""
-    bib_include = (result.output_dir / "generated" / "bibliography.tex").read_text(
-        encoding="utf-8"
-    )
+    bib_include = (result.output_dir / "generated" / "bibliography.tex").read_text(encoding="utf-8")
     # No *active* (uncommented) \bibliography command -- every line is a comment.
-    assert not any(
-        line.lstrip().startswith("\\bibliography") for line in bib_include.splitlines()
-    )
+    assert not any(line.lstrip().startswith("\\bibliography") for line in bib_include.splitlines())
     assert all(
-        line.lstrip().startswith("%") or not line.strip()
-        for line in bib_include.splitlines()
+        line.lstrip().startswith("%") or not line.strip() for line in bib_include.splitlines()
     )
 
 
@@ -724,9 +721,7 @@ def test_generated_bibliography_has_the_line_when_citations_exist(tmp_path):
     result = emit_project(docx, "revtex4-2", tmp_path / "output")
 
     assert result.bib_path.read_text(encoding="utf-8").strip() != ""
-    bib_include = (result.output_dir / "generated" / "bibliography.tex").read_text(
-        encoding="utf-8"
-    )
+    bib_include = (result.output_dir / "generated" / "bibliography.tex").read_text(encoding="utf-8")
     assert bib_include.strip() == "\\bibliography{references}"
 
 
@@ -945,8 +940,8 @@ def _touch(dirp: Path, name: str) -> Path:
 
 def test_prune_removes_only_unkept_owned_main_figures(tmp_path):
     figs = tmp_path / "figures"
-    _touch(figs, "fig1.pdf")   # current
-    _touch(figs, "fig2.png")   # stale (fewer figures now)
+    _touch(figs, "fig1.pdf")  # current
+    _touch(figs, "fig2.png")  # stale (fewer figures now)
     _prune_stale_figures(figs, "", {"fig1.pdf"})
     assert (figs / "fig1.pdf").exists()
     assert not (figs / "fig2.png").exists()
@@ -954,17 +949,17 @@ def test_prune_removes_only_unkept_owned_main_figures(tmp_path):
 
 def test_prune_handles_format_change(tmp_path):
     figs = tmp_path / "figures"
-    _touch(figs, "fig1.png")   # last run's raster
+    _touch(figs, "fig1.png")  # last run's raster
     _prune_stale_figures(figs, "", {"fig1.pdf"})  # now a PDF
     assert not (figs / "fig1.png").exists()
 
 
 def test_prune_preserves_user_files_and_sibling_document(tmp_path):
     figs = tmp_path / "figures"
-    _touch(figs, "fig1.pdf")        # current main
-    _touch(figs, "Fig1.png")        # user file (capital F) -- must survive
-    _touch(figs, "diagram.pdf")     # user file -- must survive
-    _touch(figs, "figS1.pdf")       # supplement's figure -- main pass must NOT touch
+    _touch(figs, "fig1.pdf")  # current main
+    _touch(figs, "Fig1.png")  # user file (capital F) -- must survive
+    _touch(figs, "diagram.pdf")  # user file -- must survive
+    _touch(figs, "figS1.pdf")  # supplement's figure -- main pass must NOT touch
     _prune_stale_figures(figs, "", {"fig1.pdf"})
     assert (figs / "Fig1.png").exists()
     assert (figs / "diagram.pdf").exists()
@@ -973,11 +968,11 @@ def test_prune_preserves_user_files_and_sibling_document(tmp_path):
 
 def test_prune_supplement_prefix_leaves_main_alone(tmp_path):
     figs = tmp_path / "figures"
-    _touch(figs, "fig1.pdf")        # main figure
-    _touch(figs, "figS1.pdf")       # current supplement
-    _touch(figs, "figS2.pdf")       # stale supplement
+    _touch(figs, "fig1.pdf")  # main figure
+    _touch(figs, "figS1.pdf")  # current supplement
+    _touch(figs, "figS2.pdf")  # stale supplement
     _prune_stale_figures(figs, "S", {"figS1.pdf"})
-    assert (figs / "fig1.pdf").exists()      # untouched by supplement pass
+    assert (figs / "fig1.pdf").exists()  # untouched by supplement pass
     assert (figs / "figS1.pdf").exists()
     assert not (figs / "figS2.pdf").exists()
 
@@ -1004,7 +999,7 @@ def test_emit_rerun_removes_stale_generated_figures(tmp_path):
     current = {p.name for p in figs_dir.glob("fig*.*")}
     assert current, "expected generated figures on the first run"
 
-    stale = _touch(figs_dir, "fig99.png")   # generated-looking, not produced now
+    stale = _touch(figs_dir, "fig99.png")  # generated-looking, not produced now
     user = _touch(figs_dir, "my_photo.jpg")  # user-owned
 
     emit_project(docx, "revtex4-2", output_root)

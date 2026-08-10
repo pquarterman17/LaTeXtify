@@ -44,9 +44,7 @@ def score_bib_entry(reference_text: str, entry: RefEntry) -> float:
     )
 
 
-def best_bib_entry(
-    reference_text: str, entries: list[RefEntry]
-) -> tuple[RefEntry | None, float]:
+def best_bib_entry(reference_text: str, entries: list[RefEntry]) -> tuple[RefEntry | None, float]:
     """Return the highest-scoring ``.bib`` entry and its score (``None``, 0.0 if empty)."""
     best: RefEntry | None = None
     best_score = 0.0

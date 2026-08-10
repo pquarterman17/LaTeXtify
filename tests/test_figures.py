@@ -65,9 +65,7 @@ def test_embedded_paths_point_at_extracted_media_in_document_order(figures):
 def test_caption_style_paragraph_caption_is_captured(figures):
     # Figure 1 uses Word's built-in Caption style; pandoc may promote it into
     # a native Figure block whose own caption already carries the text.
-    assert figures[0].caption == (
-        "A red placeholder figure, captioned via Word's Caption style."
-    )
+    assert figures[0].caption == ("A red placeholder figure, captioned via Word's Caption style.")
 
 
 def test_plain_figure_label_caption_is_captured_via_sibling_fallback(figures):

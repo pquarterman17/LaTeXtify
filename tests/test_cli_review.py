@@ -45,7 +45,9 @@ def _sink():
 
 def test_describe_record_shows_field_diffs():
     rec = ValidationRecord(
-        key="smith2019", status="mismatch", doi="10.1/abc",
+        key="smith2019",
+        status="mismatch",
+        doi="10.1/abc",
         checks=(FieldCheck(field="year", ours="2019", canonical="2020", ok=False),),
     )
     text = "\n".join(describe_record(rec))
@@ -68,7 +70,9 @@ def _mismatch_report(canonical):
     return ValidationReport(
         records=(
             ValidationRecord(
-                key="smith2019", status="mismatch", doi="10.1/abc",
+                key="smith2019",
+                status="mismatch",
+                doi="10.1/abc",
                 checks=(FieldCheck(field="year", ours="2019", canonical="2020", ok=False),),
                 canonical_entry=canonical,
             ),
@@ -87,9 +91,7 @@ def test_no_flagged_returns_no_decisions():
 def test_approve_produces_approve_decision():
     report = _mismatch_report(_entry(year="2020"))
     _, echo = _sink()
-    decisions = review_corrections(
-        [_entry()], report, prompt=_scripted(["a"]), echo=echo
-    )
+    decisions = review_corrections([_entry()], report, prompt=_scripted(["a"]), echo=echo)
     assert len(decisions) == 1
     assert decisions[0].action == "approve"
     assert decisions[0].key == "smith2019"
@@ -99,9 +101,7 @@ def test_deny_and_unrecognized_both_deny():
     report = _mismatch_report(_entry(year="2020"))
     _, echo = _sink()
     for answer in ("d", "xyz"):
-        decisions = review_corrections(
-            [_entry()], report, prompt=_scripted([answer]), echo=echo
-        )
+        decisions = review_corrections([_entry()], report, prompt=_scripted([answer]), echo=echo)
         assert decisions[0].action == "deny"
 
 
@@ -126,9 +126,7 @@ def test_edit_collects_full_entry_edit():
     # "e" to edit, then one value per EDITABLE_FIELD (title..doi): change year,
     # keep the rest (blank).
     answers = ["e", "", "", "2021", "", "", "", "", ""]
-    decisions = review_corrections(
-        [_entry()], report, prompt=_scripted(answers), echo=echo
-    )
+    decisions = review_corrections([_entry()], report, prompt=_scripted(answers), echo=echo)
     assert decisions[0].action == "edit"
     assert decisions[0].edited_entry.year == "2021"
     assert decisions[0].edited_entry.title == "A Study of Widgets"  # kept
@@ -140,9 +138,7 @@ def test_edit_can_change_multiple_fields():
     _, echo = _sink()
     # order: title, authors, year, journal, volume, issue, pages, doi
     answers = ["e", "New Title", "", "", "", "", "", "50-60", "10.9/new"]
-    decisions = review_corrections(
-        [_entry()], report, prompt=_scripted(answers), echo=echo
-    )
+    decisions = review_corrections([_entry()], report, prompt=_scripted(answers), echo=echo)
     edited = decisions[0].edited_entry
     assert edited.title == "New Title"
     assert edited.pages == "50-60"

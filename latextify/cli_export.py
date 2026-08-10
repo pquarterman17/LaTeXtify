@@ -44,8 +44,7 @@ def export(
         None,
         "--output",
         "-o",
-        help="File to write. Defaults to DOCX_PATH with .html/.md substituted "
-        "for its extension.",
+        help="File to write. Defaults to DOCX_PATH with .html/.md substituted for its extension.",
     ),
     crossref_mailto: str = typer.Option(
         None,

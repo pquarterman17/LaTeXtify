@@ -148,9 +148,7 @@ def _xml_escape(text: str) -> str:
 
 
 def _instr_run(text: str) -> str:
-    return (
-        f'<w:r><w:instrText xml:space="preserve">{_xml_escape(text)}</w:instrText></w:r>'
-    )
+    return f'<w:r><w:instrText xml:space="preserve">{_xml_escape(text)}</w:instrText></w:r>'
 
 
 def _fldchar(char_type: str) -> str:
@@ -158,7 +156,7 @@ def _fldchar(char_type: str) -> str:
 
 
 def _text_run(text: str) -> str:
-    return f"<w:r><w:t xml:space=\"preserve\">{_xml_escape(text)}</w:t></w:r>"
+    return f'<w:r><w:t xml:space="preserve">{_xml_escape(text)}</w:t></w:r>'
 
 
 def _field(instr_chunks: list[str], result: str) -> str:

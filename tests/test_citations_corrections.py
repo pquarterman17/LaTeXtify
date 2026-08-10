@@ -78,8 +78,16 @@ def test_entry_to_dict_flattens_fields():
 def test_entry_from_dict_preserves_identity_and_blanks_to_none():
     base = _entry()
     edited = entry_from_dict(
-        {"title": "New Title", "authors": "Smith, Jane", "year": "2020",
-         "journal": "", "volume": "", "issue": "", "pages": "", "doi": "10.2/x"},
+        {
+            "title": "New Title",
+            "authors": "Smith, Jane",
+            "year": "2020",
+            "journal": "",
+            "volume": "",
+            "issue": "",
+            "pages": "",
+            "doi": "10.2/x",
+        },
         base=base,
     )
     assert edited.key == "smith2019"  # identity preserved
@@ -106,7 +114,9 @@ def test_deny_and_no_decision_leave_entry_unchanged():
     entry = _entry()
     report = _report(
         ValidationRecord(
-            key="smith2019", status="mismatch", doi="10.1/abc",
+            key="smith2019",
+            status="mismatch",
+            doi="10.1/abc",
             checks=(FieldCheck(field="year", ours="2019", canonical="2020", ok=False),),
             canonical_entry=_entry(year="2020"),
         )
@@ -125,7 +135,9 @@ def test_approve_adopts_only_flagged_canonical_fields():
     canonical = _entry(year="2020", volume="99")
     report = _report(
         ValidationRecord(
-            key="smith2019", status="mismatch", doi="10.1/abc",
+            key="smith2019",
+            status="mismatch",
+            doi="10.1/abc",
             checks=(FieldCheck(field="year", ours="2019", canonical="2020", ok=False),),
             canonical_entry=canonical,
         )
@@ -145,9 +157,12 @@ def test_approve_restores_full_author_tuple_not_display_string():
     canonical = _entry(authors=full)
     report = _report(
         ValidationRecord(
-            key="smith2019", status="mismatch", doi="10.1/abc",
-            checks=(FieldCheck(field="authors", ours="Smith", canonical="Smith, Jones, +1",
-                               ok=False),),
+            key="smith2019",
+            status="mismatch",
+            doi="10.1/abc",
+            checks=(
+                FieldCheck(field="authors", ours="Smith", canonical="Smith, Jones, +1", ok=False),
+            ),
             canonical_entry=canonical,
         )
     )
@@ -162,7 +177,9 @@ def test_approve_doi_suggested_adds_doi():
     canonical = _entry(doi="10.5/suggested")
     report = _report(
         ValidationRecord(
-            key="smith2019", status="doi_suggested", suggested_doi="10.5/suggested",
+            key="smith2019",
+            status="doi_suggested",
+            suggested_doi="10.5/suggested",
             canonical_entry=canonical,
         )
     )
@@ -175,11 +192,10 @@ def test_approve_doi_suggested_adds_doi():
 def test_edit_replaces_entry_but_keeps_key():
     entry = _entry()
     replacement = _entry(key="WRONGKEY", title="Corrected Title", year="2021")
-    report = _report(
-        ValidationRecord(key="smith2019", status="dead_doi", doi="10.1/dead")
-    )
+    report = _report(ValidationRecord(key="smith2019", status="dead_doi", doi="10.1/dead"))
     out = apply_corrections(
-        [entry], report,
+        [entry],
+        report,
         [CorrectionDecision(key="smith2019", action="edit", edited_entry=replacement)],
     )
     assert out[0].title == "Corrected Title"
@@ -191,7 +207,8 @@ def test_apply_preserves_order_and_count_and_ignores_unknown_keys():
     a, b, c = _entry(key="a"), _entry(key="b"), _entry(key="c")
     report = _report(ValidationRecord(key="b", status="dead_doi"))
     out = apply_corrections(
-        [a, b, c], report,
+        [a, b, c],
+        report,
         [
             CorrectionDecision(key="b", action="edit", edited_entry=_entry(title="B!")),
             CorrectionDecision(key="ghost", action="approve"),  # no such entry

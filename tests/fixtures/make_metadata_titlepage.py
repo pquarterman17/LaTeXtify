@@ -61,9 +61,7 @@ def build() -> None:
         "unconventional pairing symmetry."
     )
 
-    doc.add_paragraph(
-        "Keywords: superconductivity, magnetometry, doped compounds, gap anisotropy"
-    )
+    doc.add_paragraph("Keywords: superconductivity, magnetometry, doped compounds, gap anisotropy")
 
     OUTPUT.parent.mkdir(parents=True, exist_ok=True)
     doc.save(OUTPUT)

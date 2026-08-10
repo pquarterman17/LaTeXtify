@@ -53,8 +53,7 @@ _GENERIC_COLUMN_OPTIONS: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
 _LINENO_CLASS_OPTIONS: dict[str, tuple[str, ...]] = {"revtex4-2": ("linenumbers",)}
 
 _LINENO_PACKAGE = (
-    "% Reviewer line numbers (per-document layout option).\n"
-    "\\usepackage{lineno}\n\\linenumbers\n"
+    "% Reviewer line numbers (per-document layout option).\n\\usepackage{lineno}\n\\linenumbers\n"
 )
 _DOUBLESPACE_PACKAGE = (
     "% Double spacing (per-document layout option). setspace's \\doublespacing\n"

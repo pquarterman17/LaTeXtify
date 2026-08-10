@@ -286,9 +286,7 @@ def render_report(
     lines.append("\n## Supplement\n")
     if supplement is not None:
         status = (
-            "written"
-            if supplement.supplement_tex_written
-            else "already existed (left untouched)"
+            "written" if supplement.supplement_tex_written else "already existed (left untouched)"
         )
         lines.append(f"`supplement.tex` {status}.\n")
         lines.append(f"S-figures: {supplement.figure_count}.\n")

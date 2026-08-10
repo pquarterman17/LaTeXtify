@@ -239,8 +239,7 @@ def sanitize(src: Path, dest: Path, **_options: object) -> tuple[list[Finding], 
                     category="docprops",
                     severity="high",
                     summary=f"Stripped {len(docprops)} document-properties part(s)",
-                    detail="Author, company, editing time and custom properties were "
-                    "removed.",
+                    detail="Author, company, editing time and custom properties were removed.",
                     location="docProps/",
                     count=len(docprops),
                 )

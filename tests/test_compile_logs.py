@@ -163,7 +163,7 @@ def test_clean_compile_log_produces_no_diagnostics():
     # Verbatim (trimmed) shape of a successful plain-article compile.
     raw = (
         'note: "version 2" Tectonic command-line interface activated\n'
-        "note: generating format \"latex\"\n"
+        'note: generating format "latex"\n'
         "note: downloading article.cls\n"
         "note: downloading size10.clo\n"
         "Fontconfig error: Cannot load default config file: No such file: (null)\n"

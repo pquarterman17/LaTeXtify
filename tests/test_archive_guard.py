@@ -74,9 +74,7 @@ def test_rejects_excessive_total_expanded(tmp_path):
         {"a": b"x" * 100, "b": b"y" * 100},
     )
     with pytest.raises(ValueError, match="total"):
-        validate_docx_archive(
-            docx, max_member_expanded_bytes=1000, max_total_expanded_bytes=150
-        )
+        validate_docx_archive(docx, max_member_expanded_bytes=1000, max_total_expanded_bytes=150)
 
 
 def test_rejects_compression_bomb_ratio(tmp_path):

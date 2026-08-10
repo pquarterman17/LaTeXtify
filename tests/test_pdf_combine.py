@@ -52,8 +52,15 @@ def test_combine_flag_requires_pdf():
     # Supplement given but no --pdf: nothing to staple, so it must error early.
     result = runner.invoke(
         app,
-        ["convert", str(CLEAN_DOCX), "-j", "revtex4-2",
-         "--supplement", str(CLEAN_DOCX), "--combine-supplement"],
+        [
+            "convert",
+            str(CLEAN_DOCX),
+            "-j",
+            "revtex4-2",
+            "--supplement",
+            str(CLEAN_DOCX),
+            "--combine-supplement",
+        ],
     )
     assert result.exit_code == 1
     assert "requires --pdf" in result.output

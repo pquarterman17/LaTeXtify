@@ -49,8 +49,15 @@ def test_convert_exclude_figures_emits_text_only_project(tmp_path):
 
     result = runner.invoke(
         app,
-        ["convert", str(docx), "--journal", "revtex4-2", "--output", str(output),
-         "--exclude-figures"],
+        [
+            "convert",
+            str(docx),
+            "--journal",
+            "revtex4-2",
+            "--output",
+            str(output),
+            "--exclude-figures",
+        ],
     )
 
     assert result.exit_code == 0, result.output
@@ -85,9 +92,7 @@ def test_convert_unknown_journal_exits_nonzero_with_clear_error(tmp_path):
 
 
 def test_convert_missing_docx_exits_nonzero():
-    result = runner.invoke(
-        app, ["convert", "does-not-exist.docx", "--journal", "revtex4-2"]
-    )
+    result = runner.invoke(app, ["convert", "does-not-exist.docx", "--journal", "revtex4-2"])
     assert result.exit_code != 0
 
 
@@ -323,8 +328,7 @@ def test_journals_command_lists_correct_modes():
     # elsarticle is dual-mode
     assert "elsarticle:" in result.output
     line = next(
-        out_line for out_line in result.output.split("\n")
-        if out_line.startswith("elsarticle:")
+        out_line for out_line in result.output.split("\n") if out_line.startswith("elsarticle:")
     )
     assert "authoryear" in line
     assert "numeric" in line
@@ -453,17 +457,13 @@ def test_image_in_table_cell_compiles_end_to_end(tmp_path):
         pytest.param(False, True, id="top_level_after_table"),
     ],
 )
-def test_anchor_numbering_stays_aligned_around_a_table_image(
-    tmp_path, image_before, image_after
-):
+def test_anchor_numbering_stays_aligned_around_a_table_image(tmp_path, image_before, image_after):
     """Regression guard for the anchor<->Figure-record desync bug: whether
     the top-level image sits before or after the table, the table-nested
     image's anchor number must resolve to a real figure (not an unresolved
     placeholder), and every figure number must resolve to exactly one
     \\includegraphics -- no number is skipped or double-claimed."""
-    docx_path = _docx_with_table_image(
-        tmp_path, image_before=image_before, image_after=image_after
-    )
+    docx_path = _docx_with_table_image(tmp_path, image_before=image_before, image_after=image_after)
 
     result = _invoke_convert(docx_path, "revtex4-2", tmp_path / "output")
 
@@ -488,8 +488,7 @@ def test_anchor_numbering_stays_aligned_around_a_table_image(
     figures_dir = output_dir / "figures"
     for number in (1, 2):
         assert any(figures_dir.glob(f"fig{number}.*")), (
-            f"no figures/fig{number}.* file in {figures_dir}: "
-            f"{list(figures_dir.iterdir())}"
+            f"no figures/fig{number}.* file in {figures_dir}: {list(figures_dir.iterdir())}"
         )
 
 
@@ -554,16 +553,21 @@ def test_convert_columns_one_and_line_numbers_change_main_preamble(tmp_path):
     result = runner.invoke(
         app,
         [
-            "convert", str(docx), "--journal", "revtex4-2", "--output", str(output),
-            "--columns", "one", "--line-numbers",
+            "convert",
+            str(docx),
+            "--journal",
+            "revtex4-2",
+            "--output",
+            str(output),
+            "--columns",
+            "one",
+            "--line-numbers",
         ],
     )
 
     assert result.exit_code == 0, result.output
     preamble = (output / "revtex4-2" / "generated" / "preamble.tex").read_text(encoding="utf-8")
-    class_line = next(
-        line for line in preamble.splitlines() if line.startswith("\\documentclass")
-    )
+    class_line = next(line for line in preamble.splitlines() if line.startswith("\\documentclass"))
     assert "preprint" in class_line
     assert "reprint" not in class_line.replace("preprint", "")
     assert "linenumbers" in class_line
@@ -580,16 +584,20 @@ def test_convert_columns_two_on_generic_class_adds_twocolumn_option(tmp_path):
     result = runner.invoke(
         app,
         [
-            "convert", str(docx), "--journal", "elsarticle", "--output", str(output),
-            "--columns", "two",
+            "convert",
+            str(docx),
+            "--journal",
+            "elsarticle",
+            "--output",
+            str(output),
+            "--columns",
+            "two",
         ],
     )
 
     assert result.exit_code == 0, result.output
     preamble = (output / "elsarticle" / "generated" / "preamble.tex").read_text(encoding="utf-8")
-    class_line = next(
-        line for line in preamble.splitlines() if line.startswith("\\documentclass")
-    )
+    class_line = next(line for line in preamble.splitlines() if line.startswith("\\documentclass"))
     assert "twocolumn" in class_line
 
 
@@ -601,7 +609,12 @@ def test_convert_double_spacing_appends_setspace_to_preamble(tmp_path):
     result = runner.invoke(
         app,
         [
-            "convert", str(docx), "--journal", "revtex4-2", "--output", str(output),
+            "convert",
+            str(docx),
+            "--journal",
+            "revtex4-2",
+            "--output",
+            str(output),
             "--double-spacing",
         ],
     )
@@ -619,7 +632,12 @@ def test_convert_anonymize_replaces_author_and_warns(tmp_path):
     result = runner.invoke(
         app,
         [
-            "convert", str(docx), "--journal", "revtex4-2", "--output", str(output),
+            "convert",
+            str(docx),
+            "--journal",
+            "revtex4-2",
+            "--output",
+            str(output),
             "--anonymize",
         ],
     )
@@ -638,16 +656,19 @@ def test_convert_figures_at_end_uses_revtex_native_endfloats_option(tmp_path):
     result = runner.invoke(
         app,
         [
-            "convert", str(docx), "--journal", "revtex4-2", "--output", str(output),
+            "convert",
+            str(docx),
+            "--journal",
+            "revtex4-2",
+            "--output",
+            str(output),
             "--figures-at-end",
         ],
     )
 
     assert result.exit_code == 0, result.output
     preamble = (output / "revtex4-2" / "generated" / "preamble.tex").read_text(encoding="utf-8")
-    class_line = next(
-        line for line in preamble.splitlines() if line.startswith("\\documentclass")
-    )
+    class_line = next(line for line in preamble.splitlines() if line.startswith("\\documentclass"))
     assert "endfloats" in class_line
 
 
@@ -658,8 +679,14 @@ def test_convert_invalid_columns_value_exits_cleanly(tmp_path):
     result = runner.invoke(
         app,
         [
-            "convert", str(docx), "--journal", "revtex4-2",
-            "--output", str(tmp_path / "output"), "--columns", "three",
+            "convert",
+            str(docx),
+            "--journal",
+            "revtex4-2",
+            "--output",
+            str(tmp_path / "output"),
+            "--columns",
+            "three",
         ],
     )
 
@@ -683,8 +710,14 @@ def test_convert_supplement_layout_is_independent_of_main_layout(tmp_path):
     result = runner.invoke(
         app,
         [
-            "convert", str(docx), "--journal", "revtex4-2", "--output", str(output),
-            "--supplement", str(supplement),
+            "convert",
+            str(docx),
+            "--journal",
+            "revtex4-2",
+            "--output",
+            str(output),
+            "--supplement",
+            str(supplement),
             "--supplement-line-numbers",
         ],
     )
@@ -692,7 +725,8 @@ def test_convert_supplement_layout_is_independent_of_main_layout(tmp_path):
     assert result.exit_code == 0, result.output
     generated = output / "revtex4-2" / "generated"
     main_class_line = next(
-        line for line in generated.joinpath("preamble.tex").read_text(encoding="utf-8").splitlines()
+        line
+        for line in generated.joinpath("preamble.tex").read_text(encoding="utf-8").splitlines()
         if line.startswith("\\documentclass")
     )
     supplement_class_line = next(
@@ -950,7 +984,7 @@ def test_convert_report_updated_with_compile_diagnostics(tmp_path):
     # Report should mention compilation and success
     assert "## Compilation" in report_text
     # Should either say success or include diagnostics
-    assert ("Success" in report_text or "Compilation" in report_text)
+    assert "Success" in report_text or "Compilation" in report_text
 
 
 # --------------------------------------------------------------------------- #
@@ -1217,7 +1251,6 @@ def test_batch_with_unknown_journal_exits_1_with_error(tmp_path):
     assert "no-such-journal" in result.output or "error" in result.output.lower()
 
 
-
 # --------------------------------------------------------------------------- #
 # Interactive reference review (--review) glue: _run_interactive_review
 # --------------------------------------------------------------------------- #
@@ -1235,35 +1268,57 @@ def _review_fixture(tmp_path, *, flagged=True):
     )
 
     entry = RefEntry(
-        key="smith2019", entry_type="article", title="A Study of Widgets",
-        authors=(Name(family="Smith", given="Jane"),), year="2019",
-        container_title="Journal of Widgets", volume="12", pages="45", doi="10.1/abc",
+        key="smith2019",
+        entry_type="article",
+        title="A Study of Widgets",
+        authors=(Name(family="Smith", given="Jane"),),
+        year="2019",
+        container_title="Journal of Widgets",
+        volume="12",
+        pages="45",
+        doi="10.1/abc",
     )
     canonical = RefEntry(
-        key="smith2019", entry_type="article", title="A Study of Widgets",
-        authors=(Name(family="Smith", given="Jane"),), year="2020",
-        container_title="Journal of Widgets", volume="12", pages="45", doi="10.1/abc",
+        key="smith2019",
+        entry_type="article",
+        title="A Study of Widgets",
+        authors=(Name(family="Smith", given="Jane"),),
+        year="2020",
+        container_title="Journal of Widgets",
+        volume="12",
+        pages="45",
+        doi="10.1/abc",
     )
     records = (
-        ValidationRecord(
-            key="smith2019", status="mismatch", doi="10.1/abc",
-            checks=(FieldCheck(field="year", ours="2019", canonical="2020", ok=False),),
-            canonical_entry=canonical,
-        ),
-    ) if flagged else (
-        ValidationRecord(key="smith2019", status="verified", doi="10.1/abc"),
+        (
+            ValidationRecord(
+                key="smith2019",
+                status="mismatch",
+                doi="10.1/abc",
+                checks=(FieldCheck(field="year", ours="2019", canonical="2020", ok=False),),
+                canonical_entry=canonical,
+            ),
+        )
+        if flagged
+        else (ValidationRecord(key="smith2019", status="verified", doi="10.1/abc"),)
     )
     bib_path = tmp_path / "references.bib"
     bib_path.write_text(entries_to_bib([entry]), encoding="utf-8")
 
     result = EmitResult(
-        output_dir=tmp_path, journal_name="revtex4-2",
-        main_tex_path=tmp_path / "main.tex", main_tex_written=True,
+        output_dir=tmp_path,
+        journal_name="revtex4-2",
+        main_tex_path=tmp_path / "main.tex",
+        main_tex_written=True,
         preamble_tex_path=tmp_path / "preamble.tex",
         metadata_tex_path=tmp_path / "metadata.tex",
-        body_tex_path=tmp_path / "body.tex", bib_path=bib_path,
-        figures_dir=tmp_path / "figures", figure_count=0, citation_count=1,
-        validation=ValidationReport(records=records), entries=(entry,),
+        body_tex_path=tmp_path / "body.tex",
+        bib_path=bib_path,
+        figures_dir=tmp_path / "figures",
+        figure_count=0,
+        citation_count=1,
+        validation=ValidationReport(records=records),
+        entries=(entry,),
     )
     return result, bib_path
 

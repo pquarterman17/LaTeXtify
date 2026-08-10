@@ -183,7 +183,7 @@ def test_field_coded_body_strips_the_managers_bibliography(tmp_path):
         '<w:r><w:t xml:space="preserve">.</w:t></w:r></w:p>'
         "<w:p><w:r><w:t>REFERENCES</w:t></w:r></w:p>"
         '<w:p><w:r><w:t xml:space="preserve">[1] T. Tester, A synthetic magnon '
-        'paper, Test Physics 1, 1 (2020).</w:t></w:r></w:p>',
+        "paper, Test Physics 1, 1 (2020).</w:t></w:r></w:p>",
     )
     result = emit_project(docx, "revtex4-2", tmp_path / "out", report=False)
 

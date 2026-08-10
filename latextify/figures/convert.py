@@ -120,8 +120,13 @@ class ConversionOutcome:
 
 
 def convert_for_latex(
-    src: Path, dest_dir: Path, number: int, *, prefix: str = "",
-    crop: CropRect | None = None, strip_metadata: bool = True
+    src: Path,
+    dest_dir: Path,
+    number: int,
+    *,
+    prefix: str = "",
+    crop: CropRect | None = None,
+    strip_metadata: bool = True,
 ) -> ConversionOutcome:
     """Prepare figure ``number``'s resolved file ``src`` for inclusion in ``dest_dir``.
 
@@ -455,7 +460,7 @@ def _pillow_convert(src: Path, dest: Path, crop: CropRect | None = None) -> None
 
 _TIFF_UNSUPPORTED_NOTE = (
     "Tectonic cannot include TIFF files (xdvipdfmx has no TIFF support; a raw "
-    "TIFF \\includegraphics fails with \"Cannot determine size of graphic\")."
+    'TIFF \\includegraphics fails with "Cannot determine size of graphic").'
 )
 
 

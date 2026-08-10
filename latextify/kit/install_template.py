@@ -110,8 +110,17 @@ def _create_venv(venv_dir: Path, wheelhouse: Path) -> Path:
                 "rebuild the kit with `latextify make-kit`."
             )
         # run pip straight out of its own wheel (zipimport) to install itself
-        _run([str(py), str(pips[-1]) + os.sep + "pip", "install", "--no-index",
-              "--find-links", str(wheelhouse), "pip"])
+        _run(
+            [
+                str(py),
+                str(pips[-1]) + os.sep + "pip",
+                "install",
+                "--no-index",
+                "--find-links",
+                str(wheelhouse),
+                "pip",
+            ]
+        )
     if not py.is_file():
         _die(f"virtual environment creation failed -- no interpreter at {py}")
     return py
@@ -157,8 +166,12 @@ def main() -> None:
     ap = argparse.ArgumentParser(
         description="Install LaTeXtify from the bundled wheelhouse (no internet needed)."
     )
-    ap.add_argument("--dir", default=str(HERE), metavar="DIR",
-                    help="where to put .venv and the launcher (default: this folder)")
+    ap.add_argument(
+        "--dir",
+        default=str(HERE),
+        metavar="DIR",
+        help="where to put .venv and the launcher (default: this folder)",
+    )
     args = ap.parse_args()
 
     info = _load_info()
@@ -186,7 +199,8 @@ def main() -> None:
 
     check = subprocess.run(
         [str(py), "-c", "import latextify; print(getattr(latextify, '__version__', '?'))"],
-        capture_output=True, text=True,
+        capture_output=True,
+        text=True,
     )
     if check.returncode != 0:
         _die(f"install verification failed:\n{check.stderr}")

@@ -153,5 +153,3 @@ def _prune_stale_figures(figures_dir: Path, prefix: str, keep_names: set[str]) -
     for path in figures_dir.iterdir():
         if path.is_file() and path.name not in keep_names and owned.match(path.name):
             path.unlink()
-
-

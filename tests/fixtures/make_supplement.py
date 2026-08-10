@@ -168,9 +168,7 @@ def build() -> None:
 
     doc.add_paragraph("A second supplementary measurement follows.")
     doc.add_picture(_solid_png((150, 40, 200)), width=Inches(1))
-    doc.add_paragraph(
-        "Figure 2: A purple placeholder figure, captioned via a plain paragraph."
-    )
+    doc.add_paragraph("Figure 2: A purple placeholder figure, captioned via a plain paragraph.")
 
     doc.add_heading("Supplementary Equation", level=1)
     p = doc.add_paragraph("The temperature dependence of the entropy is given by ")

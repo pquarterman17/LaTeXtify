@@ -72,9 +72,7 @@ def _field(instr: str, result: str) -> str:
 def _build_docx(out_path: Path) -> None:
     zotero_instr = " ADDIN ZOTERO_ITEM CSL_CITATION " + json.dumps(ZOTERO_PAYLOAD) + " "
     # Truncated/unclosed EndNote XML: not valid XML either raw or unescaped.
-    malformed_instr = (
-        " ADDIN EN.CITE <EndNote><Cite><record><titles><title>Unterminated "
-    )
+    malformed_instr = " ADDIN EN.CITE <EndNote><Cite><record><titles><title>Unterminated "
     zotero_field = _field(zotero_instr, "[1]")
     malformed_field = _field(malformed_instr, "[2]")
 

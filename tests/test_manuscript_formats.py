@@ -165,9 +165,7 @@ def test_emit_project_from_markdown_end_to_end(tmp_path):
     bib_path = tmp_path / "refs.bib"
     bib_path.write_text(FIXTURE_BIB, encoding="utf-8")
 
-    result = emit_project(
-        md_path, "revtex4-2", tmp_path / "output", references_bib_path=bib_path
-    )
+    result = emit_project(md_path, "revtex4-2", tmp_path / "output", references_bib_path=bib_path)
 
     _assert_project_shape(result, "something interesting")
     # Typed reference list reconstruction (stage 4's fallback path) actually ran:
@@ -272,7 +270,7 @@ def test_emit_project_accepts_a_non_docx_supplement(tmp_path):
 
     assert result.supplement is not None
     assert result.supplement.supplement_tex_written is True
-    supplement_body = (
-        result.output_dir / "generated" / "supplement_body.tex"
-    ).read_text(encoding="utf-8")
+    supplement_body = (result.output_dir / "generated" / "supplement_body.tex").read_text(
+        encoding="utf-8"
+    )
     assert "quokka" in supplement_body

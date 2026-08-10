@@ -160,8 +160,15 @@ def _table_with_empty_caption() -> pf.Table:
 def test_table_caption_paragraph_is_absorbed_and_label_stripped():
     doc = pf.Doc(
         _table_with_empty_caption(),
-        pf.Para(pf.Str("Table"), pf.Space, pf.Str("I:"), pf.Space, pf.Str("Volume"),
-                pf.Space, pf.Str("fractions.")),
+        pf.Para(
+            pf.Str("Table"),
+            pf.Space,
+            pf.Str("I:"),
+            pf.Space,
+            pf.Str("Volume"),
+            pf.Space,
+            pf.Str("fractions."),
+        ),
         pf.Para(pf.Str("Body text after.")),
     )
     doc, findings = associate_table_captions(doc)
@@ -186,8 +193,15 @@ def test_non_caption_paragraph_after_table_is_not_absorbed():
     # "Table Index of samples" is prose, not a "Table N:" label.
     doc = pf.Doc(
         _table_with_empty_caption(),
-        pf.Para(pf.Str("Table"), pf.Space, pf.Str("Index"), pf.Space, pf.Str("of"),
-                pf.Space, pf.Str("samples")),
+        pf.Para(
+            pf.Str("Table"),
+            pf.Space,
+            pf.Str("Index"),
+            pf.Space,
+            pf.Str("of"),
+            pf.Space,
+            pf.Str("samples"),
+        ),
     )
     doc, findings = associate_table_captions(doc)
     assert len(doc.content) == 2
@@ -215,9 +229,7 @@ def test_plant_anchors_numbers_figures_and_citations_in_document_order():
 
     raw_texts: list[str] = []
     doc.walk(
-        lambda elem, doc: raw_texts.append(elem.text)
-        if isinstance(elem, pf.RawInline)
-        else None
+        lambda elem, doc: raw_texts.append(elem.text) if isinstance(elem, pf.RawInline) else None
     )
     assert raw_texts == ["%%FIGURE:1%%", "%%CITE:1%%", "%%FIGURE:2%%", "%%CITE:2%%"]
 

@@ -71,18 +71,22 @@ def _cite_xml(
     )
 
 
-SINGLE_XML = "<EndNote>" + _cite_xml(
-    1,
-    "Journal Article",
-    "Quantum electrodynamics of high-energy collisions",
-    ["Feynman, Richard P.", "Gell-Mann, Murray"],
-    "1969",
-    journal="Physical Review",
-    volume="1",
-    pages="1-10",
-    doi="10.1103/PhysRev.1969.1",
-    display="[1]",
-) + "</EndNote>"
+SINGLE_XML = (
+    "<EndNote>"
+    + _cite_xml(
+        1,
+        "Journal Article",
+        "Quantum electrodynamics of high-energy collisions",
+        ["Feynman, Richard P.", "Gell-Mann, Murray"],
+        "1969",
+        journal="Physical Review",
+        volume="1",
+        pages="1-10",
+        doi="10.1103/PhysRev.1969.1",
+        display="[1]",
+    )
+    + "</EndNote>"
+)
 
 MULTI_XML = (
     "<EndNote>"
@@ -99,27 +103,35 @@ MULTI_XML = (
     + "</EndNote>"
 )
 
-CHAPTER_XML = "<EndNote>" + _cite_xml(
-    4,
-    "Book Section",
-    "Topological classification of matter",
-    ["Wilczek, Frank"],
-    "1982",
-    display="[4]",
-) + "</EndNote>"
+CHAPTER_XML = (
+    "<EndNote>"
+    + _cite_xml(
+        4,
+        "Book Section",
+        "Topological classification of matter",
+        ["Wilczek, Frank"],
+        "1982",
+        display="[4]",
+    )
+    + "</EndNote>"
+)
 
-DOUBLE_ENCODED_SOURCE_XML = "<EndNote>" + _cite_xml(
-    5,
-    "Journal Article",
-    "Superconducting qubit coherence times",
-    ["Devoret, Michel"],
-    "2013",
-    journal="Nature Physics",
-    volume="9",
-    pages="300-305",
-    doi="10.1038/nphys1234",
-    display="[5]",
-) + "</EndNote>"
+DOUBLE_ENCODED_SOURCE_XML = (
+    "<EndNote>"
+    + _cite_xml(
+        5,
+        "Journal Article",
+        "Superconducting qubit coherence times",
+        ["Devoret, Michel"],
+        "2013",
+        journal="Nature Physics",
+        volume="9",
+        pages="300-305",
+        doi="10.1038/nphys1234",
+        display="[5]",
+    )
+    + "</EndNote>"
+)
 
 
 # --- OOXML building helpers (mirrors make_zotero_cited.py) ------------------
@@ -138,7 +150,7 @@ def _fldchar(char_type: str) -> str:
 
 
 def _text_run(text: str) -> str:
-    return f"<w:r><w:t xml:space=\"preserve\">{_xml_escape(text)}</w:t></w:r>"
+    return f'<w:r><w:t xml:space="preserve">{_xml_escape(text)}</w:t></w:r>'
 
 
 def _field(instr_chunks: list[str], result: str) -> str:

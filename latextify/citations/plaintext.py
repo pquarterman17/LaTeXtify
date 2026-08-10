@@ -162,6 +162,7 @@ def segment_reference_list(docx_path: Path | str) -> ReferenceList:
     """
     if not is_docx(docx_path):
         from .reflist_nondocx import segment_reference_list_from_manuscript
+
         return segment_reference_list_from_manuscript(Path(docx_path))
     root = etree.fromstring(read_document_xml(docx_path))
     paragraphs = list(root.iter(_q("p")))
@@ -261,9 +262,7 @@ def reconstruct_citations(
             client.close()
 
     keys_by_number = {
-        record.ref_number: record.key
-        for record in outcome.records
-        if record.ref_number is not None
+        record.ref_number: record.key for record in outcome.records if record.ref_number is not None
     }
     return PlaintextResult(
         entries=outcome.entries,
@@ -347,9 +346,7 @@ def _merge_dash_joined_markers(tex: str, pattern: re.Pattern[str], wrap) -> str:
     own replacements; looping to a fixed point handles that rare case too.
     """
     while True:
-        new_tex, count = pattern.subn(
-            lambda m: wrap(f"{m.group(1)}-{m.group(2)}"), tex
-        )
+        new_tex, count = pattern.subn(lambda m: wrap(f"{m.group(1)}-{m.group(2)}"), tex)
         if count == 0:
             return new_tex
         tex = new_tex
@@ -606,9 +603,7 @@ def link_body_markers(tex: str, result: PlaintextResult) -> tuple[str, list[str]
             )
         return "\\cite{" + ",".join(_dedup(keys)) + "}"
 
-    tex = _merge_dash_joined_markers(
-        tex, _BRACKET_JOIN_RE, lambda content: "{[}" + content + "{]}"
-    )
+    tex = _merge_dash_joined_markers(tex, _BRACKET_JOIN_RE, lambda content: "{[}" + content + "{]}")
     tex = _merge_dash_joined_markers(
         tex, _SUPERSCRIPT_JOIN_RE, lambda content: "\\textsuperscript{" + content + "}"
     )

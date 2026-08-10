@@ -38,9 +38,7 @@ def test_example_01_all_embedded(tmp_path, monkeypatch):
     # every typed reference degrades to a verify-flagged raw entry.
     from latextify.citations import crossref
 
-    monkeypatch.setattr(
-        crossref.CrossrefClient, "query_bibliographic", lambda self, *a, **k: []
-    )
+    monkeypatch.setattr(crossref.CrossrefClient, "query_bibliographic", lambda self, *a, **k: [])
 
     gen = _load_generator("01-all-embedded")
     docx = gen.build()
@@ -78,8 +76,11 @@ def test_example_03_multipart_refmanager(tmp_path):
     assert main_docx.is_file() and supplement_docx.is_file()
 
     result = emit_project(
-        main_docx, "revtex4-2", tmp_path / "output",
-        supplement_docx_path=supplement_docx, report=False,
+        main_docx,
+        "revtex4-2",
+        tmp_path / "output",
+        supplement_docx_path=supplement_docx,
+        report=False,
     )
 
     # paper.yaml drove the metadata (two named authors), no guessing.
@@ -98,8 +99,9 @@ def test_example_03_multipart_refmanager(tmp_path):
     assert result.supplement.new_reference_count == 1  # only Kajiwara is new
 
 
-@pytest.mark.parametrize("example_dir", ["01-all-embedded", "02-word-plus-figures",
-                                         "03-multipart-refmanager"])
+@pytest.mark.parametrize(
+    "example_dir", ["01-all-embedded", "02-word-plus-figures", "03-multipart-refmanager"]
+)
 def test_example_has_readme_and_runner(example_dir):
     base = EXAMPLES / example_dir
     assert (base / "README.md").is_file()

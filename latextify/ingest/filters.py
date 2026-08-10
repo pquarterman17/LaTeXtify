@@ -819,9 +819,7 @@ def _degraded_column_alignment_letters(table: pf.Table, body_rows: list[pf.Table
     return letters
 
 
-def _degraded_row_to_latex(
-    slots: list[_GridSlot], api_version, cache: dict[int, str]
-) -> str:
+def _degraded_row_to_latex(slots: list[_GridSlot], api_version, cache: dict[int, str]) -> str:
     """Render one row's grid slots to a LaTeX table row, memoizing each real
     cell's rendered text by ``id()`` so a vertically merged cell is only run
     through pandoc once even though its text is duplicated into every row it

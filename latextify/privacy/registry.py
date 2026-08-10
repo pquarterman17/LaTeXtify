@@ -64,8 +64,7 @@ def _lookup(path: Path) -> tuple[_Handler, str]:
     if entry is None:
         supported = ", ".join(supported_extensions())
         raise ValueError(
-            f"{path}: unsupported file type {ext or '(no extension)'!r}. "
-            f"Supported: {supported}"
+            f"{path}: unsupported file type {ext or '(no extension)'!r}. Supported: {supported}"
         )
     handler, name = entry
     return handler, name  # type: ignore[return-value]

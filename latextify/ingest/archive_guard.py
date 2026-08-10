@@ -110,6 +110,7 @@ def validate_docx_archive(
     sizes, names, encryption flags) without decompressing, so the guard is
     cheap and safe against the very bombs it detects.
     """
+
     def _fail(reason: str) -> None:
         _reject(docx_path, reason, label)
 
@@ -154,8 +155,7 @@ def validate_docx_archive(
 
         if total_expanded > max_total_expanded_bytes:
             _fail(
-                f"expands to {total_expanded} bytes total "
-                f"(limit {max_total_expanded_bytes})",
+                f"expands to {total_expanded} bytes total (limit {max_total_expanded_bytes})",
             )
 
         if (
@@ -192,7 +192,6 @@ def stream_zip_member(
             total += len(chunk)
             if total > max_bytes:
                 raise ValueError(
-                    f"archive member {info.filename!r} expands past {max_bytes} "
-                    f"bytes during copy"
+                    f"archive member {info.filename!r} expands past {max_bytes} bytes during copy"
                 )
             dst.write(chunk)

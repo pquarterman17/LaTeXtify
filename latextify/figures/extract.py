@@ -116,8 +116,10 @@ def extract_figures(docx_path: Path | str, media_dir: Path | str) -> tuple[Figur
         # --resource-path: markdown's externally-referenced images (relative
         # to the manuscript, not pandoc's own cwd) otherwise fail to resolve.
         extra_args=[
-            "--extract-media", str(media_dir),
-            "--resource-path", str(docx_path.parent),
+            "--extract-media",
+            str(media_dir),
+            "--resource-path",
+            str(docx_path.parent),
         ],
         # format/to are always one of our own hardcoded, always-valid pandoc
         # format names -- see latextify.ingest.pandoc's matching comment.

@@ -109,30 +109,38 @@ def _convert_single_file(
 
 def batch(
     folder: Path = typer.Argument(
-        ..., exists=True, file_okay=False, dir_okay=True, readable=True,
-        help="Source folder containing .docx files to convert."
+        ...,
+        exists=True,
+        file_okay=False,
+        dir_okay=True,
+        readable=True,
+        help="Source folder containing .docx files to convert.",
     ),
     journal: str = typer.Option(
         ..., "--journal", "-j", help="Target journal template (e.g. 'revtex4-2')."
     ),
     output: Path = typer.Option(
-        Path("output"), "--output", "-o",
-        help="Root output directory; each .docx gets a per-stem subdirectory."
+        Path("output"),
+        "--output",
+        "-o",
+        help="Root output directory; each .docx gets a per-stem subdirectory.",
     ),
     citation_style: str = typer.Option(
-        None, "--citation-style",
-        help="Citation mode override: numeric|authoryear (journal-dependent)."
+        None,
+        "--citation-style",
+        help="Citation mode override: numeric|authoryear (journal-dependent).",
     ),
     crossref_mailto: str = typer.Option(
-        None, "--crossref-mailto",
-        help="Contact email for Crossref (plain-text citation reconstruction)."
+        None,
+        "--crossref-mailto",
+        help="Contact email for Crossref (plain-text citation reconstruction).",
     ),
-    pdf: bool = typer.Option(
-        False, "--pdf", help="Compile each LaTeX project to PDF."
-    ),
+    pdf: bool = typer.Option(False, "--pdf", help="Compile each LaTeX project to PDF."),
     recursive: bool = typer.Option(
-        False, "--recursive", "-r",
-        help="Walk subdirectories recursively; non-recursive by default."
+        False,
+        "--recursive",
+        "-r",
+        help="Walk subdirectories recursively; non-recursive by default.",
     ),
 ) -> None:
     """Convert a batch of .docx files in FOLDER, one project per file.
@@ -158,8 +166,7 @@ def batch(
         docx_files.append(docx)
 
     if not docx_files:
-        typer.echo(f"No .docx files found in {folder}" +
-                   (" (recursive)" if recursive else ""))
+        typer.echo(f"No .docx files found in {folder}" + (" (recursive)" if recursive else ""))
         return  # Exit 0 for empty folder.
 
     # Convert each file, collecting results.
@@ -212,8 +219,7 @@ def batch(
         error_cell = result.error_message[:60] if result.error_message else ""
         warning_cell = str(result.warning_count) if result.warning_count > 0 else ""
         summary_lines.append(
-            f"| {result.stem} | {result.status} | {warning_cell} | {pdf_cell} | "
-            f"{error_cell} |\n"
+            f"| {result.stem} | {result.status} | {warning_cell} | {pdf_cell} | {error_cell} |\n"
         )
 
     summary_path.write_text("".join(summary_lines), encoding="utf-8")

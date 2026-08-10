@@ -61,7 +61,7 @@ _OMATH_FRAC = (
 #   eqarray: $$\begin{aligned} a &= b + c \\ d &= e - f \end{aligned}$$
 _OMATH_MATRIX_INNER = (
     '<m:d><m:dPr><m:begChr m:val="(" /><m:sepChr m:val="" /><m:endChr m:val=")" />'
-    "<m:grow /></m:dPr><m:e><m:m><m:mPr><m:baseJc m:val=\"center\" />"
+    '<m:grow /></m:dPr><m:e><m:m><m:mPr><m:baseJc m:val="center" />'
     '<m:plcHide m:val="on" /><m:mcs><m:mc><m:mcPr><m:mcJc m:val="center" />'
     '<m:count m:val="1" /></m:mcPr></m:mc><m:mc><m:mcPr><m:mcJc m:val="center" />'
     '<m:count m:val="1" /></m:mcPr></m:mc></m:mcs></m:mPr>'

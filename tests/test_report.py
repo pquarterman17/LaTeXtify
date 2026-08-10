@@ -194,11 +194,15 @@ class TestReferenceValidationReporting:
                     checks=(FieldCheck(field="year", ours="2019", canonical="2020", ok=False),),
                 ),
                 ValidationRecord(
-                    key="typo_doi", status="dead_doi", doi="10.9999/nope",
+                    key="typo_doi",
+                    status="dead_doi",
+                    doi="10.9999/nope",
                     note="DOI does not resolve in Crossref",
                 ),
                 ValidationRecord(
-                    key="no_doi", status="doi_suggested", suggested_doi="10.1/found",
+                    key="no_doi",
+                    status="doi_suggested",
+                    suggested_doi="10.1/found",
                 ),
             )
         )
@@ -419,8 +423,10 @@ class TestSupplementCompileReporting:
     def test_supplement_failure_surfaces_even_when_main_ok(self):
         diags = (
             CompileDiagnostic(
-                severity=DiagnosticSeverity.ERROR, message="SI undefined macro",
-                file="supplement.tex", line=7,
+                severity=DiagnosticSeverity.ERROR,
+                message="SI undefined macro",
+                file="supplement.tex",
+                line=7,
             ),
         )
         text = render_report(
@@ -500,9 +506,7 @@ class TestInjectionHardening:
             ),
         )
         styles = StyleInventory(frozenset(), False, False)
-        report_text = render_report(
-            preflight=PreflightReport(findings=findings, styles=styles)
-        )
+        report_text = render_report(preflight=PreflightReport(findings=findings, styles=styles))
         # The injected heading must not become a real report heading.
         assert "\n## Injected Heading" not in report_text
         assert "bad thing ## Injected Heading more" in report_text

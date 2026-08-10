@@ -167,9 +167,7 @@ def serve_demo() -> None:  # pragma: no cover - thin uvicorn launcher
     from latextify.gui.server import create_app  # deferred: avoids import cycle
 
     host = os.environ.get("LATEXTIFY_DEMO_HOST", "127.0.0.1")
-    port = int(
-        os.environ.get("LATEXTIFY_DEMO_PORT") or os.environ.get("PORT") or "7860"
-    )
+    port = int(os.environ.get("LATEXTIFY_DEMO_PORT") or os.environ.get("PORT") or "7860")
     print(f"LaTeXtify demo GUI on http://{host}:{port} (demo hardening active)")
     uvicorn.run(create_app(demo=True), host=host, port=port)
 

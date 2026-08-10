@@ -106,9 +106,7 @@ def review_corrections(
             decisions.append(CorrectionDecision(key=record.key, action="approve"))
         elif choice.startswith("e"):
             edited = _edit_entry(entry, prompt, echo)
-            decisions.append(
-                CorrectionDecision(key=record.key, action="edit", edited_entry=edited)
-            )
+            decisions.append(CorrectionDecision(key=record.key, action="edit", edited_entry=edited))
         else:
             decisions.append(CorrectionDecision(key=record.key, action="deny"))
     return decisions

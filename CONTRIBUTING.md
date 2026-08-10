@@ -10,6 +10,7 @@ cd LaTeXtify
 uv sync          # creates .venv, installs everything incl. dev deps
 uv run pytest    # full suite (downloads the Tectonic binary on first run)
 uv run ruff check .
+uv run ruff format .   # formatting is enforced in CI, not just available
 ```
 
 Fast subset (no TeX engine, no network):
@@ -30,7 +31,11 @@ uv run python -c "from latextify.compile.tectonic import ensure_tectonic; print(
 
 - **Tests first-class:** every bug fix carries a minimal reproducing test;
   every feature carries tests. The suite must be green (`pytest` + `ruff
-  check .`) before a PR.
+  check .` + `ruff format --check .`) before a PR.
+- **Modules stay small:** `tests/test_repo_integrity.py` enforces a 500-line
+  ceiling on every source file, with a handful of legacy files pinned at
+  their current size. Pins only ever move DOWN — if a change would push a
+  file over, extract to a focused module rather than raising the number.
 - **Journals are data:** adding a journal means adding a folder under
   `latextify/templates/journals/` (manifest.yaml + two Jinja templates +
   golden-file tests) — never editing converter code. Copy `revtex4-2/` as

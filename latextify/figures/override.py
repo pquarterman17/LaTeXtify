@@ -51,13 +51,9 @@ def _manifest_number(raw_key: object, source: str) -> int:
     elif isinstance(raw_key, str) and raw_key.strip().lstrip("-").isdigit():
         number = int(raw_key.strip())
     else:
-        raise FigureManifestError(
-            f"{source}: figure number {raw_key!r} must be a positive integer"
-        )
+        raise FigureManifestError(f"{source}: figure number {raw_key!r} must be a positive integer")
     if number < 1:
-        raise FigureManifestError(
-            f"{source}: figure number {number} must be a positive integer"
-        )
+        raise FigureManifestError(f"{source}: figure number {number} must be a positive integer")
     return number
 
 
@@ -82,9 +78,7 @@ def load_manifest(manifest_path: Path | str) -> dict[int, Path]:
     if data is None:
         return {}
     if not isinstance(data, dict):
-        raise FigureManifestError(
-            f"{source}: root must be a mapping, got {type(data).__name__}"
-        )
+        raise FigureManifestError(f"{source}: root must be a mapping, got {type(data).__name__}")
 
     resolved: dict[int, Path] = {}
     for raw_number, raw_path in data.items():
@@ -155,9 +149,7 @@ def resolve_overrides(
     docx_path = Path(docx_path)
     figures_dir = docx_path.parent / "figures"
     manifest_path = docx_path.parent / MANIFEST_FILENAME
-    manifest_map = (
-        load_manifest(manifest_path) if not prefix and manifest_path.is_file() else {}
-    )
+    manifest_map = load_manifest(manifest_path) if not prefix and manifest_path.is_file() else {}
 
     resolved: list[Figure] = []
     for figure in figures:

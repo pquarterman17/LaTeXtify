@@ -147,9 +147,7 @@ def sanitize(src: Path, dest: Path, **_options: object) -> tuple[list[Finding], 
     visible metadata while leaving fast-save fragments of deleted text in
     place, producing a file that looks clean and is not.
     """
-    modern = {".doc": ".docx", ".ppt": ".pptx", ".xls": ".xlsx"}.get(
-        src.suffix.lower(), ".docx"
-    )
+    modern = {".doc": ".docx", ".ppt": ".pptx", ".xls": ".xlsx"}.get(src.suffix.lower(), ".docx")
     raise ValueError(
         f"{src}: refusing to sanitize a legacy {src.suffix} file.\n"
         f"  Why: this format appends edits rather than rewriting, so deleted text can "

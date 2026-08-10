@@ -515,8 +515,7 @@ def test_wiley_cls_confirmed_absent_from_tectonic_bundle(tmp_path):
     manifest.yaml's WHERE TO GET IT note)."""
     tex_path = tmp_path / "main.tex"
     tex_path.write_text(
-        "\\documentclass[NoteStyle]{WileyNJD-v2}\n"
-        "\\begin{document}\nHello.\n\\end{document}\n",
+        "\\documentclass[NoteStyle]{WileyNJD-v2}\n\\begin{document}\nHello.\n\\end{document}\n",
         encoding="utf-8",
     )
     result = compile_document(tex_path)  # no vendor_dir -- bundle only, as a

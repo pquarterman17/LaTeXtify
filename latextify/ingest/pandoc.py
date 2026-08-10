@@ -182,8 +182,10 @@ def convert_docx_to_ast(
                 to="json",
                 format=pandoc_format,
                 extra_args=[
-                    "--extract-media", str(media_dir),
-                    "--resource-path", str(docx_path.parent),
+                    "--extract-media",
+                    str(media_dir),
+                    "--resource-path",
+                    str(docx_path.parent),
                 ],
                 # See the verify_format=False comment above.
                 verify_format=False,

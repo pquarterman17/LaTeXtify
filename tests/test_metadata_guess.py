@@ -153,8 +153,7 @@ def test_corresponding_email_not_stolen_from_abstract_text(tmp_path):
     author = result.meta.authors[0]
     assert author.corresponding is True
     assert author.email is None, (
-        f"abstract email was incorrectly attributed to the corresponding "
-        f"author: {author.email!r}"
+        f"abstract email was incorrectly attributed to the corresponding author: {author.email!r}"
     )
     assert any("no nearby email" in msg for msg in result.checks.get("authors", []))
 
@@ -466,9 +465,7 @@ def test_nonnumeric_unlabeled_nonsequential_markers_fall_back_with_check(tmp_pat
     # better signal exists) but now it must be flagged.
     assert result.meta.affiliations[grace.affiliations[0]].name == "Dept X"
     assert result.meta.affiliations[heidi.affiliations[0]].name == "Dept Y"
-    assert any(
-        "marker appearance order" in msg for msg in result.checks.get("affiliations", [])
-    )
+    assert any("marker appearance order" in msg for msg in result.checks.get("affiliations", []))
 
     rendered = render_paper_yaml(result.meta, result.checks)
     round_tripped = meta_from_yaml_data(yaml.safe_load(rendered))

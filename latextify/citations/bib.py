@@ -49,14 +49,48 @@ def csl_type_to_bibtex(csl_type: str | None) -> str:
 
 # Characters NFKD does not decompose to ASCII; map them explicitly.
 _FOLD_MAP = {
-    "ø": "o", "Ø": "O", "ß": "ss", "æ": "ae", "Æ": "AE", "œ": "oe", "Œ": "OE",
-    "đ": "d", "Đ": "D", "ð": "d", "Ð": "D", "þ": "th", "Þ": "Th",
-    "ł": "l", "Ł": "L", "ı": "i", "ħ": "h", "ĸ": "k", "ŉ": "n",
+    "ø": "o",
+    "Ø": "O",
+    "ß": "ss",
+    "æ": "ae",
+    "Æ": "AE",
+    "œ": "oe",
+    "Œ": "OE",
+    "đ": "d",
+    "Đ": "D",
+    "ð": "d",
+    "Ð": "D",
+    "þ": "th",
+    "Þ": "Th",
+    "ł": "l",
+    "Ł": "L",
+    "ı": "i",
+    "ħ": "h",
+    "ĸ": "k",
+    "ŉ": "n",
 }
 
 _TITLE_STOPWORDS = {
-    "the", "a", "an", "on", "of", "in", "and", "for", "to", "with", "from",
-    "at", "by", "as", "into", "over", "via", "using", "toward", "towards",
+    "the",
+    "a",
+    "an",
+    "on",
+    "of",
+    "in",
+    "and",
+    "for",
+    "to",
+    "with",
+    "from",
+    "at",
+    "by",
+    "as",
+    "into",
+    "over",
+    "via",
+    "using",
+    "toward",
+    "towards",
 }
 
 

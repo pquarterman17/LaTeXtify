@@ -46,9 +46,7 @@ def test_year_accepts_int_and_string_date_parts():
 
 
 def test_year_falls_back_to_raw_or_literal():
-    raw = zotero.csl_item_to_refentry(
-        {"type": "book", "issued": {"raw": "circa 1876"}}, "zotero"
-    )
+    raw = zotero.csl_item_to_refentry({"type": "book", "issued": {"raw": "circa 1876"}}, "zotero")
     assert raw.year == "1876"
 
 
@@ -104,8 +102,7 @@ def test_mendeley_matches_but_not_zotero():
 
 def test_mendeley_parse_sets_source():
     instr = (
-        'ADDIN CSL_CITATION {"citationItems": '
-        '[{"itemData": {"type": "article-journal", "id": 1}}]}'
+        'ADDIN CSL_CITATION {"citationItems": [{"itemData": {"type": "article-journal", "id": 1}}]}'
     )
     entries = mendeley.parse_instruction(instr)
     assert len(entries) == 1

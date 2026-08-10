@@ -94,8 +94,7 @@ def _read_document_root(docx_path: Path | str) -> etree._Element:
                 return etree.parse(fh, parser=hardened_xml_parser()).getroot()
             except etree.XMLSyntaxError as exc:
                 raise ValueError(
-                    f"{docx_path}: not a valid .docx "
-                    f"(malformed XML in word/document.xml: {exc})"
+                    f"{docx_path}: not a valid .docx (malformed XML in word/document.xml: {exc})"
                 ) from exc
 
 
@@ -150,9 +149,7 @@ def _pandoc_math_nodes(docx_path: Path | str) -> list[pf.Math]:
     # "docx"/"json" are always-valid pandoc format names -- see
     # latextify.ingest.pandoc for the full reasoning behind skipping
     # pypandoc's own (uncached, 2-subprocess) format check.
-    ast_json = pypandoc.convert_file(
-        str(docx_path), to="json", format="docx", verify_format=False
-    )
+    ast_json = pypandoc.convert_file(str(docx_path), to="json", format="docx", verify_format=False)
     doc = pf.load(io.StringIO(ast_json))
     nodes: list[pf.Math] = []
 
@@ -264,9 +261,7 @@ def _build_probe_document(
 
 
 def _build_single_equation_document(equation: EquationRecord) -> str:
-    return (
-        f"{_PROBE_PREAMBLE}\\begin{{document}}\n{_math_block(equation)}\n\\end{{document}}\n"
-    )
+    return f"{_PROBE_PREAMBLE}\\begin{{document}}\n{_math_block(equation)}\n\\end{{document}}\n"
 
 
 def probe_compile_equations(

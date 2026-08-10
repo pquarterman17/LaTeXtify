@@ -173,7 +173,6 @@ def test_body_compiles_in_minimal_article_harness(equations_result, tmp_path):
         text=True,
     )
     assert proc.returncode == 0, (
-        f"tectonic failed to compile the harness:\nstdout:\n{proc.stdout}\n"
-        f"stderr:\n{proc.stderr}"
+        f"tectonic failed to compile the harness:\nstdout:\n{proc.stdout}\nstderr:\n{proc.stderr}"
     )
     assert (tmp_path / "harness.pdf").is_file()

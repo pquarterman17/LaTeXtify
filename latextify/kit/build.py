@@ -33,119 +33,27 @@ from __future__ import annotations
 
 import json
 import os
-import platform
 import shutil
 import subprocess
-import sys
 import zipfile
-from dataclasses import dataclass
 from pathlib import Path
 
 from latextify.compile.tectonic import download_tectonic_release
+from latextify.kit.target import (
+    DEFAULT_PY_VERSIONS,
+    KitBuildError,
+    Target,
+    build_bundle_info,
+    is_cross_build,
+    kit_dir_name,
+    pip_platform_args,
+    resolve_target,
+)
+from latextify.kit.tex_cache import long_path, warm_tex_cache
 from latextify.templates import loader
 
 HERE = Path(__file__).resolve().parent
 REPO_ROOT = HERE.parents[1]
-
-
-@dataclass(frozen=True)
-class Target:
-    """One offline kit target platform."""
-
-    name: str  # canonical kit label, e.g. "win-x64"
-    os: str  # "windows" | "linux" | "macos"
-    arch: str  # "x64" | "arm64"
-    tectonic_triple: str  # Tectonic release asset triple
-    tectonic_binary: str  # extracted binary name on the target
-    #: pip ``--platform`` tags for a CROSS download; empty means "native".
-    pip_platforms: tuple[str, ...]
-
-
-# Cross-download platform tags list newest-first; pip accepts several and picks
-# the most specific wheel each dependency actually publishes.
-TARGETS: dict[str, Target] = {
-    "win-x64": Target(
-        "win-x64", "windows", "x64",
-        "x86_64-pc-windows-msvc", "tectonic.exe",
-        ("win_amd64",),
-    ),
-    "linux-x64": Target(
-        "linux-x64", "linux", "x64",
-        "x86_64-unknown-linux-gnu", "tectonic",
-        ("manylinux_2_28_x86_64", "manylinux2014_x86_64",
-         "manylinux_2_17_x86_64", "manylinux2010_x86_64", "manylinux1_x86_64"),
-    ),
-    "macos-arm64": Target(
-        "macos-arm64", "macos", "arm64",
-        "aarch64-apple-darwin", "tectonic",
-        ("macosx_14_0_arm64", "macosx_13_0_arm64", "macosx_12_0_arm64",
-         "macosx_11_0_arm64", "macosx_11_0_universal2"),
-    ),
-}
-
-DEFAULT_PY_VERSIONS: tuple[str, ...] = ("3.10", "3.11", "3.12", "3.13", "3.14")
-
-
-def _host_target_name() -> str:
-    os_name = {"win32": "windows", "darwin": "macos"}.get(sys.platform, "linux")
-    mach = platform.machine().lower()
-    arch = {"amd64": "x64", "x86_64": "x64", "arm64": "arm64", "aarch64": "arm64"}.get(mach, mach)
-    for target in TARGETS.values():
-        if target.os == os_name and target.arch == arch:
-            return target.name
-    raise KitBuildError(
-        f"no offline-kit target defined for this host ({os_name}-{arch}); "
-        f"known targets: {', '.join(TARGETS)}"
-    )
-
-
-class KitBuildError(RuntimeError):
-    """A recoverable, user-facing offline-kit build failure."""
-
-
-def resolve_target(name: str) -> Target:
-    """Map a ``--target`` value ('current' or a canonical name) to a :class:`Target`."""
-    if name == "current":
-        name = _host_target_name()
-    try:
-        return TARGETS[name]
-    except KeyError:
-        raise KitBuildError(
-            f"unknown target {name!r}; choose one of: current, {', '.join(TARGETS)}"
-        ) from None
-
-
-def kit_dir_name(target: Target) -> str:
-    return f"latextify-offline-{target.os}-{target.arch}"
-
-
-def is_cross_build(target: Target) -> bool:
-    """True when ``target`` is not the build host (needs cross pip download)."""
-    return target.name != _host_target_name()
-
-
-def pip_platform_args(target: Target) -> list[str]:
-    """pip ``--platform`` args for a cross download (empty list for native)."""
-    args: list[str] = []
-    for tag in target.pip_platforms:
-        args += ["--platform", tag]
-    return args
-
-
-def build_bundle_info(target: Target, version: str, py_versions: list[str], *, warm_tex: bool,
-                      with_gui: bool, journals: list[str]) -> dict:
-    """Shape the ``bundle-info.json`` manifest (pure)."""
-    return {
-        "name": "latextify",
-        "version": version,
-        "os": target.os,
-        "arch": target.arch,
-        "target": target.name,
-        "python_versions": list(py_versions),
-        "warm_tex": warm_tex,
-        "with_gui": with_gui,
-        "warmed_journals": sorted(journals) if warm_tex else [],
-    }
 
 
 # --------------------------------------------------------------------------- #
@@ -178,8 +86,16 @@ def _build_project_wheel(wheelhouse: Path) -> str:
 
 def _export_requirements(req: Path, *, with_gui: bool) -> None:
     cmd = [
-        "uv", "export", "--frozen", "--no-dev", "--no-emit-project",
-        "--no-hashes", "--format", "requirements-txt", "-o", str(req),
+        "uv",
+        "export",
+        "--frozen",
+        "--no-dev",
+        "--no-emit-project",
+        "--no-hashes",
+        "--format",
+        "requirements-txt",
+        "-o",
+        str(req),
     ]
     if with_gui:
         cmd += ["--extra", "gui"]
@@ -194,8 +110,21 @@ def _download_deps(
     for v in py_versions:
         print(f"-- downloading dependency wheels for Python {v} ({target.name}) --", flush=True)
         cmd = [
-            "uv", "run", "--python", v, "--with", "pip", "--no-project",
-            "python", "-m", "pip", "download", "-r", str(req), "--dest", str(wheelhouse),
+            "uv",
+            "run",
+            "--python",
+            v,
+            "--with",
+            "pip",
+            "--no-project",
+            "python",
+            "-m",
+            "pip",
+            "download",
+            "-r",
+            str(req),
+            "--dest",
+            str(wheelhouse),
         ]
         if cross:
             # cross target: wheels only (no local build possible) + retarget the
@@ -207,17 +136,30 @@ def _download_deps(
         _run(cmd)
 
     # a universal pip wheel so install.py can bootstrap pip on ensurepip-less targets
-    _run([
-        "uv", "run", "--python", py_versions[-1], "--with", "pip", "--no-project",
-        "python", "-m", "pip", "download", "pip", "--dest", str(wheelhouse),
-        "--only-binary=:all:",
-    ])
+    _run(
+        [
+            "uv",
+            "run",
+            "--python",
+            py_versions[-1],
+            "--with",
+            "pip",
+            "--no-project",
+            "python",
+            "-m",
+            "pip",
+            "download",
+            "pip",
+            "--dest",
+            str(wheelhouse),
+            "--only-binary=:all:",
+        ]
+    )
 
     # Native builds may fetch a sdist for a dep with no wheel; turn those into
     # wheels HERE (per covered Python) so the target never needs build tools. A
     # cross build used --only-binary, so any sdist is a genuine coverage gap.
-    sdists = [p for p in wheelhouse.iterdir()
-              if p.name.endswith((".tar.gz", ".tar.bz2", ".zip"))]
+    sdists = [p for p in wheelhouse.iterdir() if p.name.endswith((".tar.gz", ".tar.bz2", ".zip"))]
     for sdist in sdists:
         if cross:
             raise KitBuildError(
@@ -227,11 +169,25 @@ def _download_deps(
             )
         print(f"-- building wheel from sdist: {sdist.name} --", flush=True)
         for v in py_versions:
-            _run([
-                "uv", "run", "--python", v, "--with", "pip", "--no-project",
-                "python", "-m", "pip", "wheel", str(sdist), "--no-deps",
-                "--wheel-dir", str(wheelhouse),
-            ])
+            _run(
+                [
+                    "uv",
+                    "run",
+                    "--python",
+                    v,
+                    "--with",
+                    "pip",
+                    "--no-project",
+                    "python",
+                    "-m",
+                    "pip",
+                    "wheel",
+                    str(sdist),
+                    "--no-deps",
+                    "--wheel-dir",
+                    str(wheelhouse),
+                ]
+            )
         sdist.unlink()
 
     leftovers = [p.name for p in wheelhouse.iterdir() if not p.name.endswith(".whl")]
@@ -247,133 +203,6 @@ def _fetch_tectonic(target: Target, tectonic_dir: Path) -> Path:
     return download_tectonic_release(target.tectonic_triple, target.tectonic_binary, tectonic_dir)
 
 
-#: Cache subtrees that are host/arch-specific engine format dumps (not TeX
-#: source) -- a target regenerates these locally and offline from the cached
-#: sources, so shipping them would only bloat the kit and risk a cross-arch
-#: mismatch. Stripped before the warmed cache is copied into the kit.
-_NONPORTABLE_CACHE_NAMES = ("formats",)
-
-# The warm-up document body. Fonts are pulled by SIZE x WEIGHT x FAMILY, not by
-# a document's metadata, so a trivial body under-warms: a real manuscript's 9pt
-# abstract needs lmroman9, its 12pt-bold headings need lmroman12-bold -- neither
-# is loaded by "Warm-up." at 10pt regular. Latin Modern ships discrete design
-# sizes (5,6,7,8,9,10,12,17pt), each a separate font file per weight/family, and
-# a class picks the nearest for any requested size. So \WarmAt renders every
-# design size (plus the common in-between sizes classes ask for) in roman
-# regular/bold/italic/bold-italic, small-caps, sans, and typewriter, and the
-# body adds inline + display math (math font). Journal-agnostic (only
-# \section/text/math/table -- every registered class is article-derived), this
-# covers the font files an actual compile of any journal pulls.
-_WARM_BODY = r"""
-\begin{document}
-\section{Cache warm-up}
-\newcommand\WarmAt[1]{{\fontsize{#1}{#1}\selectfont
-  reg \textbf{bold} \textit{italic} \textbf{\textit{bolditalic}} \textsc{smallcaps}
-  \textsf{sans} \texttt{mono}}\par}
-\WarmAt{5}\WarmAt{6}\WarmAt{7}\WarmAt{8}\WarmAt{9}\WarmAt{10}\WarmAt{10.5}%
-\WarmAt{11}\WarmAt{12}\WarmAt{14}\WarmAt{17}\WarmAt{20}\WarmAt{24}
-Inline math $E = mc^2$ and a display equation:
-\[ \int_0^1 x^2 \, \mathrm{d}x = \tfrac{1}{3}, \qquad \alpha\beta\gamma\sum_{n=1}^{\infty}. \]
-\begin{table}[htbp]
-\centering
-\caption{Warm-up table.}
-\begin{tabular}{ll}
-\toprule
-Left & Right \\
-\midrule
-one & two \\
-\bottomrule
-\end{tabular}
-\end{table}
-\end{document}
-"""
-
-
-def _long_path(p: Path) -> str:
-    """Windows extended-length (\\\\?\\) form so deep cache paths clear MAX_PATH.
-
-    Tectonic caches files under 64-char content-hash names beneath
-    ``bundles/data/``; a moderately deep kit output dir can push those past the
-    260-char legacy limit. The ``\\\\?\\`` prefix opts a path out of that limit.
-    No-op off Windows / for already-prefixed paths.
-    """
-    s = str(p)
-    if os.name == "nt" and not s.startswith("\\\\?\\"):
-        return "\\\\?\\" + s
-    return s
-
-
-def _copy_portable_cache(src: Path, dest: Path) -> None:
-    """Copy the warmed Tectonic cache into the kit, minus non-portable formats."""
-    dest.mkdir(parents=True, exist_ok=True)
-    shutil.copytree(
-        _long_path(src.resolve()), _long_path(dest.resolve()), dirs_exist_ok=True,
-        ignore=shutil.ignore_patterns(*_NONPORTABLE_CACHE_NAMES, "*.fmt"),
-    )
-
-
-def _warm_tex_cache(tex_cache: Path, journals: list[str]) -> list[str]:
-    """Prime ``tex_cache`` with each journal's TeX packages, using the HOST Tectonic.
-
-    Compiles a minimal document per journal (its rendered preamble + a trivial
-    body) so the exact packages each journal's class/preamble pulls land in the
-    cache. Warming runs against a SHORT-path temp cache -- Tectonic's format-file
-    generation can exceed Windows MAX_PATH under a deep kit output directory --
-    then the TeX *source* files are copied into the kit (the host-specific engine
-    format dump is dropped; the target regenerates it locally, offline, from the
-    sources, which is what makes the cache cross-platform). Per-journal failure
-    is a warning, not fatal. Returns the journals that warmed successfully.
-    """
-    import tempfile
-
-    from latextify.compile.tectonic import compile_document, ensure_tectonic
-
-    tex_cache.mkdir(parents=True, exist_ok=True)
-    host_tectonic = ensure_tectonic()  # host binary, only to POPULATE the cache
-    warmed: list[str] = []
-    prev = os.environ.get("TECTONIC_CACHE_DIR")
-    with tempfile.TemporaryDirectory(prefix="ltx-warm-") as tmp:
-        work_cache = Path(tmp) / "c"
-        work_cache.mkdir()
-        os.environ["TECTONIC_CACHE_DIR"] = str(work_cache)
-        try:
-            for name in journals:
-                try:
-                    journal = loader.load(name)
-                    preamble = journal.render_preamble()
-                except Exception as exc:  # noqa: BLE001 - a bad journal must not kill the build
-                    print(f"  ! skip warming {name}: {exc}", flush=True)
-                    continue
-                workdir = Path(tmp) / f"j_{name}"
-                workdir.mkdir(parents=True, exist_ok=True)
-                tex = workdir / "warm.tex"
-                tex.write_text(preamble + _WARM_BODY, encoding="utf-8")
-                vendor = journal.root / "vendor"
-                vendor_dir = vendor if vendor.is_dir() else None
-                # A cold cache downloads the whole TeX bundle on the first
-                # compile; a transient blip there is worth one retry.
-                result = compile_document(tex, tectonic_path=host_tectonic, vendor_dir=vendor_dir)
-                if not result.success:
-                    result = compile_document(
-                        tex, tectonic_path=host_tectonic, vendor_dir=vendor_dir
-                    )
-                if result.success:
-                    warmed.append(name)
-                    print(f"  warmed {name}", flush=True)
-                else:
-                    tail = "\n".join(result.raw_log.splitlines()[-8:])
-                    print(f"  ! warming {name} did not compile clean (packages may be "
-                          f"partially cached); continuing.\n    log tail:\n{tail}", flush=True)
-        finally:
-            if prev is None:
-                os.environ.pop("TECTONIC_CACHE_DIR", None)
-            else:
-                os.environ["TECTONIC_CACHE_DIR"] = prev
-        if warmed:
-            _copy_portable_cache(work_cache, tex_cache)
-    return warmed
-
-
 def _zip_kit(kit_dir: Path) -> Path:
     """Zip ``kit_dir`` alongside itself; return the archive path.
 
@@ -382,8 +211,8 @@ def _zip_kit(kit_dir: Path) -> Path:
     path, and a warmed kit's ``tex-bundle-cache/bundles/data/<64-char-hash>``
     files can push the total path past Windows' 260-char MAX_PATH, making
     ``os.stat`` raise ``FileNotFoundError: [WinError 3]`` even though the
-    same tree copies fine -- :func:`_copy_portable_cache` already routes
-    around the identical limit for the cache-copy step via :func:`_long_path`.
+    same tree copies fine -- :func:`copy_portable_cache` already routes
+    around the identical limit for the cache-copy step via :func:`long_path`.
     Produces the same ``<kit_dir.name>/<relative path>`` layout
     ``shutil.make_archive(..., root_dir=kit_dir.parent, base_dir=kit_dir.name)``
     produced, including a zip entry for every directory (so an empty
@@ -391,8 +220,8 @@ def _zip_kit(kit_dir: Path) -> Path:
     """
     archive_path = kit_dir.parent / f"{kit_dir.name}.zip"
     root = kit_dir.resolve()
-    walk_root = _long_path(root)
-    with zipfile.ZipFile(_long_path(archive_path.resolve()), "w", zipfile.ZIP_DEFLATED) as zf:
+    walk_root = long_path(root)
+    with zipfile.ZipFile(long_path(archive_path.resolve()), "w", zipfile.ZIP_DEFLATED) as zf:
         zf.writestr(f"{kit_dir.name}/", "")
         for dirpath, dirnames, filenames in os.walk(walk_root):
             dirnames.sort()
@@ -441,16 +270,23 @@ def make_kit(
 
     warmed: list[str] = []
     if warm_tex:
-        warmed = _warm_tex_cache(kit_dir / "tex-bundle-cache", warm_journals)
+        warmed = warm_tex_cache(kit_dir / "tex-bundle-cache", warm_journals)
 
     shutil.copy2(HERE / "install_template.py", kit_dir / "install.py")
     shutil.copy2(HERE / "README-OFFLINE.md", kit_dir / "README-OFFLINE.md")
     (kit_dir / "bundle-info.json").write_text(
         json.dumps(
-            build_bundle_info(target, version, list(python_versions),
-                              warm_tex=warm_tex, with_gui=with_gui, journals=warmed),
+            build_bundle_info(
+                target,
+                version,
+                list(python_versions),
+                warm_tex=warm_tex,
+                with_gui=with_gui,
+                journals=warmed,
+            ),
             indent=2,
-        ) + "\n",
+        )
+        + "\n",
         encoding="utf-8",
     )
 

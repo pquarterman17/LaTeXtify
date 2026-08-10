@@ -52,7 +52,7 @@ def _numbered_paragraph(text: str) -> str:
     the digits literally and does not exercise this path.
     """
     return (
-        "<w:p><w:pPr><w:numPr><w:ilvl w:val=\"0\"/><w:numId w:val=\"1\"/></w:numPr></w:pPr>"
+        '<w:p><w:pPr><w:numPr><w:ilvl w:val="0"/><w:numId w:val="1"/></w:numPr></w:pPr>'
         f'<w:r><w:t xml:space="preserve">{text}</w:t></w:r></w:p>'
     )
 
@@ -79,6 +79,7 @@ def _build_raw_docx(path: Path, body_paragraphs: list[str]) -> Path:
         archive.writestr("_rels/.rels", _ROOT_RELS)
         archive.writestr("word/document.xml", document_xml)
     return path
+
 
 # --------------------------------------------------------------------------- #
 # numeric range expansion
@@ -310,7 +311,7 @@ def test_segment_word_native_numbered_list_mixed_with_typed_number(tmp_path):
         [
             _heading_paragraph("References"),
             _numbered_paragraph("Smith, A. First paper. (2020)."),
-            "<w:p><w:pPr><w:numPr><w:ilvl w:val=\"0\"/><w:numId w:val=\"1\"/></w:numPr></w:pPr>"
+            '<w:p><w:pPr><w:numPr><w:ilvl w:val="0"/><w:numId w:val="1"/></w:numPr></w:pPr>'
             '<w:r><w:t xml:space="preserve">99. Jones, B. Second paper. (2019).</w:t></w:r></w:p>',
         ],
     )
@@ -417,10 +418,7 @@ def test_link_endnote_temporary_citation_resolves_via_author_year():
 def test_link_endnote_temporary_citation_run_collapses_to_one_cite():
     # A tripled paste of the same unformatted field must become ONE \cite.
     result = _result(author_year_keys={("davies", "2004"): ["j2004"]})
-    body = (
-        "measurements\\{Davies, 2004 \\#78\\}"
-        "\\{Davies, 2004 \\#78\\}\\{Davies, 2004 \\#78\\}."
-    )
+    body = "measurements\\{Davies, 2004 \\#78\\}\\{Davies, 2004 \\#78\\}\\{Davies, 2004 \\#78\\}."
     tex, warnings = link_body_markers(body, result)
     assert tex == "measurements\\cite{j2004}."
 
@@ -618,11 +616,7 @@ def test_strip_removes_bold_reference_heading_not_promoted_to_section():
 
 
 def test_strip_removes_bare_reference_heading_paragraph():
-    tex = (
-        "Body text.\n\n"
-        "References\n\n"
-        "1. Smith, A. First. (2020).\n"
-    )
+    tex = "Body text.\n\nReferences\n\n1. Smith, A. First. (2020).\n"
     stripped = strip_reference_section(tex, _result())
     assert stripped.rstrip().endswith("Body text.")
 

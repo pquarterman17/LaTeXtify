@@ -98,8 +98,13 @@ def test_index_wires_the_multifile_ui(tmp_path):
     assert 'id="filelist"' in html  # per-file role table
     assert 'id="crossref-email"' in html
     for toggle in (
-        "opt-pdf", "opt-combine", "opt-zip", "opt-audit",
-        "opt-anonymize", "opt-figsend", "opt-checkrefs",
+        "opt-pdf",
+        "opt-combine",
+        "opt-zip",
+        "opt-audit",
+        "opt-anonymize",
+        "opt-figsend",
+        "opt-checkrefs",
     ):
         assert f'id="{toggle}"' in html, toggle
 
@@ -130,9 +135,12 @@ def test_split_static_assets_are_served(tmp_path):
         assert "javascript" in resp.headers["content-type"], name
     # The served index references exactly these assets.
     html = client.get("/").text
-    assert '/static/style.css' in html
+    assert "/static/style.css" in html
     for script in (
-        "/static/app.js", "/static/results.js", "/static/export.js", "/static/review.js",
+        "/static/app.js",
+        "/static/results.js",
+        "/static/export.js",
+        "/static/review.js",
     ):
         assert script in html, script
 
@@ -162,8 +170,14 @@ def test_options_are_grouped_and_every_toggle_explained(tmp_path):
     for legend in ("Conversion", "Outputs", "Online checks"):
         assert f"<legend>{legend}</legend>" in html, legend
     for opt in (
-        "opt-pdf", "opt-combine", "opt-zip", "opt-nofigs",
-        "opt-audit", "opt-checkrefs", "opt-anonymize", "opt-figsend",
+        "opt-pdf",
+        "opt-combine",
+        "opt-zip",
+        "opt-nofigs",
+        "opt-audit",
+        "opt-checkrefs",
+        "opt-anonymize",
+        "opt-figsend",
     ):
         pattern = rf'<label class="checkbox-row" title="[^"]{{30,}}"><input id="{opt}"'
         assert re.search(pattern, html), f"{opt} lacks a tooltip"
@@ -184,7 +198,10 @@ def test_citation_default_confirm_wiring_present(tmp_path):
     client = _client(tmp_path)
     html = client.get("/").text
     for elem in (
-        "citation-confirm", "citation-confirm-text", "citation-confirm-yes", "citation-confirm-no",
+        "citation-confirm",
+        "citation-confirm-text",
+        "citation-confirm-yes",
+        "citation-confirm-no",
     ):
         assert f'id="{elem}"' in html, elem
     js = client.get("/static/app.js").text
@@ -229,9 +246,7 @@ def test_convert_multi_threads_submission_options(tmp_path):
     out = Path(body["output_dir"])
 
     preamble = (out / "generated" / "preamble.tex").read_text(encoding="utf-8")
-    class_line = next(
-        line for line in preamble.splitlines() if line.startswith("\\documentclass")
-    )
+    class_line = next(line for line in preamble.splitlines() if line.startswith("\\documentclass"))
     assert "preprint" in class_line  # one-column on REVTeX = preprint mode
     assert "reprint" not in class_line.replace("preprint", "")
     assert "linenumbers" in class_line  # REVTeX's native line-number option
@@ -752,10 +767,7 @@ def test_convert_multi_rejects_unsupported_manuscript_extension(tmp_path):
 
 def test_convert_multi_accepts_a_markdown_main_manuscript(tmp_path):
     client = _client(tmp_path)
-    md = (
-        b"# GUI Markdown Fixture\n\n"
-        b"A body paragraph for the widened-accept-list GUI test.\n"
-    )
+    md = b"# GUI Markdown Fixture\n\nA body paragraph for the widened-accept-list GUI test.\n"
     response = client.post(
         "/api/convert-multi",
         files={"main": ("paper.md", md, "text/markdown")},
@@ -1008,14 +1020,17 @@ def _flag_first_year(monkeypatch, *, canonical_year="1999"):
         first = entries[0]
         canonical = replace(first, year=canonical_year)
         flagged = ValidationRecord(
-            key=first.key, status="mismatch", doi=first.doi or "10.1/x",
-            checks=(FieldCheck(field="year", ours=first.year or "?",
-                               canonical=canonical_year, ok=False),),
+            key=first.key,
+            status="mismatch",
+            doi=first.doi or "10.1/x",
+            checks=(
+                FieldCheck(
+                    field="year", ours=first.year or "?", canonical=canonical_year, ok=False
+                ),
+            ),
             canonical_entry=canonical,
         )
-        rest = tuple(
-            ValidationRecord(key=e.key, status="verified", doi=e.doi) for e in entries[1:]
-        )
+        rest = tuple(ValidationRecord(key=e.key, status="verified", doi=e.doi) for e in entries[1:])
         return ValidationReport(records=(flagged, *rest))
 
     monkeypatch.setattr(project_mod, "validate_references", fake_validate)
@@ -1063,8 +1078,10 @@ def test_apply_corrections_approve_rewrites_bib(tmp_path, monkeypatch):
 
     resp = client.post(
         "/api/apply-corrections",
-        json={"export_token": body["export_token"],
-              "decisions": [{"key": key, "action": "approve"}]},
+        json={
+            "export_token": body["export_token"],
+            "decisions": [{"key": key, "action": "approve"}],
+        },
     )
     assert resp.status_code == 200, resp.text
     assert resp.json()["applied"] == 1
@@ -1085,8 +1102,10 @@ def test_apply_corrections_edit_uses_posted_fields(tmp_path, monkeypatch):
 
     resp = client.post(
         "/api/apply-corrections",
-        json={"export_token": body["export_token"],
-              "decisions": [{"key": rec["key"], "action": "edit", "entry": edited}]},
+        json={
+            "export_token": body["export_token"],
+            "decisions": [{"key": rec["key"], "action": "edit", "entry": edited}],
+        },
     )
     assert resp.status_code == 200, resp.text
     assert resp.json()["applied"] == 1
@@ -1107,8 +1126,7 @@ def test_apply_corrections_deny_changes_nothing(tmp_path, monkeypatch):
 
     resp = client.post(
         "/api/apply-corrections",
-        json={"export_token": body["export_token"],
-              "decisions": [{"key": key, "action": "deny"}]},
+        json={"export_token": body["export_token"], "decisions": [{"key": key, "action": "deny"}]},
     )
     assert resp.status_code == 200, resp.text
     assert resp.json()["applied"] == 0
@@ -1159,8 +1177,10 @@ def test_apply_corrections_recompiles_pdf(tmp_path, monkeypatch):
 
     resp = client.post(
         "/api/apply-corrections",
-        json={"export_token": body["export_token"],
-              "decisions": [{"key": key, "action": "approve"}]},
+        json={
+            "export_token": body["export_token"],
+            "decisions": [{"key": key, "action": "approve"}],
+        },
     )
     assert resp.status_code == 200, resp.text
     payload = resp.json()
@@ -1185,7 +1205,8 @@ def test_export_artifacts_can_copy_supplement_pdf(tmp_path):
     src.write_bytes(b"%PDF-1.4\n")
     dest_dir = tmp_path / "out"
     dest, exported, warnings = _export_artifacts(
-        str(dest_dir), {"supplement_pdf"},
+        str(dest_dir),
+        {"supplement_pdf"},
         output_dir=tmp_path / "proj",
         produced={"project": tmp_path / "proj", "supplement_pdf": src},
     )
@@ -1202,11 +1223,15 @@ def test_supplement_pdf_is_exportable_type():
 
 def test_convert_multi_no_pdf_has_null_compile_success(tmp_path):
     with FIGURES_DOCX.open("rb") as fh:
-        body = _client(tmp_path).post(
-            "/api/convert-multi",
-            files={"main": ("figures.docx", fh, "application/octet-stream")},
-            data={"journal": "revtex4-2", "pdf": "false"},
-        ).json()
+        body = (
+            _client(tmp_path)
+            .post(
+                "/api/convert-multi",
+                files={"main": ("figures.docx", fh, "application/octet-stream")},
+                data={"journal": "revtex4-2", "pdf": "false"},
+            )
+            .json()
+        )
     # No compile requested: overall success True, per-document outcomes are None.
     assert body["success"] is True
     assert body["main_compile_success"] is None
@@ -1324,8 +1349,7 @@ def test_duplicate_figure_numbers_rejected(tmp_path):
                 ("figures", ("a.png", b"\x89PNG\r\n", "image/png")),
                 ("figures", ("b.png", b"\x89PNG\r\n", "image/png")),
             ],
-            data={"journal": "revtex4-2", "pdf": "false",
-                  "figure_numbers": ["1", "1"]},
+            data={"journal": "revtex4-2", "pdf": "false", "figure_numbers": ["1", "1"]},
         )
     assert resp.status_code == 400
     assert "unique" in resp.json()["detail"].lower()
@@ -1404,12 +1428,15 @@ def test_expired_session_is_pruned_and_tokens_404(tmp_path):
     srv._prune_sessions(app, now=_time.time() + srv._SESSION_TTL_SECONDS + 10)
 
     assert token not in app.state.export_sessions
-    assert not session_dir.exists()          # on-disk directory removed
+    assert not session_dir.exists()  # on-disk directory removed
     assert client.get(zip_url).status_code == 404  # its token no longer resolves
     export = client.post(
         "/api/export",
-        json={"export_token": token, "export_dir": str(tmp_path / "out"),
-              "export_types": ["project"]},
+        json={
+            "export_token": token,
+            "export_dir": str(tmp_path / "out"),
+            "export_types": ["project"],
+        },
     )
     assert export.status_code == 404
 
@@ -1425,9 +1452,9 @@ def test_touch_session_defers_expiry(tmp_path):
 
     _touch_session(app.state.export_sessions["t"], now=1000.0)
     _prune_sessions(app, now=1000.0 + srv._SESSION_TTL_SECONDS - 1)
-    assert "t" in app.state.export_sessions          # refreshed access keeps it alive
+    assert "t" in app.state.export_sessions  # refreshed access keeps it alive
     _prune_sessions(app, now=1000.0 + srv._SESSION_TTL_SECONDS + 1)
-    assert "t" not in app.state.export_sessions       # then it expires
+    assert "t" not in app.state.export_sessions  # then it expires
 
 
 def test_failed_conversion_leaves_no_session_dir(tmp_path):
@@ -1459,8 +1486,8 @@ def test_register_session_lru_evicts_oldest(tmp_path):
 
     sessions = app.state.export_sessions
     assert len(sessions) <= srv._MAX_SESSIONS
-    assert "tok0" not in sessions        # oldest evicted
-    assert not dirs[0].exists()          # and its directory removed
+    assert "tok0" not in sessions  # oldest evicted
+    assert not dirs[0].exists()  # and its directory removed
     assert f"tok{srv._MAX_SESSIONS + 2}" in sessions  # newest retained
 
 
@@ -1926,9 +1953,7 @@ def test_auto_shutdown_app_starts_the_monitor(monkeypatch):
 async def _run_monitor(app: FastAPI, seconds: float) -> None:
     """Advance a freshly started monitor task by ``seconds`` of real time,
     then cancel it cleanly. Intervals below are tiny so this stays fast."""
-    task = start_client_monitor(
-        app, poll_interval=0.01, stale_after=1.0, reload_grace=0.03
-    )
+    task = start_client_monitor(app, poll_interval=0.01, stale_after=1.0, reload_grace=0.03)
     try:
         await asyncio.sleep(seconds)
     finally:

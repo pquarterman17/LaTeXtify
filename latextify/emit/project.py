@@ -185,6 +185,7 @@ _BIBLIOGRAPHY_EMPTY = (
 # to advise the one-line migration instead.
 _DIRECT_BIBLIOGRAPHY_RE = re.compile(r"(?m)^[^%\n]*\\bibliography\{")
 
+
 def emit_project(
     docx_path: Path | str,
     journal_name: str,
@@ -760,12 +761,9 @@ def _emit_supplement(
 
     si_raw_tex = si_body_result.tex.replace("\r\n", "\n").replace("\r", "\n")
     warnings.extend(
-        EmitWarning(message=f"supplement: {finding.message}")
-        for finding in si_body_result.findings
+        EmitWarning(message=f"supplement: {finding.message}") for finding in si_body_result.findings
     )
-    warnings.extend(
-        EmitWarning(message=f"supplement: {w.message}") for w in si_conversion_warnings
-    )
+    warnings.extend(EmitWarning(message=f"supplement: {w.message}") for w in si_conversion_warnings)
 
     si_citation_result = extract_field_citations(supplement_docx_path)
     if si_citation_result.citations:
@@ -780,9 +778,7 @@ def _emit_supplement(
         si_entries, si_raw_tex, plaintext_warnings, _plaintext_records = _link_plaintext_citations(
             supplement_docx_path, si_raw_tex, crossref_mailto, bib_entries
         )
-        warnings.extend(
-            EmitWarning(message=f"supplement: {w.message}") for w in plaintext_warnings
-        )
+        warnings.extend(EmitWarning(message=f"supplement: {w.message}") for w in plaintext_warnings)
         si_citations = ()
 
     merged_entries, key_remap = merge_ref_entries(main_entries, si_entries)
@@ -805,9 +801,7 @@ def _emit_supplement(
         si_figure_env,
         exclude_figures=exclude_figures,
     )
-    warnings.extend(
-        EmitWarning(message=f"supplement: {w.message}") for w in si_anchor_warnings
-    )
+    warnings.extend(EmitWarning(message=f"supplement: {w.message}") for w in si_anchor_warnings)
 
     if si_citation_result.citations:
         si_citation_count = len(si_citation_result.citations)

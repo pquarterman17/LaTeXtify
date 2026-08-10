@@ -657,9 +657,7 @@ def _keywords_line_index(paras: list[_Para], start_idx: int) -> int | None:
     return None
 
 
-def front_matter_span(
-    docx_path: Path | str, *, max_paragraphs: int = 20
-) -> tuple[int, int] | None:
+def front_matter_span(docx_path: Path | str, *, max_paragraphs: int = 20) -> tuple[int, int] | None:
     """Paragraph span ``[start, end)`` occupied by the manuscript's title page.
 
     A journal's metadata template re-renders title / authors / affiliations /
@@ -912,6 +910,7 @@ def load_or_create_meta(docx_path: Path | str, sidecar_path: Path | str | None =
         return load_meta(target)
 
     from .metadata_guess_nondocx import guess_meta_dispatch
+
     guess = guess_meta_dispatch(docx_path)
     text = render_paper_yaml(guess.meta, guess.checks)
     if not target.exists():  # re-check right before writing: write-once, never clobber

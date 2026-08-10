@@ -46,8 +46,7 @@ REFERENCES: list[str] = [
     "internal memorandum, 2016.",
     "Garcia, H., Ito, K. Spin-orbit torque switching of perpendicular "
     "magnetization. Nature Nanotechnology 9, 548-554 (2014).",
-    "Hughes, T. L. Majorana zero modes in semiconductor nanowires. "
-    "Science 339, 1057-1060 (2013).",
+    "Hughes, T. L. Majorana zero modes in semiconductor nanowires. Science 339, 1057-1060 (2013).",
     "Ito, K., Nakamura, S. Room-temperature superconductivity in a hydride "
     "under high pressure. Nature 601, 35-40 (2022).",
     "Johnson, D. R. Berry-phase effects on electronic transport properties. "

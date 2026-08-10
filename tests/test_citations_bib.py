@@ -71,9 +71,7 @@ def test_literal_author_used_in_key():
 
 
 def test_collisions_get_abc_suffixes():
-    common = dict(
-        authors=(Name(family="Smith"),), year="2020", title="Quantum foo bar"
-    )
+    common = dict(authors=(Name(family="Smith"),), year="2020", title="Quantum foo bar")
     a = _entry(doi="10.1/a", **common)
     b = _entry(doi="10.1/b", **common)
     c = _entry(doi="10.1/c", **common)

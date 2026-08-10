@@ -129,8 +129,7 @@ _INDEX_HTML = _STATIC_DIR / "index.html"
 
 #: 403 detail for the server-filesystem endpoints when demo mode disables them.
 _DEMO_FS_DISABLED = (
-    "folder export is disabled in the hosted demo -- download the PDF or the "
-    "project .zip instead"
+    "folder export is disabled in the hosted demo -- download the PDF or the project .zip instead"
 )
 
 #: Matches a served /static/*.css or /static/*.js reference in index.html so
@@ -168,9 +167,7 @@ def create_app(
             local ``gui`` CLI command turns it on unless ``--keep-alive`` is
             given, and the hosted demo never turns it on.
     """
-    root = (
-        Path(workdir) if workdir is not None else Path(tempfile.mkdtemp(prefix="latextify-gui-"))
-    )
+    root = Path(workdir) if workdir is not None else Path(tempfile.mkdtemp(prefix="latextify-gui-"))
     root.mkdir(parents=True, exist_ok=True)
     # Only a root WE created (no caller workdir) is ours to delete on shutdown;
     # a caller-supplied --workdir is persistent and left untouched.
@@ -327,9 +324,7 @@ def create_app(
                 # broken tectonic binary raises OSError. Never a raw 500
                 # traceback for either.
                 _rmtree(session_dir)
-                raise HTTPException(
-                    status_code=500, detail=f"compilation failed: {exc}"
-                ) from exc
+                raise HTTPException(status_code=500, detail=f"compilation failed: {exc}") from exc
 
             success = compile_result.success
             if result.report_path is not None:
@@ -624,9 +619,7 @@ def create_app(
                 # Mirrors /api/convert: a hung/broken compile is a 500, not a raw
                 # traceback. The LaTeX project itself is still written to disk.
                 _rmtree(session_dir)
-                raise HTTPException(
-                    status_code=500, detail=f"compilation failed: {exc}"
-                ) from exc
+                raise HTTPException(status_code=500, detail=f"compilation failed: {exc}") from exc
 
         if equation_audit:
             try:

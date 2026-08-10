@@ -352,7 +352,7 @@ def test_zotero_and_endnote_citing_same_doi_dedup_to_one_entry(tmp_path):
         "<contributors><authors><author>Shared, Author</author></authors></contributors>"
         "<dates><year>2020</year></dates>"
         "<electronic-resource-num>10.1000/shared.doi</electronic-resource-num>"
-        "<ref-type name=\"Journal Article\"/>"
+        '<ref-type name="Journal Article"/>'
         "</record></Cite></EndNote> "
     )
 

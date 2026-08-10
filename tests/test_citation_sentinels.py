@@ -147,7 +147,8 @@ def test_complex_field_without_separate_still_gets_a_sentinel(tmp_path):
 
 def test_fldsimple_result_runs_are_replaced(tmp_path):
     body = (
-        '<w:p>' + _text("See ")
+        "<w:p>"
+        + _text("See ")
         + '<w:fldSimple w:instr=" ADDIN CSL_CITATION {} ">'
         + _text("[9]")
         + "</w:fldSimple>"

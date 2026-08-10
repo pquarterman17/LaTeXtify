@@ -185,8 +185,7 @@ class Journal:
         if chosen not in self.bib_modes:
             allowed = ", ".join(sorted(self.bib_modes))
             raise ManifestError(
-                f"{self.name}: citation mode {chosen!r} not supported "
-                f"(allowed: {allowed})"
+                f"{self.name}: citation mode {chosen!r} not supported (allowed: {allowed})"
             )
         return self.bib_modes[chosen]
 
@@ -271,9 +270,7 @@ def _escape_meta(meta: Meta) -> Meta:
             )
             for author in meta.authors
         ),
-        affiliations=tuple(
-            replace(aff, name=escape_latex(aff.name)) for aff in meta.affiliations
-        ),
+        affiliations=tuple(replace(aff, name=escape_latex(aff.name)) for aff in meta.affiliations),
         abstract=escape_latex(meta.abstract),
         keywords=tuple(escape_latex(k) for k in meta.keywords),
     )
@@ -411,8 +408,7 @@ def _require_str(data: dict[str, Any], key: str, journal: str) -> str:
     value = data[key]
     if not isinstance(value, str) or not value.strip():
         raise ManifestError(
-            f"{journal}: manifest key {key!r} must be a non-empty string, "
-            f"got {_typename(value)}"
+            f"{journal}: manifest key {key!r} must be a non-empty string, got {_typename(value)}"
         )
     return value
 
@@ -434,9 +430,7 @@ def _opt_str_list(data: dict[str, Any], key: str, journal: str) -> tuple[str, ..
         return ()
     value = data[key]
     if not isinstance(value, list) or not all(isinstance(v, str) for v in value):
-        raise ManifestError(
-            f"{journal}: manifest key {key!r} must be a list of strings"
-        )
+        raise ManifestError(f"{journal}: manifest key {key!r} must be a list of strings")
     return tuple(value)
 
 
@@ -448,23 +442,17 @@ def _parse_packages(value: Any, journal: str) -> tuple[Package, ...]:
     packages: list[Package] = []
     for i, entry in enumerate(value):
         if not isinstance(entry, dict):
-            raise ManifestError(
-                f"{journal}: packages[{i}] must be a mapping with a 'name' key"
-            )
+            raise ManifestError(f"{journal}: packages[{i}] must be a mapping with a 'name' key")
         pkg_name = entry.get("name")
         if not isinstance(pkg_name, str) or not pkg_name.strip():
-            raise ManifestError(
-                f"{journal}: packages[{i}] missing required non-empty 'name'"
-            )
+            raise ManifestError(f"{journal}: packages[{i}] missing required non-empty 'name'")
         opts = entry.get("options")
         if opts is None:
             options: tuple[str, ...] = ()
         elif isinstance(opts, list) and all(isinstance(o, str) for o in opts):
             options = tuple(opts)
         else:
-            raise ManifestError(
-                f"{journal}: packages[{i}].options must be a list of strings"
-            )
+            raise ManifestError(f"{journal}: packages[{i}].options must be a list of strings")
         packages.append(Package(name=pkg_name, options=options))
     return tuple(packages)
 
@@ -484,18 +472,14 @@ def _parse_bib(value: Any, journal: str) -> tuple[dict[str, BibMode], str]:
         if mode_name not in _KNOWN_MODES:
             allowed = ", ".join(_KNOWN_MODES)
             raise ManifestError(
-                f"{journal}: bib.modes has unknown mode {mode_name!r} "
-                f"(allowed: {allowed})"
+                f"{journal}: bib.modes has unknown mode {mode_name!r} (allowed: {allowed})"
             )
         if not isinstance(spec, dict):
-            raise ManifestError(
-                f"{journal}: bib.modes.{mode_name} must be a mapping"
-            )
+            raise ManifestError(f"{journal}: bib.modes.{mode_name} must be a mapping")
         bibstyle = spec.get("bibstyle")
         if not isinstance(bibstyle, str) or not bibstyle.strip():
             raise ManifestError(
-                f"{journal}: bib.modes.{mode_name} missing required non-empty "
-                f"'bibstyle'"
+                f"{journal}: bib.modes.{mode_name} missing required non-empty 'bibstyle'"
             )
         nat = spec.get("natbib_options")
         if nat is None:
@@ -504,23 +488,17 @@ def _parse_bib(value: Any, journal: str) -> tuple[dict[str, BibMode], str]:
             natbib_options = tuple(nat)
         else:
             raise ManifestError(
-                f"{journal}: bib.modes.{mode_name}.natbib_options must be a "
-                f"list of strings"
+                f"{journal}: bib.modes.{mode_name}.natbib_options must be a list of strings"
             )
-        modes[mode_name] = BibMode(
-            name=mode_name, bibstyle=bibstyle, natbib_options=natbib_options
-        )
+        modes[mode_name] = BibMode(name=mode_name, bibstyle=bibstyle, natbib_options=natbib_options)
 
     default_mode = value.get("default_mode")
     if not isinstance(default_mode, str):
-        raise ManifestError(
-            f"{journal}: bib.default_mode is required and must be a string"
-        )
+        raise ManifestError(f"{journal}: bib.default_mode is required and must be a string")
     if default_mode not in modes:
         allowed = ", ".join(sorted(modes))
         raise ManifestError(
-            f"{journal}: bib.default_mode {default_mode!r} is not among defined "
-            f"modes ({allowed})"
+            f"{journal}: bib.default_mode {default_mode!r} is not among defined modes ({allowed})"
         )
     return modes, default_mode
 
@@ -533,7 +511,5 @@ def _parse_figure_env(value: Any, journal: str) -> FigureEnv:
     single = value.get("single", "figure")
     wide = value.get("wide", "figure*")
     if not isinstance(single, str) or not isinstance(wide, str):
-        raise ManifestError(
-            f"{journal}: figure_env.single and figure_env.wide must be strings"
-        )
+        raise ManifestError(f"{journal}: figure_env.single and figure_env.wide must be strings")
     return FigureEnv(single=single, wide=wide)

@@ -18,13 +18,16 @@ from latextify.model.refs import RefEntry
 from latextify.model.validate import ValidationReport
 
 _VALIDATION_STATUS_ORDER = (
-    "verified", "mismatch", "dead_doi", "doi_suggested", "unverifiable", "unchecked",
+    "verified",
+    "mismatch",
+    "dead_doi",
+    "doi_suggested",
+    "unverifiable",
+    "unchecked",
 )
 
 
-def build_validation_out(
-    report: ValidationReport, entries: tuple[RefEntry, ...]
-) -> ValidationOut:
+def build_validation_out(report: ValidationReport, entries: tuple[RefEntry, ...]) -> ValidationOut:
     """Shape a ValidationReport + entries into the review panel's JSON.
 
     Only flagged references become records (the panel reviews those); each
