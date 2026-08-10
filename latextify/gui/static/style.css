@@ -217,3 +217,22 @@ pre.report {
   }
   .dropzone.dragover { background: #1e2440; }
 }
+
+/* Privacy panel findings. The severity colour is secondary; the important
+   visual is .finding-manual, which marks a leak the clean pass did NOT fix.
+   Those must never read as handled. */
+.finding-list { list-style: none; margin: 0.4rem 0 0.8rem; padding: 0; }
+.finding { border-left: 3px solid var(--border, #ccc); padding: 0.3rem 0 0.3rem 0.6rem; margin-bottom: 0.5rem; }
+.finding-high { border-left-color: #c0392b; }
+.finding-medium { border-left-color: #d68910; }
+.finding-low { border-left-color: #7f8c8d; }
+.finding-severity { display: inline-block; min-width: 4.2rem; font-size: 0.75rem;
+  text-transform: uppercase; letter-spacing: 0.04em; opacity: 0.75; }
+.finding-summary { font-weight: 600; }
+.finding-manual { display: inline-block; margin-left: 0.5rem; padding: 0.05rem 0.4rem;
+  border: 1px solid #c0392b; border-radius: 3px; color: #c0392b;
+  font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.03em; }
+.finding-detail { margin: 0.15rem 0 0; font-size: 0.85rem; opacity: 0.85; }
+.warning-list li { border-left: 3px solid #c0392b; padding: 0.3rem 0 0.3rem 0.6rem;
+  margin-bottom: 0.4rem; font-size: 0.85rem; }
+.clean-download { display: inline-block; margin-top: 0.5rem; font-weight: 600; }

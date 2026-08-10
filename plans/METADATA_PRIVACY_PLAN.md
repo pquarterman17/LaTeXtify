@@ -9,7 +9,7 @@ reverse-to-Word note.
 
 **Status:** Active
 **Created:** 2026-08-10
-**Updated:** 2026-08-10
+**Updated:** 2026-08-10 — items 1-10 shipped; only Tier 3 (11-12) remains
 
 ---
 
@@ -85,63 +85,7 @@ registered; CLI and GUI accept-lists derive from it rather than restating it.
 
 ---
 
-## Tier 1 — High Impact
-
-1. **Unified report model** — `privacy/report.py`: a `Finding` (severity,
-   category, human explanation, where it was found) plus `InspectReport` and a
-   generalized `CleanReport`. Replaces the docx-only `CleanReport` dataclass.
-   - [ ] Findings carry *why it matters*, not just a field name
-   - [ ] Existing docx `CleanReport` fields preserved for API compatibility
-
-2. **Extract shared OPC machinery** — `privacy/opc.py` from
-   `ingest/docx_clean.py`: member-dropping rewrite, `[Content_Types].xml`
-   Override pruning, `.rels` Relationship pruning, docProps + thumbnail set.
-   - [ ] `docx_clean.py` refactored onto it, all existing tests green
-   - [ ] `docx_clean.py` shrinks (it is 431 lines against a 500 ceiling)
-
-3. **Format registry** — `privacy/registry.py`: `inspect_file()` /
-   `sanitize_file()` dispatching on extension; single registration point.
-   - [ ] Unknown extension raises an actionable error naming what is supported
-
-4. **PowerPoint `.pptx`** — `privacy/pptx.py`
-   - [ ] Speaker notes (`ppt/notesSlides/*`), optionally kept
-   - [ ] Hidden slides (`p:sld @show="0"`)
-   - [ ] **Embedded chart workbooks** (`ppt/embeddings/*.xlsx`) — full source
-         data behind a three-bar chart
-   - [ ] Off-canvas objects positioned outside the slide bounds
-   - [ ] Comments + authors (`p:cmAuthorLst`, comment parts), docProps
-
-5. **PDF metadata + leak detection** — `privacy/pdf.py`
-   - [ ] Strip `/Info` and the XMP metadata stream
-   - [ ] **Detect** unsafe redaction (text under filled rectangles)
-   - [ ] **Detect** CropBox < MediaBox (the analogue of the Word `srcRect`
-         leak already fixed in `figures/crop.py`)
-   - [ ] Detect embedded attachments, JavaScript, annotations, and
-         incremental-update history (prior revisions recoverable)
-
-## Tier 2 — Medium Impact
-
-6. **Images EXIF/GPS** — `privacy/images.py`
-   - [ ] Strip GPS, camera serial, software, timestamps, embedded EXIF
-         thumbnail (which can differ from the visible image)
-   - [ ] Offer it on the normal conversion path, since LaTeXtify already
-         ships figures into the output PDF
-
-7. **Excel `.xlsx`** — `privacy/xlsx.py`
-   - [ ] Hidden sheets, rows, and columns
-   - [ ] **Pivot caches** — retain full source data after the sheet is deleted
-   - [ ] Defined names, external links, comments/notes, docProps
-
-8. **Legacy `.doc` / `.ppt`** — `privacy/ole.py`
-   - [ ] Inspect OLE2 `SummaryInformation` / `DocumentSummaryInformation`
-   - [ ] Best-effort strip of those streams
-   - [ ] Explicit fast-save warning; recommend Save-As-modern-then-clean
-
-9. **CLI** — `latextify inspect FILE` (new) and `latextify clean` widened
-   beyond `.docx`, both driven by the registry.
-
-10. **GUI panel** — inspect + clean for every supported format, offsetting the
-    server.py / app.js size pins.
+_Tiers 1 and 2 are complete — see `## Completed`._
 
 ## Tier 3 — Nice-to-Have
 
@@ -154,13 +98,62 @@ registered; CLI and GUI accept-lists derive from it rather than restating it.
 
 ## Owner gates
 
-- **`olefile` dependency** for legacy `.doc`/`.ppt` (item 8). Pure-Python,
-  BSD, no native code, offline-kit friendly — materially unlike the
-  LibreOffice-class dependency declined on 2026-07-18. Flagged rather than
-  assumed; item 8 is the only item that needs it.
+- **`olefile` dependency** — resolved by making it an optional `[legacy]`
+  extra rather than a runtime dependency, so the default install is
+  unchanged. Only `.doc`/`.ppt`/`.xls` inspection needs it.
 
 ---
 
 ## Completed
 
-_(nothing yet)_
+- ~~**#1 Unified report model**~~ (2026-08-10) — `privacy/report.py`:
+  `Finding` (category/severity/summary/**detail**/location/count/**removable**),
+  `InspectReport`, `SanitizeReport`. `detail` is mandatory prose explaining why
+  a finding matters; `removable` separates what sanitizing fixes from what only
+  a human can. The existing docx `CleanReport` was left untouched.
+- ~~**#2 Shared OPC machinery**~~ (2026-08-10) — `privacy/opc.py`:
+  `rewrite_package` drops members while pruning `[Content_Types].xml`
+  Overrides and every `.rels` Relationship together, plus `docprops_findings`
+  shared by all three OPC formats. `ingest/docx_clean.py` was deliberately NOT
+  refactored onto it — rewriting a security-relevant, well-tested module to
+  save duplication is a bad trade; `docx_adapter.py` wraps it instead.
+  `archive_guard` gained a `label` param so a `.pptx` error stops saying
+  `.docx`.
+- ~~**#3 Format registry**~~ (2026-08-10) — `privacy/registry.py`, the single
+  registration point; CLI and GUI accept lists derive from it. Refuses to
+  sanitize a file onto itself.
+- ~~**#4 PowerPoint**~~ (2026-08-10) — embedded chart workbooks (+ the chart's
+  `c:externalData` reference), speaker notes, hidden slides (part + notes +
+  `p:sldId` entry), comments/authors, docProps. Off-canvas shapes are detected
+  and reported, never deleted.
+- ~~**#5 PDF**~~ (2026-08-10) — strips `/Info` (via `writer.metadata = None`;
+  `add_metadata({})` merges and silently kept everything), XMP, attachments,
+  JavaScript, markup annotations, and drops incremental-update history by
+  rewriting. Detects failed redaction and CropBox leaks as unfixable.
+- ~~**#6 Images**~~ (2026-08-10) — GPS/serial/artist/software/thumbnail;
+  rebuilds from pixel bytes so maker notes cannot survive. ICC profile kept by
+  default so figure colours are unchanged.
+- ~~**#7 Excel**~~ (2026-08-10) — pivot caches, external links, comments,
+  docProps removed; hidden sheets/rows reported but NOT removed, because
+  formulas and charts reference sheets by name.
+- ~~**#8 Legacy `.doc`/`.ppt`/`.xls`**~~ (2026-08-10) — inspection via the
+  optional `olefile` extra. Sanitizing is **refused** with the remedy that
+  works (Save As modern, then clean): fast save can leave deleted text in the
+  file, so a stripped `.doc` would look clean without being clean.
+- ~~**#9 CLI**~~ (2026-08-10) — `latextify inspect FILE [-v]` (exit 1 on
+  findings so it can gate a release script), `clean` widened to every format
+  (`--keep-notes`, `--keep-color-profile`), and `formats`. `cli_clean.py`
+  superseded and deleted.
+- ~~**#10 GUI panel**~~ (2026-08-10) — `POST /api/inspect` (writes nothing,
+  issues no token, deletes the upload in a `finally`) and `POST
+  /api/clean-file` replace the docx-only `/api/clean-docx`. Both live in
+  `gui/uploads_routes.py`, so `server.py` (916 against a 921 pin) was not
+  touched. The panel renders unfixable findings distinctly and never counts
+  them as removed.
+- ~~**Fixtures + tests**~~ (2026-08-10) — `make_leaky_files.py` plants known
+  leaks with a `.truth.json` sidecar. Running the real engine against them
+  immediately found two defects: python-pptx writes an empty
+  `<Company></Company>`, so `find()` returned the placeholder and masked the
+  real value (`_text_of` now takes the first non-empty match), and pypdf's
+  `add_metadata({})` merges rather than replaces. 27 privacy tests + 4 GUI
+  tests; suite 1190 → 1217.

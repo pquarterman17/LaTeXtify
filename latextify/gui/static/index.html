@@ -162,18 +162,28 @@
 
   <div class="tools-row">
   <section class="panel">
-    <h2>Clean a .docx (strip metadata)</h2>
-    <p class="hint">Standalone tool, independent of the conversion above: upload a manuscript to
-      get a copy with authoring metadata, tracked changes, comments, and hidden text removed —
-      the visible body content is otherwise unchanged.</p>
+    <h2>Check &amp; clean a file (strip metadata)</h2>
+    <p class="hint">Standalone tool, independent of the conversion above. <strong>Check</strong>
+      reports what a file exposes without changing it; <strong>Clean</strong> returns a copy with
+      that content removed. Word, PowerPoint, Excel, PDF and images. Some things cannot be fixed
+      automatically — those are listed separately so you can deal with them yourself.</p>
+    <p class="hint">Legacy <code>.doc</code>/<code>.ppt</code>/<code>.xls</code> can be checked but
+      not cleaned: they can retain deleted text. Save as the modern format first, then clean that.</p>
     <div class="controls">
       <div class="field">
-        <label for="clean-file">Manuscript (.docx)</label>
-        <input id="clean-file" type="file" accept=".docx" />
+        <label for="clean-file">File</label>
+        <input id="clean-file" type="file"
+               accept=".docx,.pptx,.xlsx,.pdf,.doc,.ppt,.xls,.jpg,.jpeg,.png,.tif,.tiff,.webp,.bmp,.gif" />
+      </div>
+      <div class="field">
+        <label for="clean-keep-notes" title="PowerPoint only: speaker notes are removed by default.">
+          <input id="clean-keep-notes" type="checkbox" /> Keep speaker notes (PowerPoint)
+        </label>
       </div>
     </div>
     <div class="actions">
-      <button id="clean-btn" type="button" disabled>Clean .docx</button>
+      <button id="inspect-btn" type="button" disabled>Check</button>
+      <button id="clean-btn" type="button" disabled>Clean</button>
     </div>
     <div id="clean-status" class="status"></div>
     <div id="clean-report" class="hint hidden"></div>

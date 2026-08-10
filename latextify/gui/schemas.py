@@ -159,19 +159,45 @@ class ApplyCorrectionsResponse(BaseModel):
     warnings: list[str] = []
 
 
-class CleanDocxResponse(BaseModel):
-    """Body of ``POST /api/clean-docx`` (plan item 3, FORMATS_AND_PRIVACY).
+class FindingModel(BaseModel):
+    """One :class:`latextify.privacy.report.Finding`, as sent to the browser.
 
-    Mirrors :class:`latextify.ingest.docx_clean.CleanReport`'s fields plus a
-    download token for the sanitized copy.
+    ``removable`` is the field the UI must not drop: it separates what was (or
+    would be) removed from what only a human can resolve.
+    """
+
+    category: str
+    severity: str
+    summary: str
+    detail: str
+    location: str = ""
+    count: int = 1
+    removable: bool = True
+
+
+class InspectResponse(BaseModel):
+    """Body of ``POST /api/inspect`` (METADATA_PRIVACY_PLAN).
+
+    Non-destructive: nothing is written and no download token is issued.
+    """
+
+    file_format: str
+    findings: list[FindingModel] = []
+    warnings: list[str] = []
+
+
+class CleanFileResponse(BaseModel):
+    """Body of ``POST /api/clean-file`` (METADATA_PRIVACY_PLAN).
+
+    Supersedes the docx-only ``clean-docx`` response: ``removed`` reports what
+    came out for any format, and ``warnings`` carries residual risk the
+    rewrite could not address (a PDF redaction box, a retained hidden sheet).
     """
 
     clean_url: str
-    tracked_changes_accepted: int
-    comments_removed: int
-    hidden_runs_removed: int
-    docprops_stripped: bool
-    rsids_scrubbed: bool
+    file_format: str
+    removed: list[FindingModel] = []
+    warnings: list[str] = []
 
 
 class AltExportResponse(BaseModel):

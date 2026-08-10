@@ -1629,18 +1629,18 @@ def test_apply_corrections_invalidates_stale_zip(tmp_path, monkeypatch):
 
 
 # --------------------------------------------------------------------------- #
-# POST /api/clean-docx + GET /api/clean/{token} -- docx sanitizer
-# (plan item 3, FORMATS_AND_PRIVACY)
+# POST /api/inspect, POST /api/clean-file + GET /api/clean/{token}
+# (METADATA_PRIVACY_PLAN -- supersedes the docx-only /api/clean-docx)
 # --------------------------------------------------------------------------- #
 
 METADATA_TITLEPAGE_DOCX = FIXTURES / "metadata_titlepage.docx"
 
 
-def test_clean_docx_endpoint_returns_report_and_clean_url(tmp_path):
+def test_clean_file_endpoint_returns_report_and_clean_url(tmp_path):
     client = _client(tmp_path)
     with METADATA_TITLEPAGE_DOCX.open("rb") as fh:
         response = client.post(
-            "/api/clean-docx",
+            "/api/clean-file",
             files={
                 "main": (
                     "metadata_titlepage.docx",
@@ -1653,7 +1653,8 @@ def test_clean_docx_endpoint_returns_report_and_clean_url(tmp_path):
     assert response.status_code == 200, response.text
     body = response.json()
     assert body["clean_url"].startswith("/api/clean/")
-    assert body["docprops_stripped"] is True
+    assert body["file_format"] == "Word document"
+    assert any(f["category"] == "docprops" for f in body["removed"])
 
     import io
     import zipfile
@@ -1669,22 +1670,68 @@ def test_clean_docx_endpoint_returns_report_and_clean_url(tmp_path):
         assert "word/document.xml" in names
 
 
-def test_clean_docx_endpoint_rejects_non_docx(tmp_path):
+def test_clean_endpoint_rejects_unsupported_extension(tmp_path):
     response = _client(tmp_path).post(
-        "/api/clean-docx",
-        files={"main": ("paper.txt", b"not a docx", "text/plain")},
+        "/api/clean-file",
+        files={"main": ("paper.txt", b"not a document", "text/plain")},
     )
     assert response.status_code == 400
-    assert "docx" in response.json()["detail"].lower()
+    detail = response.json()["detail"].lower()
+    assert "unsupported" in detail
+    assert ".pptx" in detail, "the error should name what IS supported"
 
 
-def test_clean_docx_endpoint_requires_secret(tmp_path):
+def test_inspect_endpoint_reports_findings_without_a_download(tmp_path):
+    client = _client(tmp_path)
+    with (FIXTURES / "leaky_deck.pptx").open("rb") as fh:
+        response = client.post(
+            "/api/inspect",
+            files={"main": ("leaky_deck.pptx", fh, "application/octet-stream")},
+        )
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["file_format"] == "PowerPoint presentation"
+    categories = {f["category"] for f in body["findings"]}
+    assert "embedded-workbook" in categories
+    assert "hidden-slide" in categories
+    assert "clean_url" not in body, "inspect must not hand back a downloadable file"
+    assert any(not f["removable"] for f in body["findings"]), (
+        "unfixable findings must reach the browser flagged as such"
+    )
+
+
+def test_clean_file_endpoint_surfaces_unfixable_warnings(tmp_path):
+    client = _client(tmp_path)
+    with (FIXTURES / "leaky_book.xlsx").open("rb") as fh:
+        response = client.post(
+            "/api/clean-file",
+            files={"main": ("leaky_book.xlsx", fh, "application/octet-stream")},
+        )
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert any("hidden sheet" in w for w in body["warnings"]), (
+        "a retained hidden sheet must be reported, not silently left"
+    )
+
+
+def test_clean_file_endpoint_refuses_legacy_ole(tmp_path):
+    client = _client(tmp_path)
+    payload = b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1" + b"\x00" * 512
+    response = client.post(
+        "/api/clean-file",
+        files={"main": ("old.doc", payload, "application/msword")},
+    )
+    assert response.status_code == 400
+    assert "Save As" in response.json()["detail"]
+
+
+def test_clean_file_endpoint_requires_secret(tmp_path):
     # Loopback Host but no secret header -> rejected before the upload is used
     # (mirrors the other mutating-endpoint guard tests).
     client = _raw_client(tmp_path)
     with METADATA_TITLEPAGE_DOCX.open("rb") as fh:
         response = client.post(
-            "/api/clean-docx",
+            "/api/clean-file",
             files={"main": ("metadata_titlepage.docx", fh, "application/octet-stream")},
         )
     assert response.status_code == 403

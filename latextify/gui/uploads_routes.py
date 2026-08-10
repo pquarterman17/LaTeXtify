@@ -7,12 +7,13 @@ token for the file produced -- the same session/token pattern
 :mod:`latextify.gui.downloads`, whose GET download routes stream the result
 back by token):
 
-    POST /api/clean-docx      sanitize an uploaded .docx -> token + CleanReport
+    POST /api/inspect         report an uploaded file's metadata (writes nothing)
+    POST /api/clean-file      sanitize an uploaded file -> token + what was removed
     POST /api/export-format   export an uploaded manuscript to a single
                                self-contained HTML file or plain Markdown
                                file -> token + ExportResult summary
 
-:func:`register_upload_routes` attaches both to an app, mirroring
+:func:`register_upload_routes` attaches all three to an app, mirroring
 :func:`latextify.gui.downloads.register_download_routes`. Both routes carry
 the same guard as every other mutating ``/api/*`` endpoint
 (``require_gui_auth`` + ``require_demo_rate_limit``, see ``server.py``'s
@@ -31,17 +32,54 @@ from latextify.emit.alt_formats import export_html, export_markdown
 from latextify.gui.demo import require_demo_rate_limit
 from latextify.gui.downloads import _issue_token, _register_session, _rmtree
 from latextify.gui.guard import require_gui_auth
-from latextify.gui.schemas import AltExportResponse, CleanDocxResponse
+from latextify.gui.schemas import (
+    AltExportResponse,
+    CleanFileResponse,
+    FindingModel,
+    InspectResponse,
+)
 from latextify.gui.upload_utils import _ALLOWED_MANUSCRIPT_EXTS, _lower_ext, _stream_upload
-from latextify.ingest.docx_clean import sanitize_docx
+from latextify.privacy import inspect_file, is_supported, sanitize_file, supported_extensions
+from latextify.privacy.report import Finding
 
 #: format name -> exporter, and format name -> the extension it writes.
 _ALT_EXPORTERS = {"html": export_html, "markdown": export_markdown}
 _ALT_EXTENSIONS = {"html": ".html", "markdown": ".md"}
 
 
+def _as_models(findings: list[Finding]) -> list[FindingModel]:
+    return [
+        FindingModel(
+            category=f.category,
+            severity=f.severity,
+            summary=f.summary,
+            detail=f.detail,
+            location=f.location,
+            count=f.count,
+            removable=f.removable,
+        )
+        for f in findings
+    ]
+
+
+def _reject_unsupported(filename: str | None) -> str:
+    """Validate an upload's extension against the privacy registry.
+
+    The accept list is READ FROM the registry rather than restated, so a
+    format added there is reachable here automatically -- the dual-registration
+    failure mode is a format the form accepts and the engine rejects.
+    """
+    name = Path(filename or "upload")
+    if not is_supported(name):
+        raise HTTPException(
+            status_code=400,
+            detail="unsupported file type; supported: " + ", ".join(supported_extensions()),
+        )
+    return name.suffix.lower()
+
+
 def register_upload_routes(app: FastAPI, *, root: Path, max_upload_bytes: int) -> None:
-    """Attach ``POST /api/clean-docx`` and ``POST /api/export-format`` to ``app``.
+    """Attach the inspect, clean and export upload routes to ``app``.
 
     Args:
         root: parent directory each run's per-session working directory is
@@ -52,26 +90,61 @@ def register_upload_routes(app: FastAPI, *, root: Path, max_upload_bytes: int) -
     """
 
     @app.post(
-        "/api/clean-docx",
-        response_model=CleanDocxResponse,
+        "/api/inspect",
+        response_model=InspectResponse,
         dependencies=[Depends(require_gui_auth), Depends(require_demo_rate_limit)],
     )
-    async def clean_docx_endpoint(main: UploadFile = File(...)) -> CleanDocxResponse:
-        """Sanitize an uploaded .docx: accept tracked changes, drop comments and
-        hidden runs, strip docProps, scrub settings.xml rsids. Returns a download
-        token for the cleaned copy plus a summary of what was removed."""
-        if _lower_ext(main.filename) != "docx":
-            raise HTTPException(status_code=400, detail="file must be a .docx")
+    async def inspect_endpoint(main: UploadFile = File(...)) -> InspectResponse:
+        """Report what an uploaded file exposes, without producing anything.
+
+        Deliberately issues no download token: this route writes nothing the
+        user could take away, so the upload is deleted as soon as it is read.
+        """
+        ext = _reject_unsupported(main.filename)
+        session_dir = root / uuid.uuid4().hex
+        session_dir.mkdir(parents=True, exist_ok=True)
+        src_path = session_dir / f"upload{ext}"
+
+        try:
+            await _stream_upload(main, src_path, max_bytes=max_upload_bytes)
+            report = inspect_file(src_path)
+            return InspectResponse(
+                file_format=report.file_format,
+                findings=_as_models(report.sorted_findings()),
+                warnings=report.warnings,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        finally:
+            # Nothing here is downloadable, so the upload never outlives the request.
+            _rmtree(session_dir)
+
+    @app.post(
+        "/api/clean-file",
+        response_model=CleanFileResponse,
+        dependencies=[Depends(require_gui_auth), Depends(require_demo_rate_limit)],
+    )
+    async def clean_file_endpoint(
+        main: UploadFile = File(...), keep_notes: bool = Form(False)
+    ) -> CleanFileResponse:
+        """Sanitize an uploaded file of any supported format.
+
+        Returns a download token for the cleaned copy, what was removed, and
+        any residual risk the rewrite could not address (see
+        :mod:`latextify.privacy`). Legacy .doc/.ppt/.xls are refused here with
+        the same explanation the CLI gives -- use inspect on those instead.
+        """
+        ext = _reject_unsupported(main.filename)
 
         session_dir = root / uuid.uuid4().hex
         upload_dir = session_dir / "upload"
         upload_dir.mkdir(parents=True, exist_ok=True)
-        src_path = upload_dir / "main.docx"
-        dest_path = session_dir / "cleaned.docx"
+        src_path = upload_dir / f"main{ext}"
+        dest_path = session_dir / f"cleaned{ext}"
 
         try:
             await _stream_upload(main, src_path, max_bytes=max_upload_bytes)
-            report = sanitize_docx(src_path, dest_path)
+            report = sanitize_file(src_path, dest_path, keep_notes=keep_notes)
         except ValueError as exc:
             _rmtree(session_dir)  # a failed clean must not leave the upload behind
             raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -87,13 +160,11 @@ def register_upload_routes(app: FastAPI, *, root: Path, max_upload_bytes: int) -
             now=time.time(),
         )
         clean_url = f"/api/clean/{_issue_token(app.state.clean_tokens, dest_path)}"
-        return CleanDocxResponse(
+        return CleanFileResponse(
             clean_url=clean_url,
-            tracked_changes_accepted=report.tracked_changes_accepted,
-            comments_removed=report.comments_removed,
-            hidden_runs_removed=report.hidden_runs_removed,
-            docprops_stripped=report.docprops_stripped,
-            rsids_scrubbed=report.rsids_scrubbed,
+            file_format=report.file_format,
+            removed=_as_models(report.sorted_removed()),
+            warnings=report.warnings,
         )
 
     @app.post(
