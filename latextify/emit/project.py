@@ -7,8 +7,8 @@ docstring of :mod:`latextify.emit` for the output tree contract:
     ingest.pandoc             -- body LaTeX with ``%%FIGURE:<n>%%`` /
                                   ``%%CITE:<idx>%%`` anchors unresolved
     figures.extract/override  -- resolved Figure IR (manifest/folder/embedded)
-    figures.convert           -- SVG/EPS -> PDF for LaTeX inclusion (item 15),
-                                  run here at copy time via ``_copy_figures``
+    emit.figures_copy         -- what lands in figures/: SVG/EPS -> PDF (item
+                                  15), TIFF -> PNG, the figure metadata strip
     citations.fields/bib      -- Citation/RefEntry IR + a ``.bib`` file body
     templates.loader          -- per-journal preamble/metadata rendering
 
@@ -83,7 +83,6 @@ from __future__ import annotations
 
 import re
 import tempfile
-from collections import Counter
 from dataclasses import replace
 from pathlib import Path
 
@@ -104,6 +103,7 @@ from latextify.emit.anchors import (
     remap_cite_keys_in_text,
     resolve_anchors,
 )
+from latextify.emit.figures_copy import _copy_figures, _prune_stale_figures
 from latextify.emit.metadata import load_meta, write_metadata_tex
 from latextify.emit.submission import (
     _ONECOLUMN_FIGURE_ENV,
@@ -113,7 +113,6 @@ from latextify.emit.submission import (
     build_supplement_preamble,
     strip_acknowledgments,
 )
-from latextify.figures.convert import convert_for_latex
 from latextify.figures.extract import extract_figures
 from latextify.figures.override import resolve_overrides
 from latextify.ingest.formats import non_docx_warnings
@@ -121,7 +120,7 @@ from latextify.ingest.metadata_guess import sidecar_path_for
 from latextify.ingest.pandoc import convert_docx_to_body
 from latextify.ingest.preflight import run_preflight
 from latextify.model.emit import EmitResult, EmitWarning, SupplementResult
-from latextify.model.figure import Figure, FigureSource
+from latextify.model.figure import Figure
 from latextify.model.meta import Meta
 from latextify.model.reconcile import ReconciliationReport
 from latextify.model.refs import Citation, RefEntry
@@ -204,6 +203,7 @@ def emit_project(
     supplement_layout: DocumentLayout | None = None,
     anonymize: bool = False,
     figures_at_end: bool = False,
+    strip_figure_metadata: bool = True,
 ) -> EmitResult:
     """Convert ``docx_path`` into a journal-ready LaTeX project.
 
@@ -229,6 +229,14 @@ def emit_project(
             field codes). Defaults to the ``LATEXTIFY_CROSSREF_MAILTO`` env var
             or a documented placeholder; override it with a real address.
         report: if True (default), generate report.md; if False, skip it.
+        strip_figure_metadata: when True (default), every raster figure written
+            into ``figures/`` has its embedded metadata removed losslessly --
+            EXIF, GPS, camera/lens serial numbers, the capture thumbnail (which
+            can still show an *uncropped* original), and PNG text chunks. The
+            pixels and the ICC profile are untouched. ``figures/`` ships as
+            source to arXiv and journal submission systems, so this is on by
+            default; ``latextify convert --keep-figure-metadata`` turns it off
+            for an author who wants their figure metadata preserved.
         exclude_figures: when True, emit a text-only project -- every figure
             float is dropped (no ``\\includegraphics``, no leftover caption)
             and no image is copied into ``figures/``. Citations, tables, and
@@ -335,7 +343,9 @@ def emit_project(
             _prune_stale_figures(figures_dir, "", set())
         else:
             figures = resolve_overrides(extract_figures(docx_path, media_dir), docx_path)
-            figure_files, figures, conversion_warnings = _copy_figures(figures, figures_dir)
+            figure_files, figures, conversion_warnings = _copy_figures(
+                figures, figures_dir, strip_metadata=strip_figure_metadata
+            )
 
     citation_result = extract_field_citations(docx_path)
 
@@ -450,6 +460,7 @@ def emit_project(
             exclude_figures=exclude_figures,
             layout=supplement_layout,
             figures_at_end=figures_at_end,
+            strip_figure_metadata=strip_figure_metadata,
         )
         # references.bib is shared by main.tex and supplement.tex; rewrite it
         # with the merged set now that any new SI-only references were
@@ -505,128 +516,6 @@ def emit_project(
         )
 
     return result
-
-
-# --------------------------------------------------------------------------- #
-# Figure file copying + vector conversion (plan items 5, 15)
-# --------------------------------------------------------------------------- #
-
-
-#: A figure whose pixel width-to-height ratio meets this threshold is emitted
-#: as the journal's wide float (usually ``figure*``) so it spans both columns
-#: of a two-column layout instead of being squeezed unreadably into one. 1.3
-#: sits between portrait/near-square single-panel plots (kept single-column)
-#: and the landscape multi-panel composites that dominate real papers.
-#: Deliberately a general ratio, not tuned to any single manuscript (see the
-#: generalize-fixes rule).
-_WIDE_ASPECT_THRESHOLD = 1.3
-
-
-def _is_wide_figure(path: Path) -> bool:
-    """True when the raster image at ``path`` is landscape past the threshold.
-
-    Measures the copied output file's pixel aspect ratio with Pillow. Any
-    failure -- a vector/PDF figure Pillow cannot open, a corrupt file, a zero
-    height -- degrades to ``False`` (single-column), never an exception: figure
-    *sizing* must not be able to fail a conversion that otherwise compiles.
-    """
-    try:
-        from PIL import Image
-
-        with Image.open(path) as image:
-            width, height = image.size
-        return height > 0 and width / height >= _WIDE_ASPECT_THRESHOLD
-    except Exception:  # Pillow's failure modes vary; never crash the emit
-        return False
-
-
-def _copy_figures(
-    figures: tuple[Figure, ...], figures_dir: Path, *, prefix: str = ""
-) -> tuple[dict[int, str], tuple[Figure, ...], tuple[EmitWarning, ...]]:
-    """Prepare each figure's resolved file for LaTeX inclusion in ``figures_dir``.
-
-    Delegates the actual copy-vs-convert decision to
-    :func:`latextify.figures.convert.convert_for_latex` (SVG->PDF, EPS->PDF
-    via Ghostscript or an actionable warning, PDF/PNG/JPG passthrough).
-    ``prefix`` (plan item 21) is forwarded to ``convert_for_latex`` so a
-    supplementary document's figures land as ``figures/figS<N>.<ext>``
-    instead of ``figures/fig<N>.<ext>``, sharing the same output directory
-    as the main document's figures without colliding.
-
-    Returns a 3-tuple:
-        * a map of figure number -> the forward-slashed, LaTeX-relative path
-          (``figures/fig<prefix><N><ext>``) to embed in the body;
-        * the same figures, each carrying whatever ``conversion_note``
-          :func:`convert_for_latex` recorded (``None`` for plain passthrough);
-        * any conversion warnings (e.g. EPS with no Ghostscript available),
-          to be folded into the overall :class:`EmitResult.warnings`.
-    """
-    files: dict[int, str] = {}
-    updated: list[Figure] = []
-    warnings: list[EmitWarning] = []
-    # Two figures sharing a number would silently collapse: both copy to the
-    # same figures/fig<N>.* path (last write wins) and the number->path map
-    # keeps only one. extract_figures numbers sequentially so this shouldn't
-    # arise from the normal pipeline, but never drop a figure without a trace.
-    counts = Counter(figure.number for figure in figures)
-    for number in sorted(n for n, c in counts.items() if c > 1):
-        warnings.append(
-            EmitWarning(
-                message=(
-                    f"figure number {number} is used by {counts[number]} figures; only "
-                    f"the last is kept as figures/fig{prefix}{number}.* -- check the "
-                    "source captions/numbering for a duplicate figure number."
-                )
-            )
-        )
-    kept: set[str] = set()
-    for figure in figures:
-        # The crop (Word's a:srcRect) belongs to the EMBEDDED original only; an
-        # override/manifest file is a deliberate replacement authored against no
-        # srcRect, so never crop it.
-        crop = figure.crop if figure.source is FigureSource.EMBEDDED else None
-        outcome = convert_for_latex(
-            figure.resolved_path, figures_dir, figure.number, prefix=prefix, crop=crop
-        )
-        kept.add(outcome.dest_path.name)
-        files[figure.number] = f"figures/{outcome.dest_path.name}"
-        if outcome.note is not None:
-            figure = replace(figure, conversion_note=outcome.note)
-        if not figure.in_table and _is_wide_figure(outcome.dest_path):
-            figure = replace(figure, wide=True)
-        if outcome.warning is not None:
-            warnings.append(EmitWarning(message=f"figure {figure.number}: {outcome.warning}"))
-        updated.append(figure)
-    # Re-running into an existing tree can leave last run's generated figures
-    # behind (fewer figures now, or a format change PNG->PDF). Those stale files
-    # would ride along into an exported project/ZIP though nothing references
-    # them -- remove the ones this document owns and no longer produced.
-    _prune_stale_figures(figures_dir, prefix, kept)
-    return files, tuple(updated), tuple(warnings)
-
-
-# A LaTeXtify-generated figure file: literal "fig" + the document prefix
-# ("" main, "S" supplement) + the figure number + an extension. Case-sensitive
-# and prefix-scoped so the main pass (``fig<N>.*``) never matches a supplement's
-# ``figS<N>.*`` (and vice versa), and a user's own ``Fig1.png``/``diagram.pdf``
-# in figures/ is never touched.
-def _owned_figure_re(prefix: str) -> re.Pattern[str]:
-    return re.compile(rf"^fig{re.escape(prefix)}\d+\.")
-
-
-def _prune_stale_figures(figures_dir: Path, prefix: str, keep_names: set[str]) -> None:
-    """Delete this document's generated figures that the current run did not write.
-
-    Only files matching :func:`_owned_figure_re` for ``prefix`` are eligible, so
-    user-supplied files and the sibling document's figures are preserved. A run
-    with zero figures legitimately clears all of this prefix's generated files.
-    """
-    if not figures_dir.is_dir():
-        return
-    owned = _owned_figure_re(prefix)
-    for path in figures_dir.iterdir():
-        if path.is_file() and path.name not in keep_names and owned.match(path.name):
-            path.unlink()
 
 
 # --------------------------------------------------------------------------- #
@@ -808,6 +697,7 @@ def _emit_supplement(
     exclude_figures: bool = False,
     layout: DocumentLayout | None = None,
     figures_at_end: bool = False,
+    strip_figure_metadata: bool = True,
 ) -> tuple[SupplementResult, list[RefEntry]]:
     """Emit the supplementary-material project (plan item 21).
 
@@ -865,7 +755,7 @@ def _emit_supplement(
                 prefix="S",
             )
             si_figure_files, si_figures, si_conversion_warnings = _copy_figures(
-                si_figures, figures_dir, prefix="S"
+                si_figures, figures_dir, prefix="S", strip_metadata=strip_figure_metadata
             )
 
     si_raw_tex = si_body_result.tex.replace("\r\n", "\n").replace("\r", "\n")

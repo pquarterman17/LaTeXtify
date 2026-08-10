@@ -4,7 +4,7 @@ Cross-cutting maintainability and release-safety gaps found during codebase audi
 
 **Status:** Active
 **Created:** 2026-08-10
-**Updated:** 2026-08-10
+**Updated:** 2026-08-10 (item 6 booked: convert.py at 495/500)
 
 ---
 
@@ -41,6 +41,8 @@ re-derive it:
 - **Ruff format (item 3)** is independent; depends on owner decision (adopt or drop).
 - **Server.py decomposition (item 4)** is needed whenever the next GUI feature lands; planned deliberately rather than under deadline.
 - **Python version file (item 5)** is independent, nice-to-have.
+- **convert.py split (item 6)** is independent of everything else and is the
+  same failure mode as item 4 one directory over.
 
 ---
 
@@ -71,6 +73,16 @@ re-derive it:
    - [ ] Extract largest cohesive sections to new modules to reclaim headroom
    - [ ] Update pin downward as extraction shrinks the file
    - [ ] Verify: next GUI feature can now land without extraction
+
+6. **Split `latextify/figures/convert.py`** — 495 lines against the general
+   500-line ceiling. The next file to hit the wall, and unlike `server.py` it
+   has no pin to hide behind: crossing 500 fails the ratchet outright.
+   - [ ] Move `ConversionOutcome` to its own module — every per-format
+         converter is currently bound to `convert.py` by that one dataclass,
+         which is what makes them unextractable
+   - [ ] Split the SVG, EPS and TIFF converters out, leaving
+         `convert_for_latex`/`_dispatch` as the dispatcher they already are
+   - [ ] Verify: the next figure-format feature lands without extraction
 
 ## Tier 3 — Nice-to-Have
 

@@ -23,7 +23,8 @@ from docx import Document
 from docx.shared import Inches
 from PIL import Image
 
-from latextify.emit.project import _is_wide_figure, emit_project
+from latextify.emit.figures_copy import _is_wide_figure
+from latextify.emit.project import emit_project
 
 
 def _png_bytes(size: tuple[int, int], color: tuple[int, int, int] = (40, 90, 160)) -> io.BytesIO:

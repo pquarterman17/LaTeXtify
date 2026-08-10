@@ -31,7 +31,11 @@ SLACK = 50
 #: 2026-07-12 when the ratchet was added. These are standing tech debt; the
 #: pins cap further growth. Lower a pin whenever you shrink its file.
 PY_PINS = {
-    "latextify/emit/project.py": 1000,
+    # 2026-08-10: pin 1000 -> 871 when the figure-copy block (_copy_figures,
+    # _prune_stale_figures, _is_wide_figure and the ownership regex) moved to
+    # emit/figures_copy.py to pay for the figure metadata strip. Seeded at the
+    # exact size, like the pins above -- the next addition here extracts first.
+    "latextify/emit/project.py": 871,
     "latextify/gui/server.py": 921,
     "latextify/ingest/filters.py": 1061,
     "latextify/ingest/metadata_guess.py": 919,

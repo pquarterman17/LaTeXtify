@@ -14,7 +14,8 @@ from pathlib import Path
 import pytest
 
 from latextify.compile.tectonic import find_tectonic
-from latextify.emit.project import _copy_figures, _prune_stale_figures, emit_project
+from latextify.emit.figures_copy import _copy_figures, _prune_stale_figures
+from latextify.emit.project import emit_project
 from latextify.model import BodyConversionResult
 from latextify.model.figure import Figure
 

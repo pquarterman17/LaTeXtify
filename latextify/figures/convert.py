@@ -69,6 +69,7 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 
 from latextify.figures.crop import CROP_NOTE, apply_crop, uncroppable_message, wants_crop
+from latextify.figures.scrub import strip_figure_metadata
 from latextify.model.figure import CropRect
 
 #: Extensions always converted to PDF before inclusion.
@@ -119,17 +120,10 @@ class ConversionOutcome:
 
 
 def convert_for_latex(
-    src: Path, dest_dir: Path, number: int, *, prefix: str = "", crop: CropRect | None = None
+    src: Path, dest_dir: Path, number: int, *, prefix: str = "",
+    crop: CropRect | None = None, strip_metadata: bool = True
 ) -> ConversionOutcome:
     """Prepare figure ``number``'s resolved file ``src`` for inclusion in ``dest_dir``.
-
-    Dispatches purely on ``src``'s extension: SVG is always converted to
-    PDF, EPS is converted via Ghostscript when available (else passed
-    through with a warning), TIFF is always converted to PNG via Pillow
-    (else nothing is written, see :func:`_convert_tiff`), and everything
-    else (PDF/PNG/JPG/JPEG, or any other extension the override tiers
-    happened to resolve to) is copied through unchanged as
-    ``fig<prefix><number><ext>``.
 
     ``prefix`` (plan item 21) defaults to ``""``; a supplementary document's
     figures pass ``prefix="S"`` so they land as ``figS<number>.<ext>`` in the
@@ -142,7 +136,32 @@ def convert_for_latex(
     path -- so the pixels Word cropped OUT never reach the output tree. A crop on
     a vector (SVG/EPS) or PDF figure cannot be raster-applied, so it degrades to
     a warning rather than silently leaving the hidden regions in place.
+
+    ``strip_metadata`` (METADATA_PRIVACY item 13) defaults to on: whatever
+    raster lands in ``dest_dir`` has its EXIF/GPS/serial numbers/thumbnail and
+    PNG text chunks removed in place, losslessly -- see
+    :mod:`latextify.figures.scrub`. It is the one step here that can be turned
+    off (``latextify convert --keep-figure-metadata``), because it is the one
+    that removes information an author may have put there deliberately.
     """
+    outcome = _dispatch(src, dest_dir, number, prefix=prefix, crop=crop)
+    if not strip_metadata:
+        return outcome
+    problem = strip_figure_metadata(outcome.dest_path)
+    if problem is None:
+        return outcome
+    return replace(outcome, warning=f"{outcome.warning} {problem}" if outcome.warning else problem)
+
+
+def _dispatch(
+    src: Path, dest_dir: Path, number: int, *, prefix: str = "", crop: CropRect | None = None
+) -> ConversionOutcome:
+    """Route ``src`` to its converter purely on extension: SVG always to PDF,
+    EPS via Ghostscript when available (else passed through with a warning),
+    TIFF always to PNG via Pillow (else nothing is written, see
+    :func:`_convert_tiff`), and everything else (PDF/PNG/JPG/JPEG, or any other
+    extension the override tiers resolved to) copied through unchanged as
+    ``fig<prefix><number><ext>``."""
     ext = src.suffix.lower()
     if ext in SVG_EXTENSIONS:
         return _note_uncroppable(_convert_svg(src, dest_dir, number, prefix=prefix), crop, "SVG")

@@ -19,7 +19,8 @@ from xml.etree import ElementTree as ET
 
 from PIL import Image
 
-from latextify.emit.project import _copy_figures, emit_project
+from latextify.emit.figures_copy import _copy_figures
+from latextify.emit.project import emit_project
 from latextify.figures.convert import convert_for_latex
 from latextify.figures.crop import _parse_srcrect, apply_crop, attach_crops, image_crops
 from latextify.figures.extract import extract_figures

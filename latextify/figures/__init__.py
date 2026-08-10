@@ -17,6 +17,11 @@ Modules:
                    supported by Tectonic") -- EPS is converted via
                    Ghostscript when found on PATH, else an actionable
                    EmitWarning is raised naming the fix.
+    crop.py     -- Word's display crop (``a:srcRect``) geometry, applied so
+                   the pixels Word hid never reach the output tree.
+    scrub.py    -- lossless removal of a raster figure's embedded metadata
+                   (EXIF/GPS/serials/thumbnail, PNG text chunks) on the way
+                   into figures/, which ships as submission source.
 
 ``override.py``'s ``find_override``/``resolve_overrides`` and
 ``convert.py``'s ``convert_for_latex`` all accept an optional ``prefix``

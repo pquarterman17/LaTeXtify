@@ -34,8 +34,10 @@ Output contract (plan item 5) — the generated/manual split:
             supplement_bibliography.tex -- same generated-\\bibliography-line
                                           mechanism as bibliography.tex
 
-Planned modules:
-    project.py  -- tree writing, main.tex write-once logic
-    metadata.py -- Author/Affiliation IR -> per-journal macro emission via
-                   the journal's metadata.tex.j2
+Modules:
+    project.py      -- tree writing, main.tex write-once logic
+    metadata.py     -- Author/Affiliation IR -> per-journal macro emission via
+                       the journal's metadata.tex.j2
+    figures_copy.py -- what lands in figures/: per-figure convert-or-copy,
+                       wide-float sizing, stale-file pruning
 """

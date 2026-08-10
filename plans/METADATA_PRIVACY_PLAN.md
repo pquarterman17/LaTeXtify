@@ -9,7 +9,7 @@ reverse-to-Word note.
 
 **Status:** Active
 **Created:** 2026-08-10
-**Updated:** 2026-08-10 (second round: items 13-16 booked)
+**Updated:** 2026-08-10 (second round: #13 shipped; 14-16 open)
 
 ---
 
@@ -86,16 +86,10 @@ registered; CLI and GUI accept-lists derive from it rather than restating it.
 
 ---
 
-_Original Tiers 1 and 2 are complete — see `## Completed`. Second round (13-16) in progress._
+_Original Tiers 1 and 2 are complete, and so is #13 — see `## Completed`.
+Second round items 14-16 remain._
 
 ## Tier 1 — High Impact
-
-13. **Strip figure metadata on the conversion path** — the highest-value gap.
-    - [ ] Integrate stripping at `latextify/figures/convert.py::convert_for_latex` (~line 121), the single funnel every figure passes through
-    - [ ] Add `--keep-figure-metadata` escape hatch to `latextify convert` command (privacy-safe default)
-    - [ ] Reuse `privacy/images.py::sanitize` for stripping; preserve ICC colour profile, dimensions, format
-    - [ ] Compose with existing alpha-flattening and TIFF→PNG steps
-    - [ ] Stripping failure must degrade to warning, never break conversion
 
 14. **`inspect --fail-on` severity gate** — command currently unusable as CI gate.
     - [ ] Add `--fail-on high|medium|low|never` flag, defaulting to `high`
@@ -137,6 +131,24 @@ _Original Tiers 1 and 2 are complete — see `## Completed`. Second round (13-16
 ---
 
 ## Completed
+
+- ~~**#13 Strip figure metadata on the conversion path**~~ (2026-08-10) —
+  `figures/scrub.py`, applied by `convert_for_latex` to whatever raster reaches
+  `figures/`; `--keep-figure-metadata` on `latextify convert` turns it off. The
+  plan said to reuse `privacy/images.py::sanitize`; it deliberately does not.
+  That function rebuilds from pixel bytes, which is right for a one-off `clean`
+  but re-encodes — measured on a quality-95 JPEG: 44,072 → 21,770 bytes, worst
+  per-channel delta **64/255**. Degrading every figure of every conversion is
+  not a trade this feature gets to make, so stripping is container-level
+  instead (drop JPEG APP1/APP13/vendor-APPn/COM and non-ICC APP2, drop PNG
+  `tEXt`/`zTXt`/`iTXt`/`eXIf`/`tIME`); compressed data is never decoded, so
+  pixels are bit-identical and the ICC profile survives by never being touched.
+  Failure distinguishes *wrong magic bytes* (not really an image → silent; the
+  compile step reports it better) from *right magic, malformed body* (a real
+  image whose metadata may have survived → warning), after the first version
+  raised a privacy warning on files with no metadata to leak.
+  `emit/project.py` 999 → 871 to pay for it: the figure-copy block moved to
+  `emit/figures_copy.py` and the ratchet pin dropped 1000 → 871.
 
 - ~~**#1 Unified report model**~~ (2026-08-10) — `privacy/report.py`:
   `Finding` (category/severity/summary/**detail**/location/count/**removable**),

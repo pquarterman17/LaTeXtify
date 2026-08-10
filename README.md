@@ -45,7 +45,10 @@ locally for private, full-speed conversions.
   recompiled. On by default in the GUI.
 - **Figures** — extracts embedded images, or swap in your own
   vector/high-res files by dropping `figures/fig1.pdf` beside the docx (or
-  an explicit `figures.yaml`). SVG converts to PDF automatically.
+  an explicit `figures.yaml`). SVG converts to PDF automatically. Embedded
+  camera metadata — GPS, body/lens serial numbers, the photographer's name,
+  the capture thumbnail — is stripped on the way into `figures/`, losslessly:
+  pixels and colour profile are untouched. `--keep-figure-metadata` opts out.
 - **Equations** — Word equation editor (OMML) math converts to LaTeX;
   `latextify equations` produces a side-by-side audit for equation-heavy
   papers.

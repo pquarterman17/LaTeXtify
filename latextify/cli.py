@@ -5,6 +5,7 @@ Current surface (plan items 3, 5, 16, 18, 19, 20, 21, 23):
     latextify convert paper.docx --journal revtex4-2 [--output output] \\
         [--citation-style numeric|authoryear] [--pdf] [--report/--no-report] \\
         [--exclude-figures] \\  # text-only project (no figures)
+        [--keep-figure-metadata] \\  # don't strip figure EXIF/GPS (default: strip)
         [--columns default|one|two] [--line-numbers] [--double-spacing] \\
         [--anonymize] [--figures-at-end] \\  # submission/layout options
         [--supplement si.docx] [--combine-supplement] \\  # Supplementary Material (item 21)
@@ -96,6 +97,13 @@ def convert(
         help="Emit a text-only project: drop every figure (no \\includegraphics, "
         "no captions) and copy no images. Tables, equations, and citations are "
         "kept. Applies to the supplement too. Off by default.",
+    ),
+    keep_figure_metadata: bool = typer.Option(
+        False,
+        "--keep-figure-metadata",
+        help="Keep the EXIF/GPS/camera data embedded in figure images. By "
+        "default it is stripped losslessly (pixels and colour profile are "
+        "unchanged) on the way into figures/, which ships as submission source.",
     ),
     columns: str = typer.Option(
         "default",
@@ -231,6 +239,7 @@ def convert(
             references_bib_path=references,
             supplement_onecolumn=supplement_onecolumn,
             check_references=check_references,
+            strip_figure_metadata=not keep_figure_metadata,
         )
     except ManifestError as exc:
         typer.echo(f"error: {exc}", err=True)
