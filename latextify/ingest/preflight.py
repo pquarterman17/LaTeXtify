@@ -17,6 +17,20 @@ Detectors (see plan item 2 for the construct -> XML-tag mapping):
     SmartArt            -- a:graphicData whose uri is the DrawingML diagram namespace
     equation-as-image   -- a paragraph containing a w:drawing whose own text
                            starts with "Eq" / "Equation" (heuristic; WARN not ERROR)
+
+`run_preflight()` also folds in the document's privacy/authoring-trail
+findings (METADATA_PRIVACY_PLAN item 15): tracked changes, comments, hidden
+text, a cached reviewer list, and the docProps authoring metadata that
+`latextify.privacy.docx_adapter.inspect` already knows how to find. Before
+this, that inventory only ever surfaced through a separate `latextify
+inspect` invocation nobody thinks to run before submitting; folding it into
+preflight puts "this document has tracked changes in it" in front of the
+user at conversion time, for free, in the same report.md every other
+finding here already reaches. See `latextify.ingest.preflight_privacy` for
+the translation from `privacy.report.Finding` into `PreflightFinding` -- it
+is purely informational (WARN/INFO, never ERROR; an author name is normal,
+not a reason to block a conversion) and degrades to no findings, never an
+exception, for a non-.docx manuscript or an inspection that itself fails.
 """
 
 from __future__ import annotations
@@ -31,6 +45,7 @@ from latextify.figures.extract import looks_like_figure_caption
 from latextify.ingest._xml import hardened_xml_parser
 from latextify.ingest.archive_guard import validate_docx_archive
 from latextify.ingest.formats import is_alt_manuscript_format
+from latextify.ingest.preflight_privacy import privacy_findings
 from latextify.model.preflight import (
     Location,
     PreflightFinding,
@@ -348,6 +363,7 @@ def run_preflight(docx_path: str | Path) -> PreflightReport:
     findings: list[PreflightFinding] = []
     for detector in _DETECTORS:
         findings.extend(detector(document_root, para_index))
+    findings.extend(privacy_findings(docx_path))
 
     styles = build_style_inventory(document_root, styles_root)
     return PreflightReport(findings=tuple(findings), styles=styles)

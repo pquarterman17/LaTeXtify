@@ -376,7 +376,7 @@ def test_supplement_bibliography_include_has_the_line_when_citations_exist(tmp_p
 # --------------------------------------------------------------------------- #
 
 
-def test_report_supplement_section_has_counts_and_no_warnings(tmp_path):
+def test_report_supplement_section_has_counts_and_no_structural_warnings(tmp_path):
     docx = _copy_fixture(tmp_path, ZOTERO_DOCX)
     supplement = _copy_fixture(tmp_path, SUPPLEMENT_DOCX)
 
@@ -388,7 +388,21 @@ def test_report_supplement_section_has_counts_and_no_warnings(tmp_path):
     assert "S-figures: 2." in report_text
     assert "SI citations: 2 " in report_text
     assert "1 new reference" in report_text
-    assert "No supplement-specific warnings." in report_text
+    # SUPPLEMENT_DOCX is ordinary python-docx output (a real author/
+    # description/thumbnail), so METADATA_PRIVACY_PLAN item 15 now
+    # legitimately surfaces supplement-specific privacy findings here --
+    # "no warnings" no longer holds, but there must be no STRUCTURAL ones
+    # (text box / tracked changes / floating object / SmartArt / equation).
+    assert "No supplement-specific warnings." not in report_text
+    assert "supplement preflight [warn] (privacy_author)" in report_text
+    for detector in (
+        "text_box",
+        "tracked_changes",
+        "floating_object",
+        "smartart",
+        "equation_as_image",
+    ):
+        assert f"({detector})" not in report_text
 
 
 # --------------------------------------------------------------------------- #

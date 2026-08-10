@@ -183,9 +183,16 @@ def render_report(
             ),
         )
         for finding in sorted_findings:
+            # Findings with no single body location (e.g. document-level
+            # privacy findings from ingest.preflight_privacy, which inspect
+            # whole package parts rather than a paragraph) use paragraph_index
+            # -1 as a sentinel; show that as "document-level" rather than the
+            # confusing "¶-1".
+            para = finding.location.paragraph_index
+            loc = f"¶{para}" if para >= 0 else "document-level"
             lines.append(
                 f"**[{finding.severity.upper()}]** "
-                f"({finding.detector}, ¶{finding.location.paragraph_index}): "
+                f"({finding.detector}, {loc}): "
                 f"{_flatten(finding.message)}\n"
             )
             if finding.location.text_snippet:

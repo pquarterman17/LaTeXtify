@@ -9,7 +9,7 @@ reverse-to-Word note.
 
 **Status:** Active
 **Created:** 2026-08-10
-**Updated:** 2026-08-10 (second round: #13 shipped; 14-16 open)
+**Updated:** 2026-08-10 (second round complete: 13-16 all shipped)
 
 ---
 
@@ -88,24 +88,8 @@ registered; CLI and GUI accept-lists derive from it rather than restating it.
 
 ---
 
-_Original Tiers 1 and 2 are complete, and so is #13 — see `## Completed`.
-Second round items 14-16 remain._
-
-## Tier 2 — Medium Impact
-
-15. **Surface privacy findings during conversion (preflight)** — put "this has tracked changes" in front of user at submission time.
-    - [ ] Reuse `privacy/docx_adapter.py::inspect` rather than writing new detection
-    - [ ] Convert Finding objects into preflight's existing warning type
-    - [ ] Keep informational, not a hard error — author names are normal
-    - [ ] Update preflight module conventions
-
-16. **Make PDF redaction detection precise** — current detector false-positives on black figures/table rules.
-    - [ ] Only flag when text actually falls INSIDE dark-filled rectangle bounding box
-    - [ ] Reuse pypdf visitor callbacks for text coordinates + parsing `re` operators
-    - [ ] Keep "possible" wording and `removable=False`
-    - [ ] Fallback to coarser heuristic or warn if content stream cannot be parsed (false "clean" is worst outcome)
-    - [ ] Add NEGATIVE fixture (black box, no covered text) to `tests/fixtures/make_leaky_files.py` + `.truth.json`
-    - [ ] Extract content-stream parsing to new `latextify/privacy/pdf_content.py` (pdf.py at ~365 lines, hard 500 ceiling)
+_Every booked item (1-10, 13-16) is shipped — see `## Completed`. Only the two
+deferred Tier 3 ideas remain, and neither has been asked for._
 
 ## Tier 3 — Nice-to-Have
 
@@ -125,6 +109,47 @@ Second round items 14-16 remain._
 ---
 
 ## Completed
+
+- ~~**#16 Make PDF redaction detection precise**~~ (2026-08-10) —
+  `privacy/pdf_content.py` parses the page content stream directly: it tracks
+  the CTM through `cm`/`q`/`Q`, accumulates `re` rectangles, and judges fill
+  darkness on `g`/`rg`/`k`/`sc`/`scn`, then compares those boxes against text
+  run boxes obtained from pypdf's `extract_text(visitor_text=...)`. A page is
+  flagged only when a text run's box actually intersects a dark rectangle's.
+  The old detector flagged any page with a dark fill AND any text, so every
+  paper with a black figure or a heavy table rule tripped it — a privacy
+  warning that cries wolf trains the user to ignore it.
+  Demonstrated, not asserted: the new `clean_black_figure.pdf` fixture carries
+  1 dark rect and 2 text runs, exactly like the positive `leaky_doc.pdf`, and
+  differs only in geometry — the old heuristic returns True on it (a false
+  positive), the new one False. A test asserts the fixture still HAS a dark
+  rect and text, so it cannot go vacuous. Parse failure falls back to the
+  coarse heuristic, and if that also fails the page is not flagged but a
+  warning says detection could not run — a false "clean" is the worst outcome
+  for a privacy tool. No new dependency (pypdf only), per the 2026-07-18
+  dependency-light decision.
+
+- ~~**#15 Surface privacy findings during conversion (preflight)**~~
+  (2026-08-10) — `latextify/ingest/preflight_privacy.py` translates
+  `docx_adapter.inspect`'s `Finding`s into `PreflightFinding`s and
+  `run_preflight` folds them into its existing `findings` tuple, so they
+  reach `report.md` through the same "## Preflight Findings" section (and
+  the same supplement-warnings path) every other preflight finding already
+  uses — no second warning vocabulary. Never `Severity.ERROR`
+  (`Finding.severity` high/medium maps to WARN, low to INFO); a `.docx`
+  whose inspection itself raises degrades to one INFO note instead of
+  breaking the conversion; non-`.docx` manuscripts get no findings.
+  Document-level findings (docProps, tracked changes, comments — inspected
+  per package part, not per paragraph) use `paragraph_index=-1`, the same
+  sentinel `ingest.metadata_guess` already uses for "not applicable";
+  `report/render.py` renders that as "document-level" instead of "¶-1".
+  `tests/fixtures/clean.docx` and `supplement.docx` are ordinary python-docx
+  output (a real author/description/thumbnail), so they now legitimately
+  produce privacy findings themselves — `tests/test_preflight.py` and
+  `tests/test_supplement.py` were updated to check structural findings only
+  where that was their point; `tests/test_preflight_privacy.py` covers the
+  privacy layer itself against synthetic tracked-changes/comments and
+  privacy-clean fixtures built at test time.
 
 - ~~**#14 `inspect --fail-on` severity gate**~~ (2026-08-10) — `--fail-on
   high|medium|low|never`, defaulting to `high`; exit 1 only when a finding at
