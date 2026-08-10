@@ -149,14 +149,14 @@ def test_unsupported_docx_style_inventory(unsupported_report):
 
 
 def test_report_warnings_property(unsupported_report):
-    # .warnings mixes the 2 structural WARN detectors with whatever privacy_*
-    # findings also landed at WARN (e.g. the planted tracked change is also a
+    # .warnings mixes this file's 2 structural WARN detectors with whatever
+    # privacy_* findings also landed at WARN (the planted tracked change is a
     # "high" Finding.severity in the privacy layer -- see
-    # test_preflight_privacy.py) -- assert the structural two are present
-    # rather than requiring an exact set, since the privacy WARN count is
-    # that module's concern, not this file's.
-    detectors = {f.detector for f in unsupported_report.warnings}
-    assert {"floating_object", "equation_as_image"} <= detectors
+    # test_preflight_privacy.py). Filter to the structural ones and keep the
+    # EXACT-set assertion: a subset check would stop catching a spurious third
+    # structural warning, which is precisely what this test exists to notice.
+    structural = [f for f in unsupported_report.warnings if not f.detector.startswith("privacy_")]
+    assert {f.detector for f in structural} == {"floating_object", "equation_as_image"}
 
 
 def test_report_has_errors_true_when_errors_present(unsupported_report):
