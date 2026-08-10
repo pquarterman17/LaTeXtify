@@ -132,6 +132,7 @@ KAJIWARA = {
 
 # --- OOXML complex-field helpers (mirrors tests/fixtures/make_zotero_cited.py) -
 
+
 def _xml_escape(text: str) -> str:
     return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
@@ -150,10 +151,15 @@ def _text_run(text: str) -> str:
 
 def _field(instruction: str, result: str) -> str:
     """A Word complex field: begin, instrText, separate, displayed result, end."""
-    return "".join([
-        _fldchar("begin"), _instr_run(instruction), _fldchar("separate"),
-        _text_run(result), _fldchar("end"),
-    ])
+    return "".join(
+        [
+            _fldchar("begin"),
+            _instr_run(instruction),
+            _fldchar("separate"),
+            _text_run(result),
+            _fldchar("end"),
+        ]
+    )
 
 
 def _zotero_field(payload: dict, result: str) -> str:
@@ -206,38 +212,47 @@ def _write_docx(path: Path, document_xml: str) -> None:
 
 # --- The two manuscripts + the metadata sidecar ------------------------------
 
+
 def _build_main() -> None:
-    _write_docx(MAIN_PATH, _document_xml(
-        _paragraph(
-            _text_run("Magnons transport spin over long distances in magnetic "
-                      "insulators "),
-            _zotero_field(CORNELISSEN, "[1]"),
-            _text_run(", a result that helped launch the field of magnon "
-                      "spintronics "),
-            _mendeley_field(CHUMAK, "[2]"),
-            _text_run("."),
+    _write_docx(
+        MAIN_PATH,
+        _document_xml(
+            _paragraph(
+                _text_run("Magnons transport spin over long distances in magnetic insulators "),
+                _zotero_field(CORNELISSEN, "[1]"),
+                _text_run(", a result that helped launch the field of magnon spintronics "),
+                _mendeley_field(CHUMAK, "[2]"),
+                _text_run("."),
+            ),
+            _paragraph(
+                _text_run(
+                    "This manuscript revisits those non-local experiments and "
+                    "extends them to thin-film devices."
+                ),
+            ),
         ),
-        _paragraph(
-            _text_run("This manuscript revisits those non-local experiments and "
-                      "extends them to thin-film devices."),
-        ),
-    ))
+    )
 
 
 def _build_supplement() -> None:
-    _write_docx(SUPPLEMENT_PATH, _document_xml(
-        _paragraph(
-            _text_run("Spin-wave interconversion in a magnetic insulator "),
-            _zotero_field(KAJIWARA, "[1]"),
-            _text_run(" underpins the injector/detector scheme used here."),
+    _write_docx(
+        SUPPLEMENT_PATH,
+        _document_xml(
+            _paragraph(
+                _text_run("Spin-wave interconversion in a magnetic insulator "),
+                _zotero_field(KAJIWARA, "[1]"),
+                _text_run(" underpins the injector/detector scheme used here."),
+            ),
+            _paragraph(
+                _text_run(
+                    "Full device-fabrication details supplement the main-text "
+                    "measurements of magnon spin transport "
+                ),
+                _zotero_field(CORNELISSEN, "[2]"),
+                _text_run("."),
+            ),
         ),
-        _paragraph(
-            _text_run("Full device-fabrication details supplement the main-text "
-                      "measurements of magnon spin transport "),
-            _zotero_field(CORNELISSEN, "[2]"),
-            _text_run("."),
-        ),
-    ))
+    )
 
 
 def _write_paper_yaml() -> None:

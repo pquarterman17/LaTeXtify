@@ -35,9 +35,7 @@ def _print_missing_libs(binary: Path) -> None:
     the whole dependency table, so a single build log names the complete fix.
     """
     try:
-        proc = subprocess.run(
-            ["ldd", str(binary)], capture_output=True, text=True, timeout=30
-        )
+        proc = subprocess.run(["ldd", str(binary)], capture_output=True, text=True, timeout=30)
     except (OSError, subprocess.SubprocessError):
         return
     missing = [line.strip() for line in proc.stdout.splitlines() if "not found" in line]

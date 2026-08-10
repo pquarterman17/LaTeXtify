@@ -26,9 +26,18 @@ def main() -> int:
     print("generated main.docx + supplement.docx + paper.yaml")
 
     cmd = [
-        sys.executable, "-m", "latextify", "convert", str(HERE / "main.docx"),
-        "--journal", JOURNAL, "--supplement", str(HERE / "supplement.docx"),
-        "--output", str(OUTPUT), "--pdf",
+        sys.executable,
+        "-m",
+        "latextify",
+        "convert",
+        str(HERE / "main.docx"),
+        "--journal",
+        JOURNAL,
+        "--supplement",
+        str(HERE / "supplement.docx"),
+        "--output",
+        str(OUTPUT),
+        "--pdf",
     ]
     print(f"$ {' '.join(cmd)}\n")
     completed = subprocess.run(cmd)

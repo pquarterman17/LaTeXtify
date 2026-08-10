@@ -27,8 +27,16 @@ def main() -> int:
     print(f"generated {docx.relative_to(HERE)}")
 
     cmd = [
-        sys.executable, "-m", "latextify", "convert", str(docx),
-        "--journal", JOURNAL, "--output", str(OUTPUT), "--pdf",
+        sys.executable,
+        "-m",
+        "latextify",
+        "convert",
+        str(docx),
+        "--journal",
+        JOURNAL,
+        "--output",
+        str(OUTPUT),
+        "--pdf",
     ]
     print(f"$ {' '.join(cmd)}\n")
     completed = subprocess.run(cmd)

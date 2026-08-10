@@ -26,16 +26,26 @@ def main() -> int:
     print(f"generated {docx.name} + figures/ + figures.yaml")
 
     cmd = [
-        sys.executable, "-m", "latextify", "convert", str(docx),
-        "--journal", JOURNAL, "--output", str(OUTPUT), "--pdf",
+        sys.executable,
+        "-m",
+        "latextify",
+        "convert",
+        str(docx),
+        "--journal",
+        JOURNAL,
+        "--output",
+        str(OUTPUT),
+        "--pdf",
     ]
     print(f"$ {' '.join(cmd)}\n")
     completed = subprocess.run(cmd)
 
     project = OUTPUT / JOURNAL
     pdf = project / "main.pdf"
-    print(f"\nfigure provenance is recorded in {project / 'report.md'} "
-          "(expect Fig 1 = OVERRIDE, Fig 2 = MANIFEST).")
+    print(
+        f"\nfigure provenance is recorded in {project / 'report.md'} "
+        "(expect Fig 1 = OVERRIDE, Fig 2 = MANIFEST)."
+    )
     if pdf.is_file():
         print(f"PDF: {pdf}")
         return 0

@@ -81,9 +81,7 @@ def _build_docx() -> None:
         "low-resolution placeholder in the Word file."
     )
     document.add_picture(io.BytesIO(_solid_png((150, 150, 150), 8)), width=Inches(1.0))
-    document.add_paragraph(
-        "Figure 1: Optical micrograph of the non-local device.", style="Caption"
-    )
+    document.add_paragraph("Figure 1: Optical micrograph of the non-local device.", style="Caption")
 
     document.add_heading("Results", level=1)
     document.add_paragraph(
@@ -109,9 +107,7 @@ def _build_external_figures() -> None:
 
     # Manifest: figure 2 is taken from an arbitrary path via figures.yaml,
     # NOT the figures/ folder convention (this file isn't named fig2.*).
-    (FIGURES_DIR / "panels" / "detector-signal.png").write_bytes(
-        _solid_png((45, 90, 200), 64)
-    )
+    (FIGURES_DIR / "panels" / "detector-signal.png").write_bytes(_solid_png((45, 90, 200), 64))
     MANIFEST_PATH.write_text(
         "# figures.yaml -- maps a figure number to an explicit file path.\n"
         "# Paths are relative to this file. Manifest entries beat the\n"
