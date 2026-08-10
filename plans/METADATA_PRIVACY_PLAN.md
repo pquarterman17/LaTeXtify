@@ -9,7 +9,7 @@ reverse-to-Word note.
 
 **Status:** Active
 **Created:** 2026-08-10
-**Updated:** 2026-08-10 (second round: #13 shipped; 14-16 open)
+**Updated:** 2026-08-10 (second round: #13 and #15 shipped; 14, 16 open)
 
 ---
 
@@ -88,8 +88,8 @@ registered; CLI and GUI accept-lists derive from it rather than restating it.
 
 ---
 
-_Original Tiers 1 and 2 are complete, and so is #13 — see `## Completed`.
-Second round items 14-16 remain._
+_Original Tiers 1 and 2 are complete, and so are #13 and #15 — see
+`## Completed`. Second round items 14 and 16 remain._
 
 ## Tier 1 — High Impact
 
@@ -100,12 +100,6 @@ Second round items 14-16 remain._
     - [ ] Update command docstring (currently claims exit 1 always)
 
 ## Tier 2 — Medium Impact
-
-15. **Surface privacy findings during conversion (preflight)** — put "this has tracked changes" in front of user at submission time.
-    - [ ] Reuse `privacy/docx_adapter.py::inspect` rather than writing new detection
-    - [ ] Convert Finding objects into preflight's existing warning type
-    - [ ] Keep informational, not a hard error — author names are normal
-    - [ ] Update preflight module conventions
 
 16. **Make PDF redaction detection precise** — current detector false-positives on black figures/table rules.
     - [ ] Only flag when text actually falls INSIDE dark-filled rectangle bounding box
@@ -133,6 +127,28 @@ Second round items 14-16 remain._
 ---
 
 ## Completed
+
+- ~~**#15 Surface privacy findings during conversion (preflight)**~~
+  (2026-08-10) — `latextify/ingest/preflight_privacy.py` translates
+  `docx_adapter.inspect`'s `Finding`s into `PreflightFinding`s and
+  `run_preflight` folds them into its existing `findings` tuple, so they
+  reach `report.md` through the same "## Preflight Findings" section (and
+  the same supplement-warnings path) every other preflight finding already
+  uses — no second warning vocabulary. Never `Severity.ERROR`
+  (`Finding.severity` high/medium maps to WARN, low to INFO); a `.docx`
+  whose inspection itself raises degrades to one INFO note instead of
+  breaking the conversion; non-`.docx` manuscripts get no findings.
+  Document-level findings (docProps, tracked changes, comments — inspected
+  per package part, not per paragraph) use `paragraph_index=-1`, the same
+  sentinel `ingest.metadata_guess` already uses for "not applicable";
+  `report/render.py` renders that as "document-level" instead of "¶-1".
+  `tests/fixtures/clean.docx` and `supplement.docx` are ordinary python-docx
+  output (a real author/description/thumbnail), so they now legitimately
+  produce privacy findings themselves — `tests/test_preflight.py` and
+  `tests/test_supplement.py` were updated to check structural findings only
+  where that was their point; `tests/test_preflight_privacy.py` covers the
+  privacy layer itself against synthetic tracked-changes/comments and
+  privacy-clean fixtures built at test time.
 
 - ~~**#13 Strip figure metadata on the conversion path**~~ (2026-08-10) —
   `figures/scrub.py`, applied by `convert_for_latex` to whatever raster reaches
