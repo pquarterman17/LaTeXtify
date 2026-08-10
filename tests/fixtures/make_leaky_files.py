@@ -285,12 +285,45 @@ def build_pdf() -> dict[str, object]:
     }
 
 
+def build_clean_black_figure_pdf() -> dict[str, object]:
+    """A PDF with a black filled rectangle that covers no text -- the negative
+    case for item #16's precise redaction geometry check.
+
+    This is the shape of an ordinary scientific figure: a solid black plot
+    marker or table rule sitting well away from the page's body text. The
+    coarse pre-#16 heuristic (dark fill present AND page has text, anywhere)
+    would false-positive on this file; the geometry-aware detector must not,
+    because nothing is actually hidden under the box.
+    """
+    from reportlab.lib.pagesizes import LETTER
+    from reportlab.pdfgen import canvas
+
+    dest = FIXTURE_DIR / "clean_black_figure.pdf"
+    pdf = canvas.Canvas(str(dest), pagesize=LETTER)
+    pdf.setFont("Helvetica", 12)
+    pdf.drawString(72, 700, "Public summary of the findings.")
+    pdf.drawString(72, 660, "Nothing sensitive on this line either.")
+    # A solid black figure element, far below both text lines -- no overlap.
+    pdf.setFillColorRGB(0, 0, 0)
+    pdf.rect(70, 100, 200, 150, stroke=0, fill=1)
+    pdf.showPage()
+    pdf.save()
+
+    return {
+        "path": dest.name,
+        "has_possible_redaction": False,
+        "has_dark_filled_rect": True,
+        "has_text": True,
+    }
+
+
 def main() -> None:
     truth = {
         "deck": build_deck(),
         "workbook": build_workbook(),
         "photo": build_photo(),
         "pdf": build_pdf(),
+        "clean_black_figure_pdf": build_clean_black_figure_pdf(),
     }
     TRUTH_PATH.write_text(json.dumps(truth, indent=2) + "\n")
     for name, entry in truth.items():

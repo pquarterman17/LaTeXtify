@@ -28,5 +28,11 @@
     "author": "Dr Testy McTestface",
     "has_possible_redaction": true,
     "hidden_text": "P-00417"
+  },
+  "clean_black_figure_pdf": {
+    "path": "clean_black_figure.pdf",
+    "has_possible_redaction": false,
+    "has_dark_filled_rect": true,
+    "has_text": true
   }
 }

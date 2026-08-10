@@ -17,9 +17,19 @@ reported**, never silently left to look handled:
 
 - *Failed redaction* is the classic catastrophic leak -- a black box is drawn
   over the text, the text object is untouched, and anyone can select or
-  extract it. Detection here is a heuristic (dark filled rectangle on a page
-  that also has extractable text) and can false-positive on ordinary design
-  elements, so it is phrased as "possible".
+  extract it. Detection (METADATA_PRIVACY_PLAN item #16) walks the page's
+  content-stream operators via :mod:`latextify.privacy.pdf_content` and flags
+  a page only when a text run's bounding box actually falls inside a dark
+  filled rectangle's -- not merely "both exist somewhere on this page", which
+  is what the original version checked and which false-positived on every
+  black-filled figure, plot marker, or table rule in a scientific paper. It
+  is still a heuristic (approximate glyph geometry, arity-sniffed colour
+  spaces -- see the submodule) and is phrased as "possible" for that reason.
+  If the content stream cannot be parsed at all (encrypted, damaged, an
+  unusual filter), a false "clean" is worse than a false alarm, so detection
+  falls back to the original coarse any-dark-fill-plus-any-text check; only
+  if that *also* fails to run does the page turn into an explicit warning
+  rather than a silent pass.
 - *CropBox smaller than MediaBox* hides page content by viewport rather than
   by removal -- the exact analogue of the Word ``srcRect`` crop leak already
   fixed in :mod:`latextify.figures.crop`.
@@ -30,10 +40,11 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from pypdf import PdfReader, PdfWriter
-from pypdf.errors import PdfReadError
+from pypdf import PageObject, PdfReader, PdfWriter
+from pypdf.errors import DependencyError, PdfReadError, PyPdfError
 from pypdf.generic import ArrayObject, NameObject
 
+from . import pdf_content
 from .report import Finding
 
 #: /Info keys worth naming individually, with why each matters.
@@ -74,7 +85,10 @@ _MARKUP_ANNOTS = frozenset(
     }
 )
 
-#: A near-black non-stroking colour: `0 g`, `0 0 0 rg`, or `0 0 0 1 k`.
+#: Fallback-only: the pre-#16 coarse heuristic, kept for when the content
+#: stream can be decoded to raw bytes but not walked operator-by-operator
+#: (see ``_coarse_redaction_heuristic`` and the module docstring). A
+#: near-black non-stroking colour: `0 g`, `0 0 0 rg`, or `0 0 0 1 k`.
 _DARK_FILL_RE = re.compile(
     rb"(?:^|\s)(?:0(?:\.0+)?\s+g"
     rb"|0(?:\.0+)?\s+0(?:\.0+)?\s+0(?:\.0+)?\s+rg"
@@ -176,38 +190,80 @@ def _cropbox_findings(reader: PdfReader) -> list[Finding]:
     ]
 
 
-def _redaction_findings(reader: PdfReader) -> list[Finding]:
-    suspect = []
+#: Exceptions that mean "this page's content stream would not parse", from
+#: pypdf's own hierarchy (PdfReadError covers PdfStreamError,
+#: FileNotDecryptedError, EmptyFileError; PyPdfError also covers ParseError
+#: and LimitReachedError; DependencyError sits outside that hierarchy) plus
+#: the defensive set used throughout this module for unexpected structure.
+_UNPARSEABLE_CONTENT_ERRORS = (
+    PyPdfError,
+    DependencyError,
+    NotImplementedError,
+    AttributeError,
+    TypeError,
+    ValueError,
+    KeyError,
+)
+
+
+def _coarse_redaction_heuristic(page: PageObject) -> bool:
+    """The pre-#16 detector: a dark fill AND extractable text, anywhere on the page.
+
+    Used only as a fallback when :func:`~latextify.privacy.pdf_content.text_falls_in_dark_rect`
+    cannot walk the page's operators. It reads the content stream as raw
+    bytes via regex rather than parsing operators, so it tolerates a wider
+    range of malformed structure -- at the cost of the false positives on
+    black figure elements that item #16 exists to fix. That trade is
+    intentional here: a page this heuristic wrongly flags gets a human
+    second look; a page a broken parser silently called "clean" does not.
+    """
+    contents = page.get_contents()
+    if contents is None:
+        return False
+    data = contents.get_data()
+    if not (_DARK_FILL_RE.search(data) and _FILLED_RECT_RE.search(data)):
+        return False
+    return bool((page.extract_text() or "").strip())
+
+
+def _redaction_findings(reader: PdfReader) -> tuple[list[Finding], list[str]]:
+    suspect: list[int] = []
+    warnings: list[str] = []
     for index, page in enumerate(reader.pages, start=1):
         try:
-            contents = page.get_contents()
-            if contents is None:
-                continue
-            data = contents.get_data()
-            if not (_DARK_FILL_RE.search(data) and _FILLED_RECT_RE.search(data)):
-                continue
-            if (page.extract_text() or "").strip():
+            if pdf_content.text_falls_in_dark_rect(page):
                 suspect.append(index)
-        except (PdfReadError, AttributeError, TypeError, ValueError, KeyError):
             continue
-    if not suspect:
-        return []
-    return [
-        Finding(
-            category="possible-redaction",
-            severity="high",
-            summary=f"Possible unsafe redaction on {len(suspect)} page(s)",
-            detail=(
-                "A dark filled rectangle sits on a page that also has extractable "
-                "text. If a box was drawn over text to hide it, the text is still "
-                "selectable underneath. Verify by selecting over the black areas. "
-                "This is a heuristic and can flag ordinary design elements."
-            ),
-            location=f"page {suspect[0]}",
-            count=len(suspect),
-            removable=False,
+        except _UNPARSEABLE_CONTENT_ERRORS:
+            pass  # fall through to the coarse heuristic below
+        try:
+            if _coarse_redaction_heuristic(page):
+                suspect.append(index)
+        except _UNPARSEABLE_CONTENT_ERRORS:
+            warnings.append(
+                f"page {index}: could not check for a failed redaction (the "
+                "content stream would not parse); verify this page manually."
+            )
+    findings: list[Finding] = []
+    if suspect:
+        findings.append(
+            Finding(
+                category="possible-redaction",
+                severity="high",
+                summary=f"Possible unsafe redaction on {len(suspect)} page(s)",
+                detail=(
+                    "A dark filled rectangle sits directly over extractable text. "
+                    "If a box was drawn over text to hide it, the text is still "
+                    "selectable underneath. Verify by selecting over the black "
+                    "area. This is a heuristic (approximate text geometry) and "
+                    "can still flag ordinary design elements in rare cases."
+                ),
+                location=f"page {suspect[0]}",
+                count=len(suspect),
+                removable=False,
+            )
         )
-    ]
+    return findings, warnings
 
 
 def _javascript_present(reader: PdfReader) -> bool:
@@ -303,7 +359,9 @@ def inspect(path: Path) -> tuple[list[Finding], list[str]]:
         )
 
     findings.extend(_cropbox_findings(reader))
-    findings.extend(_redaction_findings(reader))
+    redaction_findings, redaction_warnings = _redaction_findings(reader)
+    findings.extend(redaction_findings)
+    warnings.extend(redaction_warnings)
     return findings, warnings
 
 
