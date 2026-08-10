@@ -59,24 +59,20 @@ and every upload is written under a fresh per-session subdirectory of
 from __future__ import annotations
 
 import re
-import shutil
 import tempfile
-import time
 import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import Depends, FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import Depends, FastAPI, HTTPException
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 
-from latextify.audit.equations import write_equation_audit
 from latextify.citations.bib import entries_to_bib
 from latextify.citations.corrections import apply_corrections, entry_from_dict
 from latextify.compile.pdf import staple_pdfs
 from latextify.compile.tectonic import compile_document, ensure_tectonic
-from latextify.emit.project import emit_project
-from latextify.emit.submission import parse_layout_form
+from latextify.gui.convert_routes import register_convert_routes
 from latextify.gui.demo import (
     DEMO_MAX_UPLOAD_BYTES,
     RateLimiter,
@@ -84,43 +80,29 @@ from latextify.gui.demo import (
     require_demo_rate_limit,
 )
 from latextify.gui.downloads import (
-    _MAX_SESSIONS,  # noqa: F401 - re-exported (latextify.gui.server._MAX_SESSIONS)
-    _SESSION_TTL_SECONDS,  # noqa: F401 - re-exported (latextify.gui.server._SESSION_TTL_SECONDS)
     _issue_token,
-    _prune_sessions,  # noqa: F401 - re-exported (latextify.gui.server._prune_sessions)
-    _register_session,
     _rmtree,
     _touch_session,
     register_download_routes,
 )
-from latextify.gui.exporting import _EXPORTABLE, _export_artifacts  # noqa: F401 - re-exported
+from latextify.gui.exporting import _export_artifacts
 from latextify.gui.folder_picker import pick_folder_native
 from latextify.gui.guard import inject_gui_secret, new_gui_secret, require_gui_auth
 from latextify.gui.lifecycle import register_lifecycle, start_client_monitor
 from latextify.gui.schemas import (
     ApplyCorrectionsRequest,
     ApplyCorrectionsResponse,
-    ConvertMultiResponse,
-    ConvertResponse,
     ExportRequest,
     ExportResponse,
     JournalInfo,
     PickFolderResponse,
 )
 from latextify.gui.upload_utils import (
-    _ALLOWED_FIGURE_EXTS,
-    _ALLOWED_MANUSCRIPT_EXTS,
-    _ALLOWED_REFERENCE_EXTS,
     _MAX_UPLOAD_BYTES,
-    _lower_ext,
-    _safe_filename,
-    _stream_upload,
 )
 from latextify.gui.uploads_routes import register_upload_routes
-from latextify.gui.validation_view import build_validation_out
 from latextify.model.refs import RefEntry
 from latextify.model.validate import CorrectionDecision, ValidationReport
-from latextify.report.render import write_report
 from latextify.templates import loader as templates_loader
 from latextify.templates.loader import ManifestError
 
@@ -265,461 +247,7 @@ def create_app(
         infos.sort(key=lambda info: info.display_name.lower())
         return infos
 
-    @app.post(
-        "/api/convert",
-        response_model=ConvertResponse,
-        dependencies=[Depends(require_gui_auth), Depends(require_demo_rate_limit)],
-    )
-    async def convert(
-        file: UploadFile = File(...),
-        journal: str = Form(...),
-        citation_style: str | None = Form(None),
-        pdf: bool = Form(False),
-    ) -> ConvertResponse:
-        try:
-            journal_obj = templates_loader.load(journal)
-        except ManifestError as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
-
-        session_dir = root / uuid.uuid4().hex
-        upload_dir = session_dir / "upload"
-        upload_dir.mkdir(parents=True, exist_ok=True)
-        docx_path = upload_dir / _safe_filename(file.filename)
-
-        try:
-            await _stream_upload(file, docx_path, max_bytes=max_upload_bytes)
-            result = emit_project(
-                docx_path,
-                journal,
-                session_dir / "output",
-                citation_style=citation_style,
-            )
-        except ValueError as exc:
-            # Every ingest-boundary module raises a clean ValueError naming
-            # the problem for a corrupt/unsupported .docx or an unsupported
-            # citation style (ManifestError is itself a ValueError subclass)
-            # -- see latextify.cli's `convert` command for the identical
-            # contract. Never let one surface as a raw 500 traceback.
-            _rmtree(session_dir)  # a failed run must not leave the upload behind
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
-        except Exception:
-            _rmtree(session_dir)
-            raise
-
-        warnings = [w.message for w in result.warnings]
-        pdf_url: str | None = None
-        success = True
-
-        if pdf:
-            try:
-                vendor_dir = journal_obj.root / "vendor" if journal_obj.vendor else None
-                compile_result = compile_document(
-                    result.main_tex_path,
-                    tectonic_path=ensure_tectonic(),
-                    vendor_dir=vendor_dir,
-                )
-            except Exception as exc:
-                # Mirrors the CLI's `except Exception` around --pdf: a hung
-                # compile raises subprocess.TimeoutExpired, a present-but-
-                # broken tectonic binary raises OSError. Never a raw 500
-                # traceback for either.
-                _rmtree(session_dir)
-                raise HTTPException(status_code=500, detail=f"compilation failed: {exc}") from exc
-
-            success = compile_result.success
-            if result.report_path is not None:
-                write_report(
-                    result.report_path,
-                    preflight=None,
-                    emit_result=result,
-                    reconciliation=None,
-                    compile_result=compile_result,
-                )
-            if compile_result.success and compile_result.pdf_path is not None:
-                token = uuid.uuid4().hex
-                app.state.pdf_tokens[token] = compile_result.pdf_path
-                pdf_url = f"/api/pdf/{token}"
-
-        report_md = ""
-        if result.report_path is not None and result.report_path.is_file():
-            report_md = result.report_path.read_text(encoding="utf-8")
-
-        # Bound this run's footprint under the same TTL/LRU pruning as
-        # convert-multi (audit item 3); the single-file endpoint otherwise
-        # leaked its session dir + pdf token forever (tech-debt finding 3).
-        _register_session(
-            app,
-            uuid.uuid4().hex,
-            {"output_dir": result.output_dir, "produced": {}},
-            session_dir=session_dir,
-            now=time.time(),
-        )
-
-        return ConvertResponse(
-            output_dir=str(result.output_dir),
-            warnings=warnings,
-            report_md=report_md,
-            success=success,
-            pdf_url=pdf_url,
-        )
-
-    @app.post(
-        "/api/convert-multi",
-        response_model=ConvertMultiResponse,
-        dependencies=[Depends(require_gui_auth), Depends(require_demo_rate_limit)],
-    )
-    async def convert_multi(
-        main: UploadFile = File(...),
-        journal: str = Form(...),
-        supplement: UploadFile | None = File(None),
-        figures: list[UploadFile] = File([]),
-        figure_numbers: list[int] = Form([]),
-        references: UploadFile | None = File(None),
-        citation_style: str | None = Form(None),
-        crossref_mailto: str | None = Form(None),
-        combine: bool = Form(False),
-        supplement_onecolumn: bool = Form(False),
-        exclude_figures: bool = Form(False),
-        equation_audit: bool = Form(False),
-        check_references: bool = Form(False),
-        want_zip: bool = Form(False),
-        pdf: bool = Form(True),
-        export_dir: str | None = Form(None),
-        export_types: list[str] = Form([]),
-        main_columns: str = Form("default"),
-        main_line_numbers: bool = Form(False),
-        main_double_spacing: bool = Form(False),
-        supplement_columns: str = Form("default"),
-        supplement_line_numbers: bool = Form(False),
-        supplement_double_spacing: bool = Form(False),
-        anonymize: bool = Form(False),
-        figures_at_end: bool = Form(False),
-    ) -> ConvertMultiResponse:
-        """Convert a main manuscript plus optional supplement/figures/.bib in one call.
-
-        Figures are dropped in as ``figures/fig<N>.<ext>`` beside the main docx
-        (folder-convention override); the ``.bib`` seeds offline citation
-        matching; ``combine`` staples main+supplement into ``combined.pdf``;
-        ``equation_audit`` emits a numbered ``audit.pdf``; ``want_zip`` packages
-        the whole project tree. Every produced artifact is returned as an opaque
-        download token.
-        """
-        # Per-document layout overrides (plan item 6); a bad columns value is a
-        # clean 400 naming the field, before anything touches disk.
-        try:
-            main_layout = parse_layout_form(main_columns, main_line_numbers, main_double_spacing)
-            supplement_layout = parse_layout_form(
-                supplement_columns, supplement_line_numbers, supplement_double_spacing
-            )
-        except ValueError as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
-        # combine needs both a supplement and a compile step (mirror the CLI).
-        if combine and supplement is None:
-            raise HTTPException(status_code=400, detail="combine requires a supplement file")
-        if combine and not pdf:
-            raise HTTPException(status_code=400, detail="combine requires pdf compilation")
-        # Demo: never write to a caller-chosen path on a shared host. Checked
-        # up front so the expensive conversion never runs just to be refused.
-        if demo and export_dir and export_dir.strip():
-            raise HTTPException(status_code=403, detail=_DEMO_FS_DISABLED)
-        if len(figures) != len(figure_numbers):
-            raise HTTPException(
-                status_code=400,
-                detail=(
-                    f"figures ({len(figures)}) and figure_numbers "
-                    f"({len(figure_numbers)}) must have the same length"
-                ),
-            )
-        # Type/naming validation (audit item 5), all before anything is written or
-        # Pandoc runs. Extensions are a fast first gate; the archive CONTENTS are
-        # still validated downstream (emit_project raises ValueError -> 400 for a
-        # non-DOCX/corrupt file), so this never *replaces* content checking.
-        allowed_manuscripts = ", ".join("." + e for e in sorted(_ALLOWED_MANUSCRIPT_EXTS))
-        if _lower_ext(main.filename) not in _ALLOWED_MANUSCRIPT_EXTS:
-            raise HTTPException(
-                status_code=400, detail=f"main manuscript must be one of: {allowed_manuscripts}"
-            )
-        if (
-            supplement is not None
-            and _lower_ext(supplement.filename) not in _ALLOWED_MANUSCRIPT_EXTS
-        ):
-            raise HTTPException(
-                status_code=400, detail=f"supplement must be one of: {allowed_manuscripts}"
-            )
-        if references is not None:
-            if _lower_ext(references.filename) not in _ALLOWED_REFERENCE_EXTS:
-                raise HTTPException(
-                    status_code=400,
-                    detail="references must be one of: "
-                    + ", ".join("." + e for e in sorted(_ALLOWED_REFERENCE_EXTS)),
-                )
-        if any(n <= 0 for n in figure_numbers):
-            raise HTTPException(status_code=400, detail="figure numbers must be positive")
-        if len(set(figure_numbers)) != len(figure_numbers):
-            raise HTTPException(status_code=400, detail="figure numbers must be unique")
-        for fig_upload in figures:
-            fig_ext = _lower_ext(fig_upload.filename)
-            if fig_ext not in _ALLOWED_FIGURE_EXTS:
-                raise HTTPException(
-                    status_code=400,
-                    detail=(
-                        f"unsupported figure type '.{fig_ext or '?'}' "
-                        f"({fig_upload.filename or 'figure'}); allowed: "
-                        + ", ".join(sorted(_ALLOWED_FIGURE_EXTS))
-                    ),
-                )
-
-        try:
-            journal_obj = templates_loader.load(journal)
-        except ManifestError as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
-
-        session_dir = root / uuid.uuid4().hex
-        upload_dir = session_dir / "upload"
-        upload_dir.mkdir(parents=True, exist_ok=True)
-
-        # Server-selected names, never client basenames -- but the ON-DISK
-        # EXTENSION must survive: ingest.formats routes pandoc purely off it,
-        # so a widened-format upload forced to ".docx" would misread as corrupt.
-        supplement_path: Path | None = None
-        references_path: Path | None = None
-        try:
-            main_path = upload_dir / f"main.{_lower_ext(main.filename)}"
-            await _stream_upload(main, main_path, max_bytes=max_upload_bytes)
-
-            if supplement is not None:
-                supplement_path = upload_dir / f"supplement.{_lower_ext(supplement.filename)}"
-                await _stream_upload(supplement, supplement_path, max_bytes=max_upload_bytes)
-
-            if references is not None:
-                references_path = upload_dir / f"references.{_lower_ext(references.filename)}"
-                await _stream_upload(references, references_path, max_bytes=max_upload_bytes)
-
-            # Figure files land as figures/fig<N>.<ext> beside the main docx so the
-            # existing folder-convention override picks them up. NB overrides REPLACE
-            # an embedded figure -- a docx with no embedded image for figure N has
-            # nothing to attach the dropped file to (multi-file plan, Context).
-            # Numbers are validated positive+unique above, so destinations are unique.
-            if figures:
-                figures_override_dir = upload_dir / "figures"
-                figures_override_dir.mkdir(exist_ok=True)
-                for fig_upload, number in zip(figures, figure_numbers, strict=True):
-                    ext = _lower_ext(fig_upload.filename)
-                    if ext == "jpeg":  # normalize deliberately so fig<N>.jpg is canonical
-                        ext = "jpg"
-                    await _stream_upload(
-                        fig_upload,
-                        figures_override_dir / f"fig{number}.{ext}",
-                        max_bytes=max_upload_bytes,
-                    )
-        except Exception:  # an oversized/failed upload must not orphan the session dir
-            _rmtree(session_dir)
-            raise
-
-        try:
-            result = emit_project(
-                main_path,
-                journal,
-                session_dir / "output",
-                citation_style=citation_style,
-                crossref_mailto=crossref_mailto,
-                supplement_docx_path=supplement_path,
-                references_bib_path=references_path,
-                supplement_onecolumn=supplement_onecolumn,
-                exclude_figures=exclude_figures,
-                check_references=check_references,
-                main_layout=main_layout,
-                supplement_layout=supplement_layout,
-                anonymize=anonymize,
-                figures_at_end=figures_at_end,
-            )
-        except ValueError as exc:
-            _rmtree(session_dir)  # a failed emit leaves the upload behind otherwise
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
-
-        warnings = [w.message for w in result.warnings]
-        if result.supplement is not None:
-            warnings.extend(w.message for w in result.supplement.warnings)
-
-        pdf_url: str | None = None
-        supplement_pdf_url: str | None = None
-        combined_pdf_url: str | None = None
-        audit_pdf_url: str | None = None
-        zip_url: str | None = None
-        success = True
-        main_compile_success: bool | None = None
-        supplement_compile_success: bool | None = None
-        # Real paths of every produced artifact, for the optional folder export.
-        produced: dict[str, Path] = {"project": result.output_dir}
-
-        pdf_tokens = app.state.pdf_tokens
-        if pdf:
-            try:
-                tectonic = ensure_tectonic()
-                vendor_dir = journal_obj.root / "vendor" if journal_obj.vendor else None
-                main_compile = compile_document(
-                    result.main_tex_path, tectonic_path=tectonic, vendor_dir=vendor_dir
-                )
-                main_compile_success = main_compile.success
-                if main_compile.success and main_compile.pdf_path is not None:
-                    pdf_url = f"/api/pdf/{_issue_token(pdf_tokens, main_compile.pdf_path)}"
-                    produced["main_pdf"] = main_compile.pdf_path
-
-                supplement_compile = None
-                if result.supplement is not None:
-                    supplement_compile = compile_document(
-                        result.supplement.supplement_tex_path,
-                        tectonic_path=tectonic,
-                        vendor_dir=vendor_dir,
-                    )
-                    supplement_compile_success = supplement_compile.success
-                    if supplement_compile.success and supplement_compile.pdf_path is not None:
-                        supplement_pdf_url = (
-                            f"/api/pdf/{_issue_token(pdf_tokens, supplement_compile.pdf_path)}"
-                        )
-                        produced["supplement_pdf"] = supplement_compile.pdf_path
-                    else:
-                        warnings.append(
-                            "supplement PDF failed to compile -- the main document is unaffected; "
-                            "see the supplement diagnostics in report.md."
-                        )
-
-                # Overall success requires EVERY requested compile to succeed, so a
-                # main-ok/supplement-failed run is honestly reported as not-success.
-                success = main_compile.success and (
-                    supplement_compile is None or supplement_compile.success
-                )
-
-                if (
-                    combine
-                    and main_compile.success
-                    and supplement_compile is not None
-                    and supplement_compile.success
-                ):
-                    combined = result.output_dir / "combined.pdf"
-                    staple_pdfs([main_compile.pdf_path, supplement_compile.pdf_path], combined)
-                    combined_pdf_url = f"/api/pdf/{_issue_token(pdf_tokens, combined)}"
-                    produced["combined_pdf"] = combined
-
-                if result.report_path is not None:
-                    write_report(
-                        result.report_path,
-                        preflight=None,
-                        emit_result=result,
-                        reconciliation=None,
-                        compile_result=main_compile,
-                        supplement=result.supplement,
-                        supplement_compile=supplement_compile,
-                        validation=result.validation,
-                    )
-            except HTTPException:
-                _rmtree(session_dir)
-                raise
-            except Exception as exc:
-                # Mirrors /api/convert: a hung/broken compile is a 500, not a raw
-                # traceback. The LaTeX project itself is still written to disk.
-                _rmtree(session_dir)
-                raise HTTPException(status_code=500, detail=f"compilation failed: {exc}") from exc
-
-        if equation_audit:
-            try:
-                audit = write_equation_audit(
-                    main_path,
-                    session_dir / "audit",
-                    compile_pdf=pdf,
-                    tectonic_path=ensure_tectonic() if pdf else None,
-                )
-                if audit.audit_pdf_path is not None and audit.audit_pdf_path.is_file():
-                    audit_pdf_url = f"/api/pdf/{_issue_token(pdf_tokens, audit.audit_pdf_path)}"
-                    produced["audit_pdf"] = audit.audit_pdf_path
-            except Exception as exc:
-                _rmtree(session_dir)
-                raise HTTPException(
-                    status_code=500, detail=f"equation audit failed: {exc}"
-                ) from exc
-
-        if want_zip:
-            archive = shutil.make_archive(
-                str(session_dir / "project"), "zip", root_dir=result.output_dir
-            )
-            produced["zip"] = Path(archive)
-            zip_url = f"/api/zip/{_issue_token(app.state.zip_tokens, Path(archive))}"
-
-        # Optional export: copy the selected artifact types to a chosen folder on
-        # the user's machine (this is a localhost tool; the folder came from the
-        # native picker or manual entry). Never fatal to a successful conversion.
-        exported_to: str | None = None
-        exported: list[str] = []
-        if export_dir and export_dir.strip():
-            try:
-                exported_to, exported, export_warnings = _export_artifacts(
-                    export_dir.strip(),
-                    set(export_types),
-                    output_dir=result.output_dir,
-                    produced=produced,
-                )
-                warnings.extend(export_warnings)
-            except OSError as exc:
-                _rmtree(session_dir)
-                raise HTTPException(
-                    status_code=400, detail=f"could not export to {export_dir!r}: {exc}"
-                ) from exc
-
-        # Register this run's artifacts so the UI can export them later without
-        # recompiling (preview-then-export). Also carry the entry set + validation
-        # + compile context so /api/apply-corrections can rewrite references.bib
-        # and recompile the SAME project without a re-conversion. The session
-        # (and its on-disk directory) is TTL-bounded + LRU-capped + shutdown-swept
-        # by _register_session / _prune_sessions / the lifespan (audit item 3).
-        export_token = uuid.uuid4().hex
-        _register_session(
-            app,
-            export_token,
-            {
-                "output_dir": result.output_dir,
-                "produced": produced,
-                "entries": result.entries,
-                "validation": result.validation,
-                "bib_path": result.bib_path,
-                "main_tex_path": result.main_tex_path,
-                "supplement_tex_path": (
-                    result.supplement.supplement_tex_path if result.supplement else None
-                ),
-                "journal": journal,
-                "compiled": pdf,
-                "combine": combine,
-            },
-            session_dir=session_dir,
-            now=time.time(),
-        )
-
-        report_md = ""
-        if result.report_path is not None and result.report_path.is_file():
-            report_md = result.report_path.read_text(encoding="utf-8")
-
-        validation_out = (
-            build_validation_out(result.validation, result.entries)
-            if result.validation is not None
-            else None
-        )
-
-        return ConvertMultiResponse(
-            output_dir=str(result.output_dir),
-            warnings=warnings,
-            report_md=report_md,
-            success=success,
-            main_compile_success=main_compile_success,
-            supplement_compile_success=supplement_compile_success,
-            pdf_url=pdf_url,
-            supplement_pdf_url=supplement_pdf_url,
-            combined_pdf_url=combined_pdf_url,
-            audit_pdf_url=audit_pdf_url,
-            zip_url=zip_url,
-            exported_to=exported_to,
-            exported=exported,
-            export_token=export_token,
-            validation=validation_out,
-        )
+    register_convert_routes(app, root=root, max_upload_bytes=max_upload_bytes, demo=demo)
 
     # Single-manuscript upload-processing routes (/api/clean-docx,
     # /api/export-format) live in latextify.gui.uploads_routes, and their

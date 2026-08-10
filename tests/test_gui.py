@@ -1199,7 +1199,7 @@ def test_apply_corrections_recompiles_pdf(tmp_path, monkeypatch):
 
 
 def test_export_artifacts_can_copy_supplement_pdf(tmp_path):
-    from latextify.gui.server import _export_artifacts
+    from latextify.gui.exporting import _export_artifacts
 
     src = tmp_path / "supplement.pdf"
     src.write_bytes(b"%PDF-1.4\n")
@@ -1216,7 +1216,7 @@ def test_export_artifacts_can_copy_supplement_pdf(tmp_path):
 
 
 def test_supplement_pdf_is_exportable_type():
-    from latextify.gui.server import _EXPORTABLE
+    from latextify.gui.exporting import _EXPORTABLE
 
     assert "supplement_pdf" in _EXPORTABLE
 
@@ -1408,7 +1408,7 @@ def test_main_and_references_cannot_collide(tmp_path):
 def test_expired_session_is_pruned_and_tokens_404(tmp_path):
     import time as _time
 
-    from latextify.gui import server as srv
+    from latextify.gui import downloads as dl
     from latextify.gui.server import create_app
 
     app = create_app(workdir=tmp_path / "wd", gui_secret=_TEST_SECRET)
@@ -1425,7 +1425,7 @@ def test_expired_session_is_pruned_and_tokens_404(tmp_path):
     assert client.get(zip_url).status_code == 200  # downloadable while live
 
     # Force every session past its TTL.
-    srv._prune_sessions(app, now=_time.time() + srv._SESSION_TTL_SECONDS + 10)
+    dl._prune_sessions(app, now=_time.time() + dl._SESSION_TTL_SECONDS + 10)
 
     assert token not in app.state.export_sessions
     assert not session_dir.exists()  # on-disk directory removed
@@ -1442,8 +1442,9 @@ def test_expired_session_is_pruned_and_tokens_404(tmp_path):
 
 
 def test_touch_session_defers_expiry(tmp_path):
-    from latextify.gui import server as srv
-    from latextify.gui.server import _prune_sessions, _register_session, _touch_session, create_app
+    from latextify.gui import downloads as dl
+    from latextify.gui.downloads import _prune_sessions, _register_session, _touch_session
+    from latextify.gui.server import create_app
 
     app = create_app(workdir=tmp_path / "wd")
     d = tmp_path / "wd" / "s"
@@ -1451,9 +1452,9 @@ def test_touch_session_defers_expiry(tmp_path):
     _register_session(app, "t", {"output_dir": d}, session_dir=d, now=0.0)
 
     _touch_session(app.state.export_sessions["t"], now=1000.0)
-    _prune_sessions(app, now=1000.0 + srv._SESSION_TTL_SECONDS - 1)
+    _prune_sessions(app, now=1000.0 + dl._SESSION_TTL_SECONDS - 1)
     assert "t" in app.state.export_sessions  # refreshed access keeps it alive
-    _prune_sessions(app, now=1000.0 + srv._SESSION_TTL_SECONDS + 1)
+    _prune_sessions(app, now=1000.0 + dl._SESSION_TTL_SECONDS + 1)
     assert "t" not in app.state.export_sessions  # then it expires
 
 
@@ -1473,22 +1474,23 @@ def test_failed_conversion_leaves_no_session_dir(tmp_path):
 
 
 def test_register_session_lru_evicts_oldest(tmp_path):
-    from latextify.gui import server as srv
-    from latextify.gui.server import _register_session, create_app
+    from latextify.gui import downloads as dl
+    from latextify.gui.downloads import _register_session
+    from latextify.gui.server import create_app
 
     app = create_app(workdir=tmp_path / "wd")
     dirs = []
-    for i in range(srv._MAX_SESSIONS + 3):
+    for i in range(dl._MAX_SESSIONS + 3):
         d = tmp_path / "wd" / f"s{i}"
         d.mkdir(parents=True)
         dirs.append(d)
         _register_session(app, f"tok{i}", {"output_dir": d}, session_dir=d, now=float(i))
 
     sessions = app.state.export_sessions
-    assert len(sessions) <= srv._MAX_SESSIONS
+    assert len(sessions) <= dl._MAX_SESSIONS
     assert "tok0" not in sessions  # oldest evicted
     assert not dirs[0].exists()  # and its directory removed
-    assert f"tok{srv._MAX_SESSIONS + 2}" in sessions  # newest retained
+    assert f"tok{dl._MAX_SESSIONS + 2}" in sessions  # newest retained
 
 
 def test_shutdown_removes_auto_created_root():

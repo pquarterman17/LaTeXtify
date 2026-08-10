@@ -31,16 +31,15 @@ SLACK = 50
 #: 2026-07-12 when the ratchet was added. These are standing tech debt; the
 #: pins cap further growth. Lower a pin whenever you shrink its file.
 PY_PINS = {
-    # 2026-08-10: pin 1000 -> 871 when the figure-copy block (_copy_figures,
-    # _prune_stale_figures, _is_wide_figure and the ownership regex) moved to
-    # emit/figures_copy.py to pay for the figure metadata strip. Seeded at the
-    # exact size, like the pins above -- the next addition here extracts first.
-    "latextify/emit/project.py": 871,
-    "latextify/gui/server.py": 921,
-    "latextify/ingest/filters.py": 1061,
-    "latextify/ingest/metadata_guess.py": 919,
-    "latextify/citations/plaintext.py": 637,
-    "latextify/templates/loader.py": 539,
+    # Every pin below was re-seeded at its exact size on 2026-08-10, after the
+    # `ruff format` adoption re-measured the tree and the tech-debt pass shrank
+    # several files. gui/server.py GRADUATED that day (921 -> 437, under the
+    # general ceiling) and its pin is gone -- that is the ratchet working.
+    "latextify/emit/project.py": 865,
+    "latextify/ingest/filters.py": 1059,
+    "latextify/ingest/metadata_guess.py": 918,
+    "latextify/citations/plaintext.py": 617,
+    "latextify/templates/loader.py": 515,
 }
 
 #: No frontend pins: the once-monolithic index.html graduated on 2026-07-18

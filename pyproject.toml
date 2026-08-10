@@ -132,6 +132,7 @@ select = ["E", "F", "I", "UP", "B"]
 # the documented way to declare request-body fields.
 "latextify/gui/server.py" = ["B008"]
 "latextify/gui/uploads_routes.py" = ["B008"]
+"latextify/gui/convert_routes.py" = ["B008"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

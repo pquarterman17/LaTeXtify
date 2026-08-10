@@ -11,11 +11,10 @@ under its size-ratchet pin:
 
 - The session/token bookkeeping (``_rmtree``, ``_register_session``,
   ``_touch_session``, ``_prune_sessions``, ``_issue_token``,
-  ``_prune_dead_tokens``). ``server.py`` imports the ones its own route
-  handlers call directly, and re-exports the TTL/cap constants so existing
-  ``latextify.gui.server._prune_sessions`` / ``._SESSION_TTL_SECONDS`` /
-  ``._MAX_SESSIONS`` references (including the test suite) keep working
-  unchanged.
+  ``_prune_dead_tokens``). Every caller -- ``server.py``, the route modules,
+  and the test suite -- imports these from HERE. ``server.py`` used to
+  re-export the TTL/cap constants for backward compatibility; that shim was
+  removed once nothing needed it, so there is one import path, not two.
 - :func:`register_download_routes`, which attaches the token-gated GET
   download endpoints (``/api/pdf/{token}``, ``/api/zip/{token}``,
   ``/api/clean/{token}``, ``/api/alt/{token}``) to an app. Each does a dict
