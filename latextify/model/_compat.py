@@ -41,7 +41,12 @@ else:  # pragma: no cover - the backport path only runs on the 3.10 CI leg
             return member
 
         __str__ = str.__str__
-        __format__ = str.__format__
+        # Verbatim from CPython's own StrEnum. mypy rejects it because
+        # str.__format__ and Enum.__format__ have different declared
+        # signatures, which is true and is exactly the substitution the
+        # backport needs to make: without it, f"{Member}" renders
+        # "Class.MEMBER" instead of the value.
+        __format__ = str.__format__  # type: ignore[assignment]
 
         @staticmethod
         def _generate_next_value_(

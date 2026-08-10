@@ -111,7 +111,8 @@ def scrub_rels(data: bytes, base_dir: str, parts_to_remove: set[str]) -> tuple[b
             changed = True
     if not changed:
         return data, False
-    return etree.tostring(root, xml_declaration=True, encoding="UTF-8", standalone=True), True
+    xml: bytes = etree.tostring(root, xml_declaration=True, encoding="UTF-8", standalone=True)
+    return xml, True
 
 
 def scrub_content_types(data: bytes, parts_to_remove: set[str]) -> bytes:
@@ -121,7 +122,8 @@ def scrub_content_types(data: bytes, parts_to_remove: set[str]) -> bytes:
     for override in root.findall(f"{{{CT_NS}}}Override"):
         if override.get("PartName") in wanted:
             root.remove(override)
-    return etree.tostring(root, xml_declaration=True, encoding="UTF-8", standalone=True)
+    xml: bytes = etree.tostring(root, xml_declaration=True, encoding="UTF-8", standalone=True)
+    return xml
 
 
 def orphaned_rels(names: set[str], parts_to_remove: set[str]) -> set[str]:
@@ -256,8 +258,9 @@ def _text_of(root: etree._Element, tag: str) -> str:
     happens to precede it.
     """
     for node in root.findall(tag):
-        if node.text and node.text.strip():
-            return node.text.strip()
+        text: str | None = node.text
+        if text and text.strip():
+            return text.strip()
     return ""
 
 

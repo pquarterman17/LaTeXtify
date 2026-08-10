@@ -65,7 +65,9 @@ registered; CLI and GUI accept-lists derive from it rather than restating it.
 - **Inspect mode:** yes — a non-destructive report command, and the only
   honest deliverable for legacy binaries.
 - **Surface:** CLI **and** GUI panel, mirroring the existing `clean-docx`
-  shape. GUI additions must be offset against the server.py / app.js pins.
+  shape. (That constraint is gone as of 2026-08-10: `server.py` graduated off
+  the size ratchet at 437 lines, so a GUI addition no longer has to be paid
+  for up front -- see the archived REPO_HEALTH_PLAN.)
 - **Legacy `.doc`/`.ppt`/`.xls` scope:** inspect fully; **refuse to
   sanitize**. Revised during implementation from the original "best-effort
   property-stream strip": fast save can leave deleted text in the container,

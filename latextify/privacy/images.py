@@ -78,8 +78,13 @@ def _gps_summary(exif: Image.Exif) -> str | None:
         return "present (partial)"
 
     def _dms(values: object, ref: object) -> str:
+        # EXIF stores a coordinate as (degrees, minutes, seconds) rationals, but
+        # the tag is attacker-controlled bytes in the general case -- check the
+        # shape rather than catching the unpack failure after the fact.
+        if not isinstance(values, (tuple, list)) or len(values) != 3:
+            return "?"
         try:
-            deg, minutes, seconds = (float(v) for v in values)  # type: ignore[union-attr]
+            deg, minutes, seconds = (float(v) for v in values)
         except (TypeError, ValueError):
             return "?"
         decimal = deg + minutes / 60 + seconds / 3600
@@ -152,10 +157,12 @@ def inspect(path: Path) -> tuple[list[Finding], list[str]]:
                 )
             )
 
-        if getattr(im, "n_frames", 1) > 1:
-            warnings.append(
-                f"{path.name} has {im.n_frames} frames; sanitizing keeps only the first."
-            )
+        # n_frames only exists on the multi-frame ImageFile subclasses (GIF,
+        # multipage TIFF); read it once rather than guarding on getattr and
+        # then accessing the attribute directly.
+        frames = getattr(im, "n_frames", 1)
+        if frames > 1:
+            warnings.append(f"{path.name} has {frames} frames; sanitizing keeps only the first.")
 
     return findings, warnings
 

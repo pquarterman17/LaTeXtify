@@ -65,7 +65,8 @@ def _parse(data: bytes) -> etree._Element | None:
 
 
 def _serialize(root: etree._Element) -> bytes:
-    return etree.tostring(root, xml_declaration=True, encoding="UTF-8", standalone=True)
+    xml: bytes = etree.tostring(root, xml_declaration=True, encoding="UTF-8", standalone=True)
+    return xml
 
 
 def _notes_text(data: bytes) -> str:
@@ -138,7 +139,8 @@ def _shape_label(xfrm: etree._Element) -> str:
     while node is not None:
         nv = node.find(f".//{{{P}}}cNvPr")
         if nv is not None and nv.get("name"):
-            return nv.get("name", "")
+            name: str = nv.get("name", "")
+            return name
         node = node.getparent()
     return "unnamed shape"
 

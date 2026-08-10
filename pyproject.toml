@@ -73,6 +73,9 @@ dev = [
     "openpyxl>=3.1",       # generate .xlsx test fixtures (fixture-only, not runtime)
     "olefile>=0.47",       # the [legacy] extra, installed so its tests run
     "ruff>=0.5",
+    "mypy>=1.11",
+    "lxml-stubs>=0.5",   # real lxml types for the mypy scope, not a blanket ignore
+    "types-olefile>=0.47",
     "cairosvg>=2.7",  # installed for dev/test so the primary SVG->PDF path is
                        # exercised too, not just the svglib fallback (item 15)
     "fastapi>=0.115",  # gui extra, installed for dev/test so tests/test_gui.py runs (item 19)
@@ -133,6 +136,19 @@ select = ["E", "F", "I", "UP", "B"]
 "latextify/gui/server.py" = ["B008"]
 "latextify/gui/uploads_routes.py" = ["B008"]
 "latextify/gui/convert_routes.py" = ["B008"]
+
+[tool.mypy]
+# Narrow, strict scope to start (REPO_HEALTH_PLAN item 1). Until 2026-08-10
+# nothing verified any of this codebase's ~20k lines of annotations. Rather
+# than turn on a lax check everywhere, this is a STRICT check on the two
+# packages where a type error is most likely to be a real defect: the frozen
+# IR every stage passes around, and the privacy engine that decides what
+# leaves a file. Widen by adding packages to `files` -- never by relaxing the
+# settings. lxml and olefile are typed via real stub packages (dev deps), not
+# an ignore_missing_imports blanket, so the checking is genuine.
+python_version = "3.10"
+files = ["latextify/privacy", "latextify/model"]
+strict = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

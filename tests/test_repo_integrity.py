@@ -18,6 +18,7 @@ split a file, not to touch the numbers here.
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -107,3 +108,65 @@ def test_no_stale_pins():
         assert (ROOT / rel).is_file(), (
             f"pinned path {rel} no longer exists -- remove its stale pin."
         )
+
+
+# --------------------------------------------------------------------------- #
+# Version agreement (REPO_HEALTH_PLAN item 2)
+# --------------------------------------------------------------------------- #
+
+#: The project version is written in two files, and a stale ``uv.lock`` fails a
+#: ``--locked`` build. Verified against the real v0.2.0 release commit
+#: (2b3915a), which touched exactly these two. `tomllib` is 3.11+ and the
+#: floor is 3.10, so both are read with a narrow anchored regex instead.
+_PYPROJECT_VERSION_RE = re.compile(r'(?m)^version = "([^"]+)"')
+_LOCK_VERSION_RE = re.compile(r'(?m)^name = "latextify"\nversion = "([^"]+)"')
+
+
+def _declared_version(path: Path, pattern: re.Pattern[str]) -> str:
+    match = pattern.search(path.read_text(encoding="utf-8"))
+    assert match is not None, f"no version declaration found in {_rel(path)}"
+    return match.group(1)
+
+
+def test_declared_versions_agree():
+    """pyproject.toml and uv.lock must record the same version.
+
+    A release that bumps one and not the other produces a lockfile that fails
+    `uv sync --locked` / `uv build --locked` -- which CI runs on every job, so
+    the whole pipeline goes red at the worst possible moment. This turns that
+    into a one-line local failure naming both values.
+    """
+    pyproject = ROOT / "pyproject.toml"
+    lock = ROOT / "uv.lock"
+    declared = _declared_version(pyproject, _PYPROJECT_VERSION_RE)
+    locked = _declared_version(lock, _LOCK_VERSION_RE)
+    assert declared == locked, (
+        f"version disagreement: pyproject.toml says {declared!r}, uv.lock says "
+        f"{locked!r}. Re-run `uv lock` after bumping the version, and commit both."
+    )
+
+
+def test_python_version_file_matches_ci():
+    """`.python-version` is the single declaration CI derives from.
+
+    Before it existed, five workflow jobs hardcoded their own Python version
+    and disagreed (3.10/3.12/3.13), so a declaration could say anything and
+    nothing would fail. The lint/integration jobs now read this file; the test
+    matrix and the deliberately-oldest/newest kit jobs still name versions
+    explicitly, because exercising a RANGE is their whole point.
+    """
+    declared = (ROOT / ".python-version").read_text(encoding="utf-8").strip()
+    assert declared, ".python-version is empty"
+
+    requires = re.search(
+        r'(?m)^requires-python = ">=([\d.]+)"',
+        (ROOT / "pyproject.toml").read_text(encoding="utf-8"),
+    )
+    assert requires is not None, "pyproject.toml declares no requires-python floor"
+    floor = tuple(int(p) for p in requires.group(1).split("."))
+    chosen = tuple(int(p) for p in declared.split("."))
+    assert chosen >= floor, (
+        f".python-version pins {declared}, below the requires-python floor "
+        f"{requires.group(1)} -- the default dev interpreter cannot be older "
+        f"than the oldest version the package claims to support."
+    )

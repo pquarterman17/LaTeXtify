@@ -23,8 +23,8 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
-        with:
-          python-version: "3.12"
+        # No python-version here on purpose: setup-uv reads .python-version,
+        # so the repo file is the single declaration (toolchain-version rule).
       - name: Export locked runtime dependencies
         # Audit exactly what ships to users: runtime deps only (no dev tools),
         # resolved from uv.lock so the audit matches the pinned tree. --no-deps

@@ -18,8 +18,8 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
-        with:
-          python-version: "3.12"
+        # No python-version here on purpose: setup-uv reads .python-version,
+        # so the repo file is the single declaration (toolchain-version rule).
       - name: Install
         run: uv sync --locked
       - name: Ruff lint
@@ -28,6 +28,10 @@ jobs:
       # existed, 82 of 189 files had drifted from what `ruff format` produces.
       - name: Ruff format
         run: uv run ruff format --check .
+      # Strict type checking, narrow scope (see [tool.mypy] in pyproject.toml).
+      # Runs before the test job so a type error fails in seconds, not minutes.
+      - name: Mypy
+        run: uv run mypy
 
   test:
     name: test (${{ matrix.os }}, py${{ matrix.python }})
@@ -54,8 +58,8 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
-        with:
-          python-version: "3.12"
+        # No python-version here on purpose: setup-uv reads .python-version,
+        # so the repo file is the single declaration (toolchain-version rule).
       - name: Cache Tectonic binary and package bundle
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:

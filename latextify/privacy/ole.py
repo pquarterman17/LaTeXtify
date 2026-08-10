@@ -30,6 +30,7 @@ as the pandoc+Tectonic-only decision requires.
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 from .report import Finding
 
@@ -55,7 +56,7 @@ _FIELDS = (
 )
 
 
-def _load_olefile():  # type: ignore[no-untyped-def]
+def _load_olefile() -> Any:
     try:
         import olefile
     except ImportError as exc:  # pragma: no cover - exercised via the hint test
