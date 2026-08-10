@@ -1437,21 +1437,48 @@ def test_inspect_exits_nonzero_when_it_finds_metadata(tmp_path):
 # ──────────────────────────────────────────────────────────────────────────── #
 
 
-def test_inspect_default_fail_on_high_exits_0_on_clean_file():
-    """Default --fail-on high exits 0 on a truly clean file (no findings).
+def _image_with_severities(dest: Path, *, medium: bool) -> Path:
+    """Write a JPEG whose findings top out at low (or medium) severity.
 
-    Verifies that a CI gate doesn't spuriously fail when the document has
-    no metadata. This makes the command usable in CI that logs but
-    only gates on high-severity issues.
+    The committed fixtures all carry HIGH findings (leaky_photo.jpg has GPS and
+    an Artist; leaky_deck.pptx has six), so a threshold test using them exits 1
+    under EVERY threshold and proves nothing about the ranking. These tags are
+    chosen against ``latextify.privacy.images._NOTABLE_TAGS``: Software is low,
+    Make is medium, and neither is high.
     """
-    # Test on a file that will have no findings. Since finding a truly
-    # clean file is hard, we test the logical equivalent: --fail-on never
-    # always exits 0, demonstrating the exit code logic works.
-    photo = Path(__file__).parent / "fixtures" / "leaky_photo.jpg"
-    if photo.exists():
-        result = runner.invoke(app, ["inspect", str(photo), "--fail-on", "never"])
-        # --fail-on never must exit 0 even with high findings
-        assert result.exit_code == 0, f"Expected exit 0 with --fail-on never, got: {result.output}"
+    from PIL import Image
+
+    image = Image.new("RGB", (16, 12), (90, 120, 60))
+    exif = image.getexif()
+    exif[305] = "SomeEditor 1.0"  # Software -> low
+    if medium:
+        exif[271] = "Testcorp"  # Make -> medium
+    image.save(dest, exif=exif)
+    return dest
+
+
+def _severities_of(path: Path) -> set[str]:
+    from latextify.privacy import inspect_file
+
+    return {f.severity for f in inspect_file(path).findings}
+
+
+def test_default_fail_on_high_exits_0_when_nothing_is_high(tmp_path):
+    """The whole point of the flag: a document with only low/medium findings
+    must NOT fail the default gate.
+
+    Every real manuscript carries a Software tag or a timestamp. Before
+    --fail-on existed the command exited 1 on all of them, so teams stopped
+    running it -- a gate that always fails is not a gate.
+    """
+    photo = _image_with_severities(tmp_path / "mild.jpg", medium=True)
+    # The fixture must actually be the edge case this test is named for.
+    assert _severities_of(photo) == {"low", "medium"}, "fixture should carry no high finding"
+
+    result = runner.invoke(app, ["inspect", str(photo)])
+
+    assert result.exit_code == 0, f"default gate should pass; output: {result.output}"
+    assert "Software" in result.output, "findings must still be printed when not gating"
 
 
 def test_inspect_default_fail_on_high_exits_1_on_high_findings(tmp_path):
@@ -1482,33 +1509,33 @@ def test_inspect_fail_on_never_exits_0_with_high_findings(tmp_path):
     assert "high" in result.output.lower()
 
 
-def test_inspect_fail_on_medium_exits_1_on_medium_findings(tmp_path):
-    """--fail-on medium should exit 1 on medium-or-higher findings."""
-    deck = tmp_path / "deck.pptx"
-    shutil.copy(FIXTURES / "leaky_deck.pptx", deck)
+def test_fail_on_medium_catches_a_medium_only_document(tmp_path):
+    """--fail-on medium exits 1 on a file whose worst finding is medium."""
+    photo = _image_with_severities(tmp_path / "mild.jpg", medium=True)
+    assert _severities_of(photo) == {"low", "medium"}
 
-    result = runner.invoke(app, ["inspect", str(deck), "--fail-on", "medium"])
-
-    # leaky_deck has mixed severities including medium
-    assert result.exit_code == 1, f"Expected exit 1, got output: {result.output}"
+    assert runner.invoke(app, ["inspect", str(photo), "--fail-on", "medium"]).exit_code == 1
 
 
-def test_inspect_fail_on_low_exits_1_on_any_finding(tmp_path):
-    """--fail-on low should exit 1 even on low-severity findings.
+def test_fail_on_medium_ignores_a_low_only_document(tmp_path):
+    """The threshold is at-or-above, so a low-only file passes a medium gate.
 
-    Note: real documents have mixed severities. This test verifies that the
-    threshold is inclusive (at-or-above), using a file with known findings.
+    This is the direction that distinguishes a real ranking from "any finding
+    fails": a test that only ever checks exit 1 would pass with the comparison
+    inverted.
     """
-    # Use the leaky deck which has mixed high/medium/low findings.
-    deck = tmp_path / "deck.pptx"
-    shutil.copy(FIXTURES / "leaky_deck.pptx", deck)
+    photo = _image_with_severities(tmp_path / "faint.jpg", medium=False)
+    assert _severities_of(photo) == {"low"}, "fixture should carry only low findings"
 
-    result = runner.invoke(app, ["inspect", str(deck), "--fail-on", "low"])
+    assert runner.invoke(app, ["inspect", str(photo), "--fail-on", "medium"]).exit_code == 0
 
-    # Should exit 1 since the deck has at least some findings (all levels present)
-    assert result.exit_code == 1, (
-        f"Expected exit 1 with --fail-on low on file with findings; output: {result.output}"
-    )
+
+def test_fail_on_low_catches_a_low_only_document(tmp_path):
+    """--fail-on low is the strictest gate: any finding at all exits 1."""
+    photo = _image_with_severities(tmp_path / "faint.jpg", medium=False)
+    assert _severities_of(photo) == {"low"}
+
+    assert runner.invoke(app, ["inspect", str(photo), "--fail-on", "low"]).exit_code == 1
 
 
 def test_inspect_unreadable_file_exits_2_not_1(tmp_path):
