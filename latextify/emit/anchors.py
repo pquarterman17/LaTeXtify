@@ -257,8 +257,9 @@ def remap_cite_keys_in_text(tex: str, key_remap: dict[str, str]) -> str:
     Only the plain-text citation reconstruction fallback (item 14) bakes
     ``\\cite{...}`` directly into body text before the emitter gets a chance
     to remap keys -- the field-coded/sentinel path instead remaps
-    ``Citation.keys`` *before* anchor resolution (see ``_emit_supplement``),
-    so it never needs this. A no-op when ``key_remap`` is empty; leaves any
+    ``Citation.keys`` *before* anchor resolution (see
+    :func:`latextify.emit.supplement.emit_supplement`), so it never needs
+    this. A no-op when ``key_remap`` is empty; leaves any
     key not present in ``key_remap`` untouched.
     """
     if not key_remap:
