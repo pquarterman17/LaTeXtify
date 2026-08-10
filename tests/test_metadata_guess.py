@@ -12,16 +12,18 @@ from pathlib import Path
 import pytest
 import yaml
 
+from latextify.ingest.metadata_authors import _split_marker_text
 from latextify.ingest.metadata_guess import (
     MetaGuess,
-    MetaValidationError,
-    _split_marker_text,
     guess_meta,
     load_meta,
     load_or_create_meta,
+    sidecar_path_for,
+)
+from latextify.ingest.metadata_schema import (
+    MetaValidationError,
     meta_from_yaml_data,
     render_paper_yaml,
-    sidecar_path_for,
 )
 from latextify.model.meta import Affiliation, Author, Meta
 

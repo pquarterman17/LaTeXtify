@@ -1,8 +1,9 @@
 """Weak metadata guessing for non-.docx manuscripts (.odt/.rtf/.md).
 
-Split out of :mod:`latextify.ingest.metadata_guess` (which sits at its own
-line-count ratchet pin, ``tests/test_repo_integrity.py``): none of that
-module's paragraph/style/superscript heuristics have an equivalent here (no
+Split out of :mod:`latextify.ingest.metadata_guess`: none of the docx-based
+paragraph/style/superscript heuristics
+(:mod:`latextify.ingest.metadata_authors`,
+:mod:`latextify.ingest.metadata_paragraphs`) have an equivalent here (no
 ``word/document.xml`` to read), so this is a deliberately weak fallback, not
 a second heuristic engine -- see :func:`guess_meta_minimal`.
 
@@ -86,9 +87,8 @@ def guess_meta_dispatch(manuscript_path: Path | str):
     """``guess_meta(path)`` for a ``.docx``, :func:`guess_meta_minimal` otherwise.
 
     Single dispatch point so ``latextify.ingest.metadata_guess.load_or_create_meta``
-    needs only one import and one call here, keeping that module's own
-    line-count ratchet pin (``tests/test_repo_integrity.py``) essentially
-    untouched by this format-dispatch logic.
+    needs only one import and one call here, keeping format-dispatch logic
+    out of that module entirely.
     """
     from .formats import is_docx
     from .metadata_guess import guess_meta
