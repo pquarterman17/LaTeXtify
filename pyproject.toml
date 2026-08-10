@@ -50,6 +50,12 @@ dependencies = [
 cairo = [
     "cairosvg>=2.7",
 ]
+# Reading metadata out of pre-2007 OLE2 Office files (.doc/.ppt/.xls) for
+# `latextify inspect`. Optional because it serves one legacy format family
+# only; the core install stays pandoc+Tectonic-light. Pure Python, BSD.
+legacy = [
+    "olefile>=0.47",
+]
 # Local web GUI (plan item 19): `latextify gui`. Optional so the CLI-only
 # install stays light; latextify.cli's `gui` command imports these lazily
 # and prints an actionable install hint if they're missing.
@@ -63,6 +69,9 @@ gui = [
 dev = [
     "pytest>=8.0",
     "python-docx>=1.2.0",  # generate .docx test fixtures (fixture-only, not runtime)
+    "python-pptx>=1.0.0",  # generate .pptx test fixtures (fixture-only, not runtime)
+    "openpyxl>=3.1",       # generate .xlsx test fixtures (fixture-only, not runtime)
+    "olefile>=0.47",       # the [legacy] extra, installed so its tests run
     "ruff>=0.5",
     "cairosvg>=2.7",  # installed for dev/test so the primary SVG->PDF path is
                        # exercised too, not just the svglib fallback (item 15)
@@ -114,7 +123,7 @@ select = ["E", "F", "I", "UP", "B"]
 # way to declare CLI options -- not the mutable-default footgun B008 flags.
 "latextify/cli.py" = ["B008"]
 "latextify/cli_batch.py" = ["B008"]
-"latextify/cli_clean.py" = ["B008"]
+"latextify/cli_privacy.py" = ["B008"]
 "latextify/cli_equations.py" = ["B008"]
 "latextify/cli_export.py" = ["B008"]
 "latextify/cli_kit.py" = ["B008"]

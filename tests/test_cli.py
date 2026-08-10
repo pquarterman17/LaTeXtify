@@ -1349,7 +1349,7 @@ def test_clean_strips_docprops_and_prints_summary(tmp_path):
         assert "word/document.xml" in names  # ordinary body content survives
 
     assert str(dest) in result.output
-    assert "docProps stripped" in result.output
+    assert "document properties" in result.output
 
 
 def test_clean_missing_docx_exits_nonzero():

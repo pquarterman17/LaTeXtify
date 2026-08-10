@@ -1,0 +1,32 @@
+{
+  "deck": {
+    "path": "leaky_deck.pptx",
+    "author": "Dr Testy McTestface",
+    "company": "Institute of Very Secret Research",
+    "hidden_slides": 1,
+    "notes_slides": 1,
+    "embedded_workbooks": 1,
+    "offcanvas_shapes": 1
+  },
+  "workbook": {
+    "path": "leaky_book.xlsx",
+    "author": "Dr Testy McTestface",
+    "company": "Institute of Very Secret Research",
+    "hidden_sheets": 1,
+    "hidden_rows": 1,
+    "pivot_caches": 1,
+    "external_links": 1
+  },
+  "photo": {
+    "path": "leaky_photo.jpg",
+    "artist": "Dr Testy McTestface",
+    "has_gps": true,
+    "make": "Testcorp"
+  },
+  "pdf": {
+    "path": "leaky_doc.pdf",
+    "author": "Dr Testy McTestface",
+    "has_possible_redaction": true,
+    "hidden_text": "P-00417"
+  }
+}

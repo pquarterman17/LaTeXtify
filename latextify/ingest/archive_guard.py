@@ -55,9 +55,9 @@ MIN_COMPRESSED_FOR_RATIO = 4096
 _STREAM_CHUNK = 1 << 20  # 1 MiB
 
 
-def _reject(docx_path: Path | str, reason: str) -> None:
+def _reject(docx_path: Path | str, reason: str, label: str = ".docx") -> None:
     """Raise the uniform resource-limit rejection error."""
-    raise ValueError(f"{docx_path}: unsafe .docx archive -- {reason}")
+    raise ValueError(f"{docx_path}: unsafe {label} archive -- {reason}")
 
 
 def _member_name_is_unsafe(name: str) -> bool:
@@ -96,6 +96,7 @@ def validate_docx_archive(
     max_total_expanded_bytes: int = MAX_TOTAL_EXPANDED_BYTES,
     max_compression_ratio: float = MAX_COMPRESSION_RATIO,
     min_compressed_for_ratio: int = MIN_COMPRESSED_FOR_RATIO,
+    label: str = ".docx",
 ) -> None:
     """Reject a .docx archive that violates a resource-safety bound.
 
@@ -109,17 +110,19 @@ def validate_docx_archive(
     sizes, names, encryption flags) without decompressing, so the guard is
     cheap and safe against the very bombs it detects.
     """
+    def _fail(reason: str) -> None:
+        _reject(docx_path, reason, label)
+
     try:
         archive = zipfile.ZipFile(docx_path)
     except (zipfile.BadZipFile, OSError) as exc:
-        raise ValueError(f"{docx_path}: not a valid .docx ({exc})") from exc
+        raise ValueError(f"{docx_path}: not a valid {label} ({exc})") from exc
 
     with archive:
         infos = archive.infolist()
 
         if len(infos) > max_member_count:
-            _reject(
-                docx_path,
+            _fail(
                 f"declares {len(infos)} members (limit {max_member_count})",
             )
 
@@ -130,19 +133,18 @@ def validate_docx_archive(
             # 0x1 in the general-purpose bit flag marks an encrypted member;
             # we cannot inspect an encrypted manuscript and will not try.
             if info.flag_bits & 0x1:
-                _reject(docx_path, f"member {info.filename!r} is encrypted")
+                _fail(f"member {info.filename!r} is encrypted")
 
             if _member_name_is_unsafe(info.filename):
-                _reject(docx_path, f"member name {info.filename!r} is unsafe")
+                _fail(f"member name {info.filename!r} is unsafe")
 
             key = _normalized_member_key(info.filename)
             if key in seen_keys:
-                _reject(docx_path, f"duplicate member name {info.filename!r}")
+                _fail(f"duplicate member name {info.filename!r}")
             seen_keys.add(key)
 
             if info.file_size > max_member_expanded_bytes:
-                _reject(
-                    docx_path,
+                _fail(
                     f"member {info.filename!r} expands to {info.file_size} bytes "
                     f"(limit {max_member_expanded_bytes})",
                 )
@@ -151,8 +153,7 @@ def validate_docx_archive(
             total_compressed += info.compress_size
 
         if total_expanded > max_total_expanded_bytes:
-            _reject(
-                docx_path,
+            _fail(
                 f"expands to {total_expanded} bytes total "
                 f"(limit {max_total_expanded_bytes})",
             )
@@ -162,8 +163,7 @@ def validate_docx_archive(
             and total_expanded > total_compressed * max_compression_ratio
         ):
             ratio = total_expanded / total_compressed
-            _reject(
-                docx_path,
+            _fail(
                 f"compression ratio {ratio:.0f}x exceeds {max_compression_ratio:.0f}x",
             )
 

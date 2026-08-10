@@ -36,10 +36,11 @@ import typer
 from latextify.citations.bib import entries_to_bib
 from latextify.citations.corrections import apply_corrections
 from latextify.cli_batch import batch
-from latextify.cli_clean import clean
 from latextify.cli_equations import equations
 from latextify.cli_export import export
 from latextify.cli_kit import make_kit_cmd
+from latextify.cli_privacy import clean, formats
+from latextify.cli_privacy import inspect as inspect_cmd
 from latextify.cli_review import review_corrections
 from latextify.compile.tectonic import compile_document, ensure_tectonic
 from latextify.emit.project import emit_project
@@ -399,9 +400,13 @@ app.command(name="make-kit")(make_kit_cmd)
 # module focused; register its command on the shared app.
 app.command()(equations)
 
-# Docx sanitizer (item 3, FORMATS_AND_PRIVACY) lives in latextify.cli_clean;
-# register its command on the shared app.
+# Metadata inspection + sanitizing (METADATA_PRIVACY_PLAN) live in
+# latextify.cli_privacy. `clean` supersedes the docx-only command: it routes
+# through latextify.privacy.registry, so Word, PowerPoint, Excel, PDF and
+# images are all reachable from the one command.
 app.command(name="clean")(clean)
+app.command(name="inspect")(inspect_cmd)
+app.command(name="formats")(formats)
 
 # HTML/Markdown export (items 4-5, FORMATS_AND_PRIVACY) lives in
 # latextify.cli_export; register its command on the shared app.
