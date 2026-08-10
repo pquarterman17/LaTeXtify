@@ -156,6 +156,27 @@ def test_sanitize_then_reinspect_is_clean(tmp_path, source):
     )
 
 
+@pytest.mark.parametrize("source", ALL_FIXTURES, ids=lambda p: p.suffix.lstrip("."))
+def test_every_handler_accepts_the_shared_option_set(tmp_path, source):
+    """registry.sanitize_file promises unknown options are ignored.
+
+    The CLI passes one uniform option set to every format, so a handler that
+    does not tolerate a key meant for a different format raises TypeError on a
+    path no format-specific test exercises. (This is exactly how `latextify
+    clean` on a .pptx broke: pptx.sanitize lacked **options while the CLI
+    passed keep_color_profile.)
+    """
+    dest = tmp_path / f"opts{source.suffix}"
+    sanitize_file(
+        source,
+        dest,
+        keep_notes=False,
+        keep_color_profile=True,
+        an_option_no_handler_knows=object(),
+    )
+    assert dest.is_file()
+
+
 def test_sanitized_deck_drops_the_embedded_workbook_and_notes(tmp_path):
     dest = tmp_path / "clean.pptx"
     sanitize_file(DECK, dest)

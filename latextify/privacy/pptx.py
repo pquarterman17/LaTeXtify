@@ -275,7 +275,9 @@ def inspect(path: Path) -> tuple[list[Finding], list[str]]:
 # ── sanitizing ───────────────────────────────────────────────────────────
 
 
-def sanitize(src: Path, dest: Path, *, keep_notes: bool = False) -> tuple[list[Finding], list[str]]:
+def sanitize(
+    src: Path, dest: Path, *, keep_notes: bool = False, **_options: object
+) -> tuple[list[Finding], list[str]]:
     """Write a scrubbed copy of ``src`` to ``dest``.
 
     Removes docProps, embedded chart workbooks (and the chart's reference to

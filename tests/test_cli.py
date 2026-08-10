@@ -1352,6 +1352,31 @@ def test_clean_strips_docprops_and_prints_summary(tmp_path):
     assert "document properties" in result.output
 
 
+def test_clean_pptx_end_to_end_and_inspect_confirms_it(tmp_path):
+    """The CLI's own option set must work for a non-docx format."""
+    deck = tmp_path / "deck.pptx"
+    shutil.copy(FIXTURES / "leaky_deck.pptx", deck)
+    dest = tmp_path / "clean.pptx"
+
+    result = runner.invoke(app, ["clean", str(deck), str(dest)])
+    assert result.exit_code == 0, result.output
+    assert dest.is_file()
+    assert "embedded workbook" in result.output
+
+    # inspect exits 1 when it finds something; whatever remains must be
+    # only the things we openly cannot fix.
+    after = runner.invoke(app, ["inspect", str(dest)])
+    assert "Author" not in after.output
+
+
+def test_inspect_exits_nonzero_when_it_finds_metadata(tmp_path):
+    photo = tmp_path / "photo.jpg"
+    shutil.copy(FIXTURES / "leaky_photo.jpg", photo)
+    result = runner.invoke(app, ["inspect", str(photo)])
+    assert result.exit_code == 1, "a non-zero exit lets this gate a release script"
+    assert "GPS" in result.output
+
+
 def test_clean_missing_docx_exits_nonzero():
     result = runner.invoke(app, ["clean", "does-not-exist.docx", "out.docx"])
     assert result.exit_code != 0
