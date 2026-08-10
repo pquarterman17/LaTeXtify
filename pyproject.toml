@@ -122,6 +122,7 @@ select = ["E", "F", "I", "UP", "B"]
 # typer's Argument()/Option() calls as parameter defaults are the documented
 # way to declare CLI options -- not the mutable-default footgun B008 flags.
 "latextify/cli.py" = ["B008"]
+"latextify/cli_convert.py" = ["B008"]
 "latextify/cli_batch.py" = ["B008"]
 "latextify/cli_privacy.py" = ["B008"]
 "latextify/cli_equations.py" = ["B008"]

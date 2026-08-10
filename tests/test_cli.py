@@ -754,7 +754,7 @@ def test_convert_pdf_compile_timeout_is_a_clean_structured_error(tmp_path, monke
     raw traceback."""
     import subprocess
 
-    import latextify.cli as cli_module
+    import latextify.cli_convert as cli_module
 
     docx = tmp_path / "figures.docx"
     shutil.copy(FIGURES_DOCX, docx)
@@ -783,7 +783,7 @@ def test_convert_pdf_tectonic_present_but_fails_to_execute(tmp_path, monkeypatch
     """A tectonic binary that exists on PATH/cache but can't actually be
     executed (corrupt download, permissions, wrong architecture, ...)
     surfaces as OSError from subprocess.run -- must be a clean error too."""
-    import latextify.cli as cli_module
+    import latextify.cli_convert as cli_module
 
     docx = tmp_path / "figures.docx"
     shutil.copy(FIGURES_DOCX, docx)
@@ -1326,10 +1326,10 @@ def _review_fixture(tmp_path, *, flagged=True):
 def test_review_applies_approved_correction_to_bib(tmp_path, monkeypatch):
     import builtins
 
-    from latextify.cli import _run_interactive_review
+    from latextify.cli_convert import _run_interactive_review
 
     result, bib_path = _review_fixture(tmp_path)
-    monkeypatch.setattr("latextify.cli.sys.stdin.isatty", lambda: True)
+    monkeypatch.setattr("latextify.cli_convert.sys.stdin.isatty", lambda: True)
     monkeypatch.setattr(builtins, "input", lambda _msg="": "a")  # approve
 
     _run_interactive_review(result)
@@ -1343,11 +1343,11 @@ def test_review_applies_approved_correction_to_bib(tmp_path, monkeypatch):
 def test_review_deny_leaves_bib_untouched(tmp_path, monkeypatch):
     import builtins
 
-    from latextify.cli import _run_interactive_review
+    from latextify.cli_convert import _run_interactive_review
 
     result, bib_path = _review_fixture(tmp_path)
     before = bib_path.read_text(encoding="utf-8")
-    monkeypatch.setattr("latextify.cli.sys.stdin.isatty", lambda: True)
+    monkeypatch.setattr("latextify.cli_convert.sys.stdin.isatty", lambda: True)
     monkeypatch.setattr(builtins, "input", lambda _msg="": "d")  # deny
 
     _run_interactive_review(result)
@@ -1356,11 +1356,11 @@ def test_review_deny_leaves_bib_untouched(tmp_path, monkeypatch):
 
 
 def test_review_non_tty_skips_with_warning(tmp_path, monkeypatch, capsys):
-    from latextify.cli import _run_interactive_review
+    from latextify.cli_convert import _run_interactive_review
 
     result, bib_path = _review_fixture(tmp_path)
     before = bib_path.read_text(encoding="utf-8")
-    monkeypatch.setattr("latextify.cli.sys.stdin.isatty", lambda: False)
+    monkeypatch.setattr("latextify.cli_convert.sys.stdin.isatty", lambda: False)
 
     _run_interactive_review(result)
 
@@ -1369,12 +1369,12 @@ def test_review_non_tty_skips_with_warning(tmp_path, monkeypatch, capsys):
 
 
 def test_review_nothing_flagged_is_noop(tmp_path, monkeypatch):
-    from latextify.cli import _run_interactive_review
+    from latextify.cli_convert import _run_interactive_review
 
     result, bib_path = _review_fixture(tmp_path, flagged=False)
     before = bib_path.read_text(encoding="utf-8")
     # isatty should not even be consulted, but stub it defensively.
-    monkeypatch.setattr("latextify.cli.sys.stdin.isatty", lambda: True)
+    monkeypatch.setattr("latextify.cli_convert.sys.stdin.isatty", lambda: True)
 
     _run_interactive_review(result)
 

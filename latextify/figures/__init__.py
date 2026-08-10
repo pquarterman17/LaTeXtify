@@ -10,7 +10,12 @@ Modules:
     extract.py  -- associate extracted media with figure numbers + captions
                    (Caption style, or "Figure N:" / "Fig. N" text patterns)
     override.py -- folder-convention + figures.yaml manifest resolution
-    convert.py  -- SVG->PDF conversion for LaTeX inclusion (cairosvg, falling
+    outcome.py  -- ConversionOutcome: what one figure's conversion produced.
+                   Its own module so the per-format converters below can
+                   return it without importing convert.py circularly.
+    vector.py   -- SVG->PDF (cairosvg, then svglib) and EPS->PDF (Ghostscript)
+    raster.py   -- alpha flattening, display crop, TIFF->PNG
+    convert.py  -- the dispatcher over those; SVG->PDF (cairosvg, falling
                    back to svglib+reportlab on Windows DLL failure) and EPS
                    handling. VERIFIED (item 15): Tectonic does NOT support
                    raw EPS inclusion at all ("PostScript images are not

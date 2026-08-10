@@ -22,7 +22,8 @@ from latextify.compile.tectonic import (
     compile_document,
     find_tectonic,
 )
-from latextify.figures import convert as convert_mod
+from latextify.figures import raster as raster_mod
+from latextify.figures import vector as vector_mod
 from latextify.figures.convert import convert_for_latex
 
 _MINIMAL_SVG = (
@@ -83,7 +84,7 @@ def test_passthrough_formats_are_copied_unchanged(tmp_path, ext, content):
 def test_has_alpha_predicate():
     from PIL import Image
 
-    from latextify.figures.convert import _has_alpha
+    from latextify.figures.raster import _has_alpha
 
     assert _has_alpha(Image.new("RGBA", (2, 2))) is True
     assert _has_alpha(Image.new("LA", (2, 2))) is True
@@ -188,7 +189,7 @@ def test_svg_uses_cairosvg_when_it_succeeds(tmp_path, monkeypatch):
     def fake_cairosvg(src: Path, dest: Path) -> None:
         dest.write_bytes(b"%PDF-1.4 from cairosvg\n")
 
-    monkeypatch.setattr(convert_mod, "_cairosvg_convert", fake_cairosvg)
+    monkeypatch.setattr(vector_mod, "_cairosvg_convert", fake_cairosvg)
 
     src = tmp_path / "fig.svg"
     src.write_text(_MINIMAL_SVG, encoding="utf-8")
@@ -207,7 +208,7 @@ def test_svg_falls_back_to_svglib_on_cairosvg_import_error(tmp_path, monkeypatch
     def raise_import_error(src: Path, dest: Path) -> None:
         raise ImportError("cairosvg not installed")
 
-    monkeypatch.setattr(convert_mod, "_cairosvg_convert", raise_import_error)
+    monkeypatch.setattr(vector_mod, "_cairosvg_convert", raise_import_error)
 
     src = tmp_path / "fig.svg"
     src.write_text(_MINIMAL_SVG, encoding="utf-8")
@@ -231,7 +232,7 @@ def test_svg_falls_back_to_svglib_on_cairosvg_dll_failure(tmp_path, monkeypatch)
     def raise_dll_oserror(src: Path, dest: Path) -> None:
         raise OSError('no library called "cairo-2" was found')
 
-    monkeypatch.setattr(convert_mod, "_cairosvg_convert", raise_dll_oserror)
+    monkeypatch.setattr(vector_mod, "_cairosvg_convert", raise_dll_oserror)
 
     src = tmp_path / "fig.svg"
     src.write_text(_MINIMAL_SVG, encoding="utf-8")
@@ -272,8 +273,8 @@ def test_svg_double_failure_falls_back_to_passthrough_with_warning(tmp_path, mon
     def raise_svglib(src: Path, dest: Path) -> None:
         raise ValueError("malformed svg")
 
-    monkeypatch.setattr(convert_mod, "_cairosvg_convert", raise_cairo)
-    monkeypatch.setattr(convert_mod, "_svglib_convert", raise_svglib)
+    monkeypatch.setattr(vector_mod, "_cairosvg_convert", raise_cairo)
+    monkeypatch.setattr(vector_mod, "_svglib_convert", raise_svglib)
 
     src = tmp_path / "fig.svg"
     src.write_text(_MINIMAL_SVG, encoding="utf-8")
@@ -298,7 +299,7 @@ def test_eps_passes_through_with_actionable_warning_when_ghostscript_absent(tmp_
     # Real (non-monkeypatched at the `which` level) on this dev machine --
     # VERIFIED no gs/gswin64c/gswin32c is on PATH here, so this also proves
     # the fallback path fires for real, not just under a mocked absence.
-    monkeypatch.setattr(convert_mod.shutil, "which", lambda name: None)
+    monkeypatch.setattr(vector_mod.shutil, "which", lambda name: None)
 
     src = tmp_path / "fig.eps"
     src.write_text(_MINIMAL_EPS, encoding="utf-8")
@@ -315,12 +316,12 @@ def test_eps_passes_through_with_actionable_warning_when_ghostscript_absent(tmp_
 
 
 def test_eps_converts_via_ghostscript_when_present(tmp_path, monkeypatch):
-    monkeypatch.setattr(convert_mod.shutil, "which", lambda name: f"/usr/bin/{name}")
+    monkeypatch.setattr(vector_mod.shutil, "which", lambda name: f"/usr/bin/{name}")
 
     def fake_ghostscript(gs_binary: str, src: Path, dest: Path) -> None:
         dest.write_bytes(b"%PDF-1.4 from ghostscript\n")
 
-    monkeypatch.setattr(convert_mod, "_ghostscript_convert", fake_ghostscript)
+    monkeypatch.setattr(vector_mod, "_ghostscript_convert", fake_ghostscript)
 
     src = tmp_path / "fig.eps"
     src.write_text(_MINIMAL_EPS, encoding="utf-8")
@@ -336,12 +337,12 @@ def test_eps_converts_via_ghostscript_when_present(tmp_path, monkeypatch):
 
 
 def test_eps_ghostscript_failure_falls_back_to_passthrough_with_warning(tmp_path, monkeypatch):
-    monkeypatch.setattr(convert_mod.shutil, "which", lambda name: f"/usr/bin/{name}")
+    monkeypatch.setattr(vector_mod.shutil, "which", lambda name: f"/usr/bin/{name}")
 
     def failing_ghostscript(gs_binary: str, src: Path, dest: Path) -> None:
         raise subprocess.CalledProcessError(1, [gs_binary])
 
-    monkeypatch.setattr(convert_mod, "_ghostscript_convert", failing_ghostscript)
+    monkeypatch.setattr(vector_mod, "_ghostscript_convert", failing_ghostscript)
 
     src = tmp_path / "fig.eps"
     src.write_text(_MINIMAL_EPS, encoding="utf-8")
@@ -362,9 +363,9 @@ def test_find_ghostscript_probes_candidate_names_in_order(monkeypatch):
         seen.append(name)
         return "/usr/bin/gswin64c" if name == "gswin64c" else None
 
-    monkeypatch.setattr(convert_mod.shutil, "which", fake_which)
+    monkeypatch.setattr(vector_mod.shutil, "which", fake_which)
 
-    assert convert_mod._find_ghostscript() == "/usr/bin/gswin64c"
+    assert vector_mod._find_ghostscript() == "/usr/bin/gswin64c"
     assert seen == ["gs", "gswin64c"]
 
 
@@ -423,7 +424,7 @@ def test_tiff_conversion_failure_writes_nothing_and_warns(tmp_path, monkeypatch)
     def raise_conversion_error(src: Path, dest: Path) -> None:
         raise OSError("truncated TIFF file")
 
-    monkeypatch.setattr(convert_mod, "_pillow_convert", raise_conversion_error)
+    monkeypatch.setattr(raster_mod, "_pillow_convert", raise_conversion_error)
 
     src = tmp_path / "fig.tiff"
     src.write_bytes(b"not a real tiff")
@@ -446,7 +447,7 @@ def test_tiff_conversion_failure_cleans_up_partial_write(tmp_path, monkeypatch):
         dest.write_bytes(b"partial garbage")
         raise ValueError("boom")
 
-    monkeypatch.setattr(convert_mod, "_pillow_convert", raise_after_partial_write)
+    monkeypatch.setattr(raster_mod, "_pillow_convert", raise_after_partial_write)
 
     src = tmp_path / "fig.tiff"
     src.write_bytes(b"not a real tiff")
