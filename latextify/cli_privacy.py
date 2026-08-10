@@ -11,12 +11,46 @@ is reachable without restating the accept list here.
 
 from __future__ import annotations
 
+from enum import Enum
 from pathlib import Path
 
 import typer
 
 from latextify.privacy import inspect_file, sanitize_file, supported_extensions
-from latextify.privacy.report import Finding
+from latextify.privacy.report import SEVERITIES, Finding
+
+
+class FailOnSeverity(str, Enum):
+    """Severity threshold for exit code 1: fail on this severity or above.
+
+    ``high`` exits 1 only on high-severity findings (METADATA_PRIVACY_PLAN #14).
+    ``medium`` exits 1 on medium or high.
+    ``low`` exits 1 on any finding.
+    ``never`` always exits 0 (useful for CI that logs but does not gate).
+    """
+
+    HIGH = "high"
+    MEDIUM = "medium"
+    LOW = "low"
+    NEVER = "never"
+
+    def should_fail(self, max_severity_found: str | None) -> bool:
+        """True if a finding at max_severity_found would trigger exit code 1.
+
+        Args:
+            max_severity_found: The highest severity in the report ("high", "medium",
+                "low"), or None if no findings exist.
+
+        Returns:
+            True if exit code should be 1; False if exit code should be 0.
+        """
+        if self == FailOnSeverity.NEVER or max_severity_found is None:
+            return False
+        # Order: "high" > "medium" > "low"
+        threshold_rank = SEVERITIES.index(self.value)
+        found_rank = SEVERITIES.index(max_severity_found)
+        return found_rank <= threshold_rank
+
 
 _SEVERITY_MARK = {"high": "!!", "medium": " !", "low": "  "}
 
@@ -38,13 +72,22 @@ def inspect(
     verbose: bool = typer.Option(
         False, "--verbose", "-v", help="Explain why each finding matters, and where it lives."
     ),
+    fail_on: FailOnSeverity = typer.Option(
+        FailOnSeverity.HIGH,
+        "--fail-on",
+        help="Exit with code 1 if a finding at this severity or above is present. "
+        "'never' always exits 0.",
+    ),
 ) -> None:
     """Report the metadata and hidden content in SRC_PATH without changing it.
 
     Reads the file and writes nothing. Use this to see what a document exposes
     before sending it out, and to verify that a cleaned copy really is clean.
 
-    Exit code is 1 if anything was found, so it can gate a release script.
+    Exit code: 0 if clean or findings are below --fail-on threshold; 1 if findings
+    meet or exceed the threshold (by default, high-severity only); 2 on file errors.
+    Always prints findings regardless of --fail-on setting, so the CLI can log
+    everything while gating only on severity (METADATA_PRIVACY_PLAN #14).
     """
     try:
         report = inspect_file(src_path)
@@ -71,7 +114,13 @@ def inspect(
         typer.echo(f"  note: {warning}")
     if not verbose:
         typer.echo("  (re-run with --verbose to see why each finding matters)")
-    raise typer.Exit(code=1)
+
+    # Compute max severity found (worst-first from sorted_findings).
+    max_severity_found = report.sorted_findings()[0].severity if report.findings else None
+
+    # Exit based on threshold, always printing findings above.
+    if fail_on.should_fail(max_severity_found):
+        raise typer.Exit(code=1)
 
 
 def clean(
