@@ -91,14 +91,6 @@ registered; CLI and GUI accept-lists derive from it rather than restating it.
 _Original Tiers 1 and 2 are complete, and so is #13 — see `## Completed`.
 Second round items 14-16 remain._
 
-## Tier 1 — High Impact
-
-14. **`inspect --fail-on` severity gate** — command currently unusable as CI gate.
-    - [ ] Add `--fail-on high|medium|low|never` flag, defaulting to `high`
-    - [ ] Exit code 2 for file-read errors (distinct from findings)
-    - [ ] Invalid value produces clean error naming valid choices
-    - [ ] Update command docstring (currently claims exit 1 always)
-
 ## Tier 2 — Medium Impact
 
 15. **Surface privacy findings during conversion (preflight)** — put "this has tracked changes" in front of user at submission time.
@@ -133,6 +125,19 @@ Second round items 14-16 remain._
 ---
 
 ## Completed
+
+- ~~**#14 `inspect --fail-on` severity gate**~~ (2026-08-10) — `--fail-on
+  high|medium|low|never`, defaulting to `high`; exit 1 only when a finding at
+  that severity or above is present, exit 2 kept distinct for file-read errors,
+  and findings always printed regardless (the flag gates the exit code, never
+  the output). Before this, `inspect` exited 1 on ANY finding, so every real
+  manuscript failed it — a gate that always fails is not a gate.
+  The tests needed reworking after review: every committed fixture carries HIGH
+  findings, so a threshold test using them exits 1 under every threshold and
+  proves nothing. They now build images with known severities (Software=low,
+  Make=medium), assert each fixture really has the mix it is named for, and
+  cover the direction that distinguishes a ranking from "any finding fails" —
+  a low-only document must PASS a medium gate. Verified by mutation.
 
 - ~~**#13 Strip figure metadata on the conversion path**~~ (2026-08-10) —
   `figures/scrub.py`, applied by `convert_for_latex` to whatever raster reaches
