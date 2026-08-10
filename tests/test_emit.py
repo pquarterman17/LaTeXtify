@@ -860,7 +860,7 @@ def test_check_references_attaches_report_and_renders(tmp_path, monkeypatch):
     # folds the outcome into EmitResult.validation and report.md. The Crossref
     # round-trip is stubbed here (the validation logic itself is unit-tested in
     # test_citations_validate.py against a mock transport).
-    from latextify.emit import project as project_mod
+    from latextify.emit import citation_resolution as citation_resolution_mod
     from latextify.model.validate import ValidationRecord, ValidationReport
 
     captured: dict[str, object] = {}
@@ -874,7 +874,7 @@ def test_check_references_attaches_report_and_renders(tmp_path, monkeypatch):
             + (ValidationRecord(key="planted", status="dead_doi", doi="10.9/x"),)
         )
 
-    monkeypatch.setattr(project_mod, "validate_references", fake_validate)
+    monkeypatch.setattr(citation_resolution_mod, "validate_references", fake_validate)
 
     docx = _copy_fixture(tmp_path, ZOTERO_DOCX)
     result = emit_project(docx, "revtex4-2", tmp_path / "output", check_references=True)
@@ -893,7 +893,7 @@ def test_check_references_attaches_report_and_renders(tmp_path, monkeypatch):
 def test_check_references_partial_outage_warns(tmp_path, monkeypatch):
     # Some (not all) references unchecked mid-run -> one visible warning so the
     # author knows the check partially degraded; the emit itself still succeeds.
-    from latextify.emit import project as project_mod
+    from latextify.emit import citation_resolution as citation_resolution_mod
     from latextify.model.validate import ValidationRecord, ValidationReport
 
     def fake_validate(entries, client, **kwargs):
@@ -901,7 +901,7 @@ def test_check_references_partial_outage_warns(tmp_path, monkeypatch):
         records[0] = ValidationRecord(key=records[0].key, status="unchecked")
         return ValidationReport(records=tuple(records))
 
-    monkeypatch.setattr(project_mod, "validate_references", fake_validate)
+    monkeypatch.setattr(citation_resolution_mod, "validate_references", fake_validate)
 
     docx = _copy_fixture(tmp_path, ZOTERO_DOCX)
     result = emit_project(docx, "revtex4-2", tmp_path / "output", check_references=True)
@@ -913,12 +913,12 @@ def test_check_references_partial_outage_warns(tmp_path, monkeypatch):
 def test_check_references_skipped_when_no_entries(tmp_path, monkeypatch):
     # A citation-free manuscript has no entries, so validation is skipped
     # entirely (no client built, no network) even when requested.
-    from latextify.emit import project as project_mod
+    from latextify.emit import citation_resolution as citation_resolution_mod
 
     def exploding_validate(entries, client, **kwargs):  # pragma: no cover - must not run
         raise AssertionError("validation must not run with an empty entry set")
 
-    monkeypatch.setattr(project_mod, "validate_references", exploding_validate)
+    monkeypatch.setattr(citation_resolution_mod, "validate_references", exploding_validate)
 
     docx = _copy_fixture(tmp_path, CLEAN_DOCX)
     result = emit_project(docx, "revtex4-2", tmp_path / "output", check_references=True)

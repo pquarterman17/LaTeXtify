@@ -1013,7 +1013,7 @@ def _flag_first_year(monkeypatch, *, canonical_year="1999"):
     """
     from dataclasses import replace
 
-    from latextify.emit import project as project_mod
+    from latextify.emit import citation_resolution as citation_resolution_mod
     from latextify.model.validate import FieldCheck, ValidationRecord, ValidationReport
 
     def fake_validate(entries, client, **kwargs):
@@ -1033,7 +1033,7 @@ def _flag_first_year(monkeypatch, *, canonical_year="1999"):
         rest = tuple(ValidationRecord(key=e.key, status="verified", doi=e.doi) for e in entries[1:])
         return ValidationReport(records=(flagged, *rest))
 
-    monkeypatch.setattr(project_mod, "validate_references", fake_validate)
+    monkeypatch.setattr(citation_resolution_mod, "validate_references", fake_validate)
 
 
 def _convert_with_check(client):

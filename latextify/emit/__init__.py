@@ -35,9 +35,20 @@ Output contract (plan item 5) — the generated/manual split:
                                           mechanism as bibliography.tex
 
 Modules:
-    project.py      -- tree writing, main.tex write-once logic
-    metadata.py     -- Author/Affiliation IR -> per-journal macro emission via
-                       the journal's metadata.tex.j2
-    figures_copy.py -- what lands in figures/: per-figure convert-or-copy,
-                       wide-float sizing, stale-file pruning
+    project.py              -- tree writing, main.tex write-once logic; the
+                                pipeline entry point (emit_project)
+    supplement.py           -- the SI document (plan item 21): emit_supplement
+                                runs the same preflight/pandoc/figures/citations
+                                pipeline a second time, S-prefixed and merged
+                                into the main document's output tree
+    citation_resolution.py  -- plain-text citation reconstruction (item 14,
+                                the no-field-codes fallback) and the opt-in
+                                online reference validation (--check-references)
+    bibliography.py         -- the \\bibliography-vs-comment inclusion contract
+                                (item 26) shared by main.tex and supplement.tex,
+                                plus the pre-item-26 main.tex migration warning
+    metadata.py             -- Author/Affiliation IR -> per-journal macro emission
+                                via the journal's metadata.tex.j2
+    figures_copy.py         -- what lands in figures/: per-figure convert-or-copy,
+                                wide-float sizing, stale-file pruning
 """

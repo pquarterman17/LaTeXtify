@@ -65,54 +65,38 @@ Unresolvable markers and low-confidence (``verify``) references degrade to
 ``EmitWarning`` messages, never a crash.
 
 Supplementary material (plan item 21, ``supplement_docx_path``): a second
-manuscript runs through this exact same pipeline (preflight, pandoc body,
-figures, citations) into the SAME output tree as a second write-once
-document, ``supplement.tex`` + ``generated/supplement_*.tex`` -- see
-``_emit_supplement``. Its figures share ``figures/`` with the main document
-under an ``S`` prefix (``figS<N>.<ext>``, via ``prefix="S"`` threaded
-through ``figures.override``/``figures.convert``); its citations are merged
-into the shared ``references.bib`` by
-:func:`latextify.citations.merge.merge_ref_entries`, which reuses
-``citations.fields.dedup_identity`` so a reference cited in both documents
-(matched by DOI, source id, or author/year/title fingerprint) collapses to
-one entry. Omitting ``supplement_docx_path`` leaves the main document's
-output byte-identical to before item 21.
+manuscript runs through this same pipeline into the SAME output tree as a
+second write-once document -- see :mod:`latextify.emit.supplement` for the
+S-prefixed figures, the cross-document reference merge/dedup, and the rest of
+that document's own contract. Omitting ``supplement_docx_path`` leaves the
+main document's output byte-identical to before item 21.
 """
 
 from __future__ import annotations
 
-import re
 import tempfile
-from dataclasses import replace
 from pathlib import Path
 
-from latextify.citations.bib import entries_to_bib, escape_latex
-from latextify.citations.body_markers import (
-    link_body_markers,
-    strip_reference_section,
-    strip_reference_section_to_eof,
-)
-from latextify.citations.crossref import CrossrefClient
+from latextify.citations.bib import entries_to_bib
+from latextify.citations.body_markers import strip_reference_section_to_eof
 from latextify.citations.fields import extract_field_citations
-from latextify.citations.merge import merge_ref_entries
-from latextify.citations.plaintext import reconstruct_citations
 from latextify.citations.refs_import import parse_references_file
-from latextify.citations.validate import validate_references
-from latextify.emit.anchors import (
-    citation_linkage_warning,
-    remap_cite_keys_in_text,
-    resolve_anchors,
+from latextify.emit.anchors import citation_linkage_warning, resolve_anchors
+from latextify.emit.bibliography import (
+    BIBLIOGRAPHY_EMPTY,
+    BIBLIOGRAPHY_LINE,
+    legacy_bibliography_warning,
 )
+from latextify.emit.citation_resolution import link_plaintext_citations, run_reference_validation
 from latextify.emit.figures_copy import _copy_figures, _prune_stale_figures
 from latextify.emit.metadata import load_meta, write_metadata_tex
 from latextify.emit.submission import (
-    _ONECOLUMN_FIGURE_ENV,
     DocumentLayout,
     anonymize_meta,
     build_main_preamble,
-    build_supplement_preamble,
     strip_acknowledgments,
 )
+from latextify.emit.supplement import emit_supplement
 from latextify.figures.extract import extract_figures
 from latextify.figures.override import resolve_overrides
 from latextify.ingest.formats import non_docx_warnings
@@ -121,13 +105,11 @@ from latextify.ingest.pandoc import convert_docx_to_body
 from latextify.ingest.preflight import run_preflight
 from latextify.model.emit import EmitResult, EmitWarning, SupplementResult
 from latextify.model.figure import Figure
-from latextify.model.meta import Meta
 from latextify.model.reconcile import ReconciliationReport
-from latextify.model.refs import Citation, RefEntry
+from latextify.model.refs import RefEntry
 from latextify.model.validate import ValidationReport
 from latextify.report.render import write_report
 from latextify.templates import loader as templates_loader
-from latextify.templates.loader import Journal
 
 _MAIN_TEX_TEMPLATE = (
     "\\input{generated/preamble}\n"
@@ -137,53 +119,6 @@ _MAIN_TEX_TEMPLATE = (
     "\\input{generated/bibliography}\n"
     "\\end{document}\n"
 )
-
-# Supplementary material (plan item 21): a second write-once document, the
-# same shape as main.tex, \input-ing its own regenerated generated/
-# supplement_*.tex set. It shares this project's figures/ and
-# references.bib with the main document.
-_SUPPLEMENT_TEX_TEMPLATE = (
-    "\\input{generated/supplement_preamble}\n"
-    "\\begin{document}\n"
-    "\\input{generated/supplement_metadata}\n"
-    "\\input{generated/supplement_body}\n"
-    "\\input{generated/supplement_bibliography}\n"
-    "\\end{document}\n"
-)
-
-# Appended to the SI's own rendered preamble (plan item 21): S1, S2, ...
-# numbering for figures/tables/equations/sections, the conventional SI
-# numbering scheme. LaTeX's own \arabic{<counter>} does the counting -- each
-# \begin{figure}/\begin{table}/equation/\section in supplement.tex increments
-# its own counter starting at 1, independent of the main document's (a
-# separate top-level LaTeX document = separate counters), so no other
-# bookkeeping is needed to get "S1", "S2", ... into the compiled output.
-_SUPPLEMENT_NUMBERING = (
-    "\n% Supplementary numbering (plan item 21).\n"
-    "\\renewcommand{\\thefigure}{S\\arabic{figure}}\n"
-    "\\renewcommand{\\thetable}{S\\arabic{table}}\n"
-    "\\renewcommand{\\theequation}{S\\arabic{equation}}\n"
-    "\\renewcommand{\\thesection}{S\\arabic{section}}\n"
-)
-
-# Bibliography inclusion lives in a regenerated file (plan item 26), NOT
-# directly in the write-once main.tex, so a citation-free manuscript emits no
-# ``\bibliography`` line at all and still compiles under classes whose
-# ``\thebibliography`` redefinition errors on an empty reference list
-# (IEEEtran: "Something's wrong -- perhaps a missing \item"). When references
-# exist the line is written; when they don't, only a self-explaining comment is.
-_BIBLIOGRAPHY_LINE = "\\bibliography{references}\n"
-_BIBLIOGRAPHY_EMPTY = (
-    "% This manuscript has no citations, so no \\bibliography line is emitted.\n"
-    "% Regenerated every run: a \\bibliography{references} line reappears here\n"
-    "% automatically once citations are found. Emitting an empty \\bibliography\n"
-    "% makes some classes -- notably IEEEtran -- error at \\end{thebibliography}.\n"
-)
-# A pre-item-26 main.tex called ``\bibliography`` directly. main.tex is
-# user-owned/write-once so we cannot rewrite it; detect the legacy line (not
-# commented out, and distinct from the new ``\input{generated/bibliography}``)
-# to advise the one-line migration instead.
-_DIRECT_BIBLIOGRAPHY_RE = re.compile(r"(?m)^[^%\n]*\\bibliography\{")
 
 
 def emit_project(
@@ -395,7 +330,7 @@ def emit_project(
             )
     else:
         # No field codes anywhere -> plain-text reconstruction safety net (item 14).
-        entries, resolved_tex, plaintext_warnings, plaintext_records = _link_plaintext_citations(
+        entries, resolved_tex, plaintext_warnings, plaintext_records = link_plaintext_citations(
             docx_path, resolved_tex, crossref_mailto, bib_entries
         )
         warnings.extend(plaintext_warnings)
@@ -429,7 +364,7 @@ def emit_project(
     bib_path = output_dir / "references.bib"
     bib_path.write_text(bib_text, encoding="utf-8")
 
-    bibliography_tex = _BIBLIOGRAPHY_LINE if bib_text.strip() else _BIBLIOGRAPHY_EMPTY
+    bibliography_tex = BIBLIOGRAPHY_LINE if bib_text.strip() else BIBLIOGRAPHY_EMPTY
     (generated_dir / "bibliography.tex").write_text(bibliography_tex, encoding="utf-8")
 
     main_tex_path = output_dir / "main.tex"
@@ -437,7 +372,7 @@ def emit_project(
     if main_tex_written:
         main_tex_path.write_text(_MAIN_TEX_TEMPLATE, encoding="utf-8")
     else:
-        warnings.extend(_legacy_bibliography_warning(main_tex_path))
+        warnings.extend(legacy_bibliography_warning(main_tex_path))
 
     # Supplementary material (plan item 21): a second write-once document
     # sharing this project's figures/ and references.bib. Emitted before the
@@ -445,7 +380,7 @@ def emit_project(
     # folds into one result object and one final report write.
     supplement_result: SupplementResult | None = None
     if supplement_docx_path is not None:
-        supplement_result, entries = _emit_supplement(
+        supplement_result, entries = emit_supplement(
             Path(supplement_docx_path),
             output_dir=output_dir,
             generated_dir=generated_dir,
@@ -474,7 +409,7 @@ def emit_project(
     # shared references.bib -- main and SI alike -- is checked exactly once.
     validation: ValidationReport | None = None
     if check_references and entries:
-        validation, validation_warnings = _run_reference_validation(entries, crossref_mailto)
+        validation, validation_warnings = run_reference_validation(entries, crossref_mailto)
         warnings.extend(validation_warnings)
 
     # The report path is deterministic, so we don't need to write anything to
@@ -517,349 +452,3 @@ def emit_project(
         )
 
     return result
-
-
-# --------------------------------------------------------------------------- #
-# Backward-compat: pre-item-26 main.tex with a direct \bibliography call
-# --------------------------------------------------------------------------- #
-
-
-def _legacy_bibliography_warning(main_tex_path: Path) -> list[EmitWarning]:
-    """Advise migrating a pre-item-26 main.tex off its direct ``\\bibliography`` call.
-
-    New projects ``\\input{generated/bibliography}`` so a citation-free
-    manuscript emits no ``\\bibliography`` line and still compiles under
-    IEEEtran (plan item 26). A ``main.tex`` written before that change is
-    user-owned and write-once -- it still carries the direct
-    ``\\bibliography{references}`` line, which breaks citation-free IEEEtran
-    compiles -- so surface a one-line-edit warning rather than silently
-    leaving it broken. Returns no warning once the file has been migrated (it
-    then contains the ``\\input{generated/bibliography}`` include).
-    """
-    try:
-        existing = main_tex_path.read_text(encoding="utf-8")
-    except OSError:
-        return []
-    if "\\input{generated/bibliography}" in existing:
-        return []
-    if _DIRECT_BIBLIOGRAPHY_RE.search(existing):
-        return [
-            EmitWarning(
-                message=(
-                    "main.tex calls \\bibliography{references} directly; new projects "
-                    "\\input{generated/bibliography} instead so citation-free manuscripts "
-                    "compile (an empty \\bibliography breaks IEEEtran). Replace the "
-                    "\\bibliography{references} line in main.tex with "
-                    "\\input{generated/bibliography}."
-                )
-            )
-        ]
-    return []
-
-
-# --------------------------------------------------------------------------- #
-# Plain-text citation reconstruction (item 14) -- the no-field-codes fallback
-# --------------------------------------------------------------------------- #
-
-
-def _link_plaintext_citations(
-    docx_path: Path, tex: str, mailto: str | None, bib_entries: list[RefEntry] | None = None
-) -> tuple[list[RefEntry], str, list[EmitWarning], tuple]:
-    """Reconstruct a typed bibliography and link its in-text markers.
-
-    Returns the reconstructed ``.bib`` entries, the body with markers rewritten
-    to ``\\cite{...}`` and the duplicate typed reference list removed, the
-    accumulated warnings (unresolved markers + low-confidence ``verify`` refs),
-    and the reconciliation records for the report.
-    A document with no typed reference list yields no entries and an untouched
-    body -- there is nothing to reconstruct or link. ``bib_entries`` (the
-    author's parsed ``.bib``) is matched before Crossref when supplied.
-    """
-    result = reconstruct_citations(docx_path, mailto=mailto, bib_entries=bib_entries)
-    if not result.has_reference_list:
-        return [], tex, [], ()
-    tex = strip_reference_section(tex, result)
-    tex, messages = link_body_markers(tex, result)
-    warnings = [EmitWarning(message=message) for message in messages]
-    warnings.extend(_verify_warnings(result.records))
-    return result.entries, tex, warnings, result.records
-
-
-def _run_reference_validation(
-    entries: list[RefEntry], mailto: str | None
-) -> tuple[ValidationReport | None, list[EmitWarning]]:
-    """Validate the assembled bibliography online (opt-in ``--check-references``).
-
-    Opens a single Crossref client, validates every entry serially, and returns
-    the report plus any user-facing warnings. Never propagates a failure: a
-    fully offline run yields an all-``unchecked`` report (with one advisory
-    warning), and any unexpected error degrades to ``None`` + a warning rather
-    than failing an otherwise-successful emit -- reference checking is a bonus
-    pass, never a gate.
-    """
-    try:
-        with CrossrefClient(mailto=mailto) as client:
-            report = validate_references(entries, client)
-    except Exception as exc:  # never let a bonus check sink the whole emit
-        return None, [
-            EmitWarning(
-                message=(
-                    "online reference check could not run "
-                    f"({type(exc).__name__}: {exc}); skipped. References were not verified."
-                )
-            )
-        ]
-    warnings: list[EmitWarning] = []
-    if not report.any_checked:
-        warnings.append(
-            EmitWarning(
-                message=(
-                    "online reference check requested but Crossref was unreachable; "
-                    "no references were verified (all marked unchecked)."
-                )
-            )
-        )
-    elif report.count("unchecked"):
-        warnings.append(
-            EmitWarning(
-                message=(
-                    f"{report.count('unchecked')} of {report.total} reference(s) could not "
-                    "be checked (Crossref errors mid-run); see the unchecked entries in "
-                    "report.md."
-                )
-            )
-        )
-    return report, warnings
-
-
-def _verify_warnings(records) -> list[EmitWarning]:
-    """One loud warning per below-threshold (``verify``) reconstructed reference."""
-    warnings: list[EmitWarning] = []
-    for record in records:
-        if not record.verify:
-            continue
-        number = f" [{record.ref_number}]" if record.ref_number is not None else ""
-        warnings.append(
-            EmitWarning(
-                message=(
-                    f"reference{number} could not be confidently matched to Crossref "
-                    f"(best score {record.score:.2f}); emitted from raw text -- verify "
-                    f"the references.bib entry '{record.key}'."
-                )
-            )
-        )
-    return warnings
-
-
-# --------------------------------------------------------------------------- #
-# Supplementary material (plan item 21)
-# --------------------------------------------------------------------------- #
-
-
-def _plain_article_metadata(meta: Meta) -> str:
-    """Article-class title block for the one-column supplement.
-
-    REVTeX/IEEE metadata macros (``\\affiliation``, ``\\email``,
-    ``\\IEEEauthorblockN``) are undefined in ``article``, so the one-column SI
-    needs a plain ``\\title``/``\\author``/``\\maketitle`` block instead. Author
-    names and affiliations are flattened into the single ``\\author`` field
-    (article has no structured affiliation model); every field is LaTeX-escaped
-    at this boundary, exactly like :meth:`Journal.render_metadata`.
-    """
-    title = escape_latex(meta.title)
-    names = ", ".join(escape_latex(a.name) for a in meta.authors)
-    affils = " \\\\ ".join(escape_latex(a.name) for a in meta.affiliations)
-    # Wrap in a centered \parbox: article's \author centers but does not wrap, so
-    # a long author/affiliation list would otherwise overrun the page margins.
-    inner = names + (" \\\\[4pt]\\footnotesize " + affils if affils else "")
-    author_field = "\\parbox{0.92\\linewidth}{\\centering " + inner + "}"
-    return (
-        "% Plain-article supplement title block (--supplement-onecolumn).\n"
-        f"\\title{{{title}}}\n"
-        f"\\author{{{author_field}}}\n"
-        "\\date{}\n"
-        "\\maketitle\n"
-    )
-
-
-def _emit_supplement(
-    supplement_docx_path: Path,
-    *,
-    output_dir: Path,
-    generated_dir: Path,
-    figures_dir: Path,
-    journal: Journal,
-    main_meta: Meta,
-    citation_style: str | None,
-    crossref_mailto: str | None,
-    main_entries: list[RefEntry],
-    bib_entries: list[RefEntry] | None = None,
-    onecolumn: bool = False,
-    exclude_figures: bool = False,
-    layout: DocumentLayout | None = None,
-    figures_at_end: bool = False,
-    strip_figure_metadata: bool = True,
-) -> tuple[SupplementResult, list[RefEntry]]:
-    """Emit the supplementary-material project (plan item 21).
-
-    Runs ``supplement_docx_path`` through the same preflight/pandoc/figures/
-    citations pipeline the main document just went through, into the SAME
-    output tree as a second write-once document: ``supplement.tex`` +
-    regenerated ``generated/supplement_*.tex``. Figures land in the shared
-    ``figures/`` directory as ``figS<N>.<ext>`` (S-numbered, never colliding
-    with the main document's ``fig<N>.<ext>``); citations are extracted the
-    same way and merged into ``main_entries`` by
-    :func:`latextify.citations.merge.merge_ref_entries` (DOI/raw_id/
-    fingerprint identity -- the exact rule used to dedupe within one
-    document).
-
-    No metadata guessing runs on the SI docx (plan item 21's explicit
-    contract) -- the title block is derived from ``main_meta`` alone
-    (``"Supplementary Material: <main title>"``, same authors/affiliations,
-    no abstract/keywords).
-
-    Returns the :class:`SupplementResult` plus the merged entries list
-    (``main_entries`` untouched at the front, any genuinely-new SI
-    references appended) so the caller can rewrite the shared
-    ``references.bib``.
-    """
-    warnings: list[EmitWarning] = []
-
-    # Preflight runs too ("same pipeline" contract) -- findings fold into
-    # this function's own warnings (surfaced via the report's Supplement
-    # section) rather than the main document's Preflight Findings section.
-    si_preflight = run_preflight(supplement_docx_path)
-    warnings.extend(
-        EmitWarning(
-            message=(
-                f"supplement preflight [{finding.severity.value}] "
-                f"({finding.detector}): {finding.message}"
-            )
-        )
-        for finding in si_preflight.findings
-    )
-
-    with tempfile.TemporaryDirectory(prefix="latextify-si-media-") as tmp:
-        si_media_dir = Path(tmp)
-        si_body_result = convert_docx_to_body(supplement_docx_path, si_media_dir)
-        if exclude_figures:
-            # Text-only emit: keep the SI consistent with the main document.
-            si_figures: tuple[Figure, ...] = ()
-            si_figure_files: dict[int, str] = {}
-            si_conversion_warnings: tuple[EmitWarning, ...] = ()
-            # Clear any S-prefixed images a prior (figure-including) run left.
-            _prune_stale_figures(figures_dir, "S", set())
-        else:
-            si_figures = resolve_overrides(
-                extract_figures(supplement_docx_path, si_media_dir),
-                supplement_docx_path,
-                prefix="S",
-            )
-            si_figure_files, si_figures, si_conversion_warnings = _copy_figures(
-                si_figures, figures_dir, prefix="S", strip_metadata=strip_figure_metadata
-            )
-
-    si_raw_tex = si_body_result.tex.replace("\r\n", "\n").replace("\r", "\n")
-    warnings.extend(
-        EmitWarning(message=f"supplement: {finding.message}") for finding in si_body_result.findings
-    )
-    warnings.extend(EmitWarning(message=f"supplement: {w.message}") for w in si_conversion_warnings)
-
-    si_citation_result = extract_field_citations(supplement_docx_path)
-    if si_citation_result.citations:
-        si_entries: list[RefEntry] = si_citation_result.entries
-        si_citations: tuple[Citation, ...] = tuple(si_citation_result.citations)
-    else:
-        # No field codes in the SI -> the same plain-text reconstruction
-        # safety net the main document uses (item 14). link_body_markers
-        # already bakes \cite{<key>} literally into the text, so any
-        # cross-document key remap below is applied to the text itself via
-        # `remap_cite_keys_in_text` rather than through a Citation list.
-        si_entries, si_raw_tex, plaintext_warnings, _plaintext_records = _link_plaintext_citations(
-            supplement_docx_path, si_raw_tex, crossref_mailto, bib_entries
-        )
-        warnings.extend(EmitWarning(message=f"supplement: {w.message}") for w in plaintext_warnings)
-        si_citations = ()
-
-    merged_entries, key_remap = merge_ref_entries(main_entries, si_entries)
-    new_reference_count = len(merged_entries) - len(main_entries)
-
-    si_citations = tuple(
-        replace(citation, keys=tuple(key_remap.get(k, k) for k in citation.keys))
-        for citation in si_citations
-    )
-    si_raw_tex = remap_cite_keys_in_text(si_raw_tex, key_remap)
-
-    # A one-column plain-article SI has no page-width float, so wide figures
-    # resolve to the ordinary single-column environment.
-    si_figure_env = _ONECOLUMN_FIGURE_ENV if onecolumn else journal.figure_env
-    si_resolved_tex, si_anchor_warnings = resolve_anchors(
-        si_raw_tex,
-        si_figures,
-        si_figure_files,
-        si_citations,
-        si_figure_env,
-        exclude_figures=exclude_figures,
-    )
-    warnings.extend(EmitWarning(message=f"supplement: {w.message}") for w in si_anchor_warnings)
-
-    if si_citation_result.citations:
-        si_citation_count = len(si_citation_result.citations)
-    else:
-        si_citation_count = si_resolved_tex.count("\\cite{")
-
-    # -- generated/supplement_preamble.tex: (journal | plain article) + S-numbering --
-    si_preamble_text = build_supplement_preamble(
-        journal, citation_style, onecolumn=onecolumn, layout=layout, figures_at_end=figures_at_end
-    )
-    si_preamble_text = si_preamble_text.rstrip("\n") + "\n" + _SUPPLEMENT_NUMBERING
-    supplement_preamble_path = generated_dir / "supplement_preamble.tex"
-    supplement_preamble_path.write_text(si_preamble_text, encoding="utf-8")
-
-    # -- generated/supplement_metadata.tex: title block only, from main_meta --
-    si_meta = replace(
-        main_meta,
-        title=f"Supplementary Material: {main_meta.title}",
-        abstract="",
-        keywords=(),
-    )
-    supplement_metadata_path = generated_dir / "supplement_metadata.tex"
-    si_metadata_text = (
-        _plain_article_metadata(si_meta) if onecolumn else journal.render_metadata(si_meta)
-    )
-    supplement_metadata_path.write_text(si_metadata_text, encoding="utf-8")
-
-    # -- generated/supplement_body.tex --
-    supplement_body_path = generated_dir / "supplement_body.tex"
-    supplement_body_path.write_text(si_resolved_tex, encoding="utf-8")
-
-    # -- generated/supplement_bibliography.tex: reuses the same mechanism as
-    # the main document's generated/bibliography.tex (item 26) -- \bibliography
-    # only when the SI itself carries a \cite{}, so a citation-free SI still
-    # compiles under IEEEtran. BibTeX only pulls entries actually \cite'd in
-    # THIS document, so \bibliography{references} here correctly reprints
-    # just the SI's own (shared + new) reference list, not the full merged set.
-    supplement_bibliography_text = (
-        _BIBLIOGRAPHY_LINE if "\\cite{" in si_resolved_tex else _BIBLIOGRAPHY_EMPTY
-    )
-    supplement_bibliography_path = generated_dir / "supplement_bibliography.tex"
-    supplement_bibliography_path.write_text(supplement_bibliography_text, encoding="utf-8")
-
-    # -- supplement.tex: user-owned, write-once, exactly like main.tex --
-    supplement_tex_path = output_dir / "supplement.tex"
-    supplement_tex_written = not supplement_tex_path.exists()
-    if supplement_tex_written:
-        supplement_tex_path.write_text(_SUPPLEMENT_TEX_TEMPLATE, encoding="utf-8")
-
-    result = SupplementResult(
-        supplement_tex_path=supplement_tex_path,
-        supplement_tex_written=supplement_tex_written,
-        supplement_preamble_tex_path=supplement_preamble_path,
-        supplement_metadata_tex_path=supplement_metadata_path,
-        supplement_body_tex_path=supplement_body_path,
-        figure_count=len(si_figures),
-        citation_count=si_citation_count,
-        new_reference_count=new_reference_count,
-        warnings=tuple(warnings),
-    )
-    return result, merged_entries
