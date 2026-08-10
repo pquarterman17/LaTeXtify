@@ -12,7 +12,7 @@ paths behind it.
 Tier 3 items 11–12 remain, parked (owner declined the external-converter
 dependency on 2026-07-18 — keep LaTeXtify dependency-light)
 **Created:** 2026-07-18
-**Updated:** 2026-07-18
+**Updated:** 2026-08-09
 
 ---
 
@@ -88,8 +88,10 @@ outputs, online checks); per-document settings live on the file rows.
 
 ### Direction backlog (owner priorities, 2026-07-18 — NOT booked here)
 
-Fidelity: cross-reference linking, siunitx units, mhchem → candidates for
-MANUSCRIPT_FIDELITY_PLAN. Workflow: Open-in-Overleaf, arXiv package export,
+Fidelity: cross-reference linking, siunitx units, mhchem → seed a new
+fidelity plan when scheduled (MANUSCRIPT_FIDELITY_PLAN was archived
+2026-08-09 with all 23 gaps closed; it is reference, not an open home).
+Workflow: Open-in-Overleaf, arXiv package export,
 LaTeX→Word (already deferred in FORMATS_AND_PRIVACY_PLAN). Journal growth:
 generic fallback template, Nature/Science, Optica/SPIE, MDPI/Frontiers.
 Book these into their plans when scheduled; listed here so the priorities

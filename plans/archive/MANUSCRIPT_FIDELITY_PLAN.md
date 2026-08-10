@@ -6,9 +6,16 @@ submissions rarely use Word's semantic styles the way the fixtures do, so each
 real paper tends to expose a distinct class of "the code didn't know what to
 do" — this plan tracks those classes and their fixes.
 
-**Status:** Active
+**Status:** Complete
 **Created:** 2026-07-12
-**Updated:** 2026-07-12
+**Updated:** 2026-08-09 — archived; all 23 gaps closed, no open items.
+
+Archived because the campaign has no open work, not because real-manuscript
+fidelity is "finished" — the next real paper is still the best way to surface
+the next class. When one does, open a fresh plan for that round rather than
+reviving this file; the closed gaps below stay the reference for how each
+class was diagnosed and fixed (and the QA screenshot loop in Context is the
+method to reuse).
 
 ---
 

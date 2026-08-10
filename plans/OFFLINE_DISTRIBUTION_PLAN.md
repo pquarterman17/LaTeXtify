@@ -10,9 +10,9 @@ distribution channels.
 
 **Status:** Active
 **Created:** 2026-07-12
-**Updated:** 2026-07-18 — Tiers 1 + 2 fully shipped (items 1–6, 9); only Tier 3
-7/8 remain (both gated on need/audience). PyPI publish is wired but needs the
-two owner steps before `pip install latextify` is live.
+**Updated:** 2026-08-09 — Tiers 1 + 2 fully shipped (items 1–6, 9); only Tier 3
+7/8 remain (both gated on need/audience). `pip install latextify` is **live** —
+both owner steps landed on 2026-07-19 (see #6).
 
 ---
 
@@ -140,10 +140,13 @@ latextify make-kit --target win-x64          →    copy folder via USB
   environment `pypi`), triggered ONLY on `release: published` (no push/PR/tag —
   no accidental publish). pyproject PyPI metadata rounded out (classifiers,
   Homepage; License left as the PEP 639 SPDX field, verified by `twine check`).
-  actionlint-clean. **Two OWNER steps remain before `pip install latextify`
-  works:** (1) register the pending trusted publisher on pypi.org (project
-  `latextify`, repo `LaTeXtify`, workflow `publish.yml`, env `pypi`);
-  (2) publish a GitHub Release to fire it.
+  actionlint-clean. **Both owner steps landed 2026-07-19** — the trusted
+  publisher was registered on pypi.org and Releases were published, firing
+  `publish.yml` successfully three times (v0.1.0rc1 → v0.1.0 → v0.2.0; OIDC
+  would have failed had the publisher not been registered). `pip install
+  latextify` is live, documented in README, and each Release also carries the
+  three offline kits + `SHA256SUMS.txt`. Nothing further is required to cut a
+  release beyond tagging and publishing it.
 - ~~**#5 Recommend/document native Windows kit builds**~~ (2026-07-18) — comment
   block in `release.yml` above the cross-build step explaining native Windows
   builds (warming their own TeX cache) are preferred over the Linux cross-build
