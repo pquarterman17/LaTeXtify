@@ -34,6 +34,7 @@ BOOK = FIXTURES / "leaky_book.xlsx"
 PHOTO = FIXTURES / "leaky_photo.jpg"
 PDF = FIXTURES / "leaky_doc.pdf"
 CLEAN_DOCX = FIXTURES / "clean.docx"
+CLEAN_BLACK_FIGURE_PDF = FIXTURES / "clean_black_figure.pdf"
 
 ALL_FIXTURES = [DECK, BOOK, PHOTO, PDF]
 
@@ -125,6 +126,117 @@ def test_pdf_inspection_detects_failed_redaction():
     )
     redaction = next(f for f in report.findings if f.category == "possible-redaction")
     assert not redaction.removable, "redaction cannot be fixed without rasterizing"
+
+
+# ── PDF redaction geometry (item #16) ───────────────────────────────────────
+#
+# The detector must flag a page only when text actually sits inside a dark
+# rectangle's bounding box, not merely "both exist somewhere on this page" --
+# that coarser check false-positived on every black-filled figure element,
+# plot marker, or table rule in an ordinary paper. Both directions matter:
+# the positive fixture (text truly hidden) must still be caught, and the new
+# negative fixture (a black figure covering no text) must NOT be flagged.
+
+
+def test_negative_fixture_is_not_flagged_as_possible_redaction():
+    """The entire reason item #16 exists: a black figure with no text under
+    it must not trigger a privacy warning."""
+    report = inspect_file(CLEAN_BLACK_FIGURE_PDF)
+    assert "possible-redaction" not in categories(report), (
+        "a dark rectangle that covers no text is an ordinary figure element, not a failed redaction"
+    )
+
+
+def test_negative_fixture_really_has_a_dark_rect_and_text_that_do_not_overlap():
+    """Guards the guard: if a future change stops planting the black box or
+    the text, the test above would pass vacuously. Assert the fixture still
+    has the property it exists to exercise, using the same geometry
+    primitives the detector itself uses."""
+    from pypdf import PdfReader
+
+    from latextify.privacy import pdf_content
+
+    page = PdfReader(str(CLEAN_BLACK_FIGURE_PDF)).pages[0]
+    rects = pdf_content.dark_filled_rects(page.get_contents())
+    runs = pdf_content.text_run_bboxes(page)
+
+    assert rects, "fixture must still plant a dark filled rectangle"
+    assert runs, "fixture must still plant extractable text"
+    assert not any(rect.intersects(run) for rect in rects for run in runs), (
+        "fixture's rectangle and text must not overlap -- that is the case under test"
+    )
+
+
+def test_positive_fixture_text_run_is_inside_the_dark_rectangle():
+    """The geometry behind test_pdf_inspection_detects_failed_redaction: the
+    planted rectangle's bounding box genuinely contains a text run's.
+
+    :class:`~latextify.privacy.pdf_content.BBox` is geometry-only (position,
+    not content), so this cannot single out the run holding
+    ``TRUTH["pdf"]["hidden_text"]`` by name -- but there are exactly two text
+    runs on this fixture's page (the public line and the hidden one), so "at
+    least one run is inside the rectangle" already pins down which one it
+    must be.
+    """
+    from pypdf import PdfReader
+
+    from latextify.privacy import pdf_content
+
+    page = PdfReader(str(PDF)).pages[0]
+    rects = pdf_content.dark_filled_rects(page.get_contents())
+    runs = pdf_content.text_run_bboxes(page)
+
+    assert rects and len(runs) == 2, "fixture shape changed; update this test's assumption"
+    assert any(rect.intersects(run) for rect in rects for run in runs), (
+        "the planted rectangle must overlap the hidden text's run"
+    )
+
+
+def test_redaction_falls_back_to_coarse_heuristic_when_geometry_parse_fails(monkeypatch):
+    """If precise operator parsing fails, the detector must not go silent --
+    it falls back to the pre-#16 heuristic rather than reporting clean."""
+    from pypdf import PdfReader
+
+    from latextify.privacy import pdf as pdf_module
+
+    def _broken(page: object) -> bool:
+        raise ValueError("simulated content-stream parse failure")
+
+    monkeypatch.setattr(pdf_module.pdf_content, "text_falls_in_dark_rect", _broken)
+    reader = PdfReader(str(PDF))
+    findings, warnings = pdf_module._redaction_findings(reader)
+
+    assert any(f.category == "possible-redaction" for f in findings), (
+        "the coarse fallback must still catch the planted leak"
+    )
+    assert not warnings, "the fallback succeeded, so there is nothing to warn about"
+
+
+def test_redaction_warns_rather_than_reports_clean_when_nothing_can_parse(monkeypatch):
+    """The worst-case path: neither the precise geometry check nor the coarse
+    fallback can run. A false "clean" would be the worst outcome for a
+    privacy tool, so this must surface as an explicit warning."""
+    from pypdf import PdfReader
+
+    from latextify.privacy import pdf as pdf_module
+
+    def _broken_precise(page: object) -> bool:
+        raise ValueError("simulated content-stream parse failure")
+
+    def _broken_coarse(page: object) -> bool:
+        raise ValueError("simulated raw-byte parse failure too")
+
+    monkeypatch.setattr(pdf_module.pdf_content, "text_falls_in_dark_rect", _broken_precise)
+    monkeypatch.setattr(pdf_module, "_coarse_redaction_heuristic", _broken_coarse)
+    reader = PdfReader(str(PDF))
+    findings, warnings = pdf_module._redaction_findings(reader)
+
+    assert not any(f.category == "possible-redaction" for f in findings), (
+        "nothing could be verified, so this must not silently claim a finding"
+    )
+    assert any("could not check for a failed redaction" in w for w in warnings), (
+        "the user must be told detection could not run, not left thinking the page is clean"
+    )
 
 
 def test_inspection_never_writes(tmp_path):
