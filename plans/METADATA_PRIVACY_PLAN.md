@@ -43,12 +43,12 @@ TIFF→PNG) handles EXIF. Only the legacy OLE2 path adds `olefile`.
 ```
 privacy/registry.py   ← THE single dispatch point (ext → handler)
    ├── opc.py         shared OPC: docProps, content-types, rels consistency
-   │     ├── ingest/docx_clean.py   (existing, refactored onto opc.py)
+   │     ├── docx_adapter.py        wraps the existing ingest/docx_clean.py
    │     ├── pptx.py                notes, hidden slides, embedded workbooks
    │     └── xlsx.py                hidden sheets, pivot caches, external links
    ├── pdf.py         /Info + XMP strip; DETECT redaction/CropBox/attachments
    ├── images.py      EXIF/GPS/serial/thumbnail strip
-   └── ole.py         legacy .doc/.ppt: inspect + best-effort stream strip
+   └── ole.py         legacy .doc/.ppt/.xls: inspect only; sanitize refused
 ```
 
 Per the dual-registration rule, `registry.py` is the **only** place a format is
@@ -66,18 +66,19 @@ registered; CLI and GUI accept-lists derive from it rather than restating it.
   honest deliverable for legacy binaries.
 - **Surface:** CLI **and** GUI panel, mirroring the existing `clean-docx`
   shape. GUI additions must be offset against the server.py / app.js pins.
-- **Legacy `.doc`/`.ppt` scope:** inspect fully; strip the OLE2 property
-  streams best-effort; **warn explicitly** that fast-save fragments can retain
-  deleted text and that Save-As-modern-then-clean is the reliable path. This
-  is distinct from GUI_OPTIONS item #12 (converting `.doc` for *ingest*, which
-  needs LibreOffice and stays parked) — stripping needs no converter.
+- **Legacy `.doc`/`.ppt`/`.xls` scope:** inspect fully; **refuse to
+  sanitize**. Revised during implementation from the original "best-effort
+  property-stream strip": fast save can leave deleted text in the container,
+  which no property-stream edit removes, so a stripped `.doc` would look
+  clean without being clean — and would then be trusted. The refusal names
+  the remedy (Save As modern, then clean). Distinct from GUI_OPTIONS item #12
+  (converting `.doc` for *ingest*, which needs LibreOffice and stays parked).
 
 ### Dependency map
 
 - Item 1 (report model) blocks everything — it is the shared vocabulary.
-- Item 2 (`opc.py` extraction) blocks items 4 and 5; it is a refactor of a
-  well-tested module, so it lands with the existing docx tests green and no
-  behaviour change.
+- Item 2 (`opc.py` extraction) blocks items 4 and 5. `ingest/docx_clean.py`
+  was left byte-unchanged and wrapped rather than refactored onto it.
 - Items 6, 7, 8 (PDF, images, OLE) are independent of the OPC line and of
   each other.
 - Item 3 (registry) needs at least one handler; wire it early, extend per item.
