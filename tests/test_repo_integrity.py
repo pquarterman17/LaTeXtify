@@ -34,9 +34,9 @@ PY_PINS = {
     # Every pin below was re-seeded at its exact size on 2026-08-10, after the
     # `ruff format` adoption re-measured the tree and the tech-debt pass shrank
     # several files. gui/server.py GRADUATED that day (921 -> 437, under the
-    # general ceiling) and its pin is gone -- that is the ratchet working.
+    # general ceiling) and its pin is gone -- that is the ratchet working, and
+    # ingest/filters.py graduated the same way (1059 -> 402).
     "latextify/emit/project.py": 865,
-    "latextify/ingest/filters.py": 1059,
     "latextify/ingest/metadata_guess.py": 918,
     "latextify/citations/plaintext.py": 617,
     "latextify/templates/loader.py": 515,

@@ -23,8 +23,8 @@ import pytest
 
 from latextify.compile.tectonic import compile_document, ensure_tectonic, find_tectonic
 from latextify.emit.project import emit_project
-from latextify.ingest.filters import _wrap_table_float
 from latextify.ingest.pandoc import convert_docx_to_body
+from latextify.ingest.tables import _wrap_table_float
 from latextify.model import BodyConversionResult
 from latextify.templates import loader as templates_loader
 

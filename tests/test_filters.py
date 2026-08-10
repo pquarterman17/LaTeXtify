@@ -15,11 +15,11 @@ import pypandoc
 from latextify.ingest.filters import (
     allow_slash_line_breaks,
     associate_table_captions,
-    normalize_headings,
     normalize_tables,
     plant_anchors,
     strip_word_junk,
 )
+from latextify.ingest.headings import normalize_headings
 
 
 def _headers(doc: pf.Doc) -> list[int]:

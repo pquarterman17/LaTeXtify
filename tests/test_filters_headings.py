@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import panflute as pf
 
-from latextify.ingest.filters import promote_pseudo_headings
+from latextify.ingest.headings import promote_pseudo_headings
 
 
 def _promote(*blocks: pf.Element) -> pf.Doc:
