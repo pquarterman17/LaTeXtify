@@ -32,12 +32,16 @@ SLACK = 50
 #: 2026-07-12 when the ratchet was added. These are standing tech debt; the
 #: pins cap further growth. Lower a pin whenever you shrink its file.
 PY_PINS = {
-    # Every pin below was re-seeded at its exact size on 2026-08-10, after the
-    # `ruff format` adoption re-measured the tree and the tech-debt pass shrank
-    # several files. gui/server.py GRADUATED that day (921 -> 437, under the
-    # general ceiling) and its pin is gone -- that is the ratchet working, and
-    # ingest/filters.py graduated the same way (1059 -> 402).
-    "latextify/ingest/metadata_guess.py": 918,
+    # ONE pin left. The ratchet landed 2026-07-12 with six; on 2026-08-10 five
+    # of them graduated under the general ceiling and their pins were deleted:
+    #   ingest/filters.py       1061 -> 402   (headings/tables/tables_degraded)
+    #   ingest/metadata_guess.py 918 -> 265   (markers/paragraphs/authors/body/schema)
+    #   gui/server.py            921 -> 437   (convert_routes/convert_inputs)
+    #   emit/project.py         1000 -> 454   (supplement/citation_resolution/bibliography)
+    #   citations/plaintext.py   637 -> 272   (body_markers)
+    # None of that was a rewrite -- each was a pure move along a seam the file
+    # already had. Graduating a pin is the ratchet working; raising one is not
+    # an option the test offers.
     "latextify/templates/loader.py": 515,
 }
 
