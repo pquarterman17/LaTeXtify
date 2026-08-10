@@ -12,7 +12,27 @@ Cross-cutting maintainability and release-safety gaps found during codebase audi
 
 ### How the pieces fit together
 
-LaTeXtify is a mature single-repo project with ~20k lines of Python, comprehensive type annotations in-place but unverified, and multiple files declaring versions with no guard. A release checklist documents what to bump; a previous Anthropic project (quantized, 2026-07-30) surfaced the hard way that the checklist can drift from reality (undocumented `uv.lock` stale = `--locked` build fails). `latextify/gui/server.py` is 916 lines against a 921-line pin, effectively frozen; any GUI feature must extract first. CI workflows hardcode Python versions with no `.python-version` to derive from.
+LaTeXtify is ~20k lines of Python with thorough type annotations that nothing
+verifies, and two files declaring the project version with nothing asserting
+they agree.
+
+Verified against the repo on 2026-08-10, so a future session does not have to
+re-derive it:
+
+- **No type checking exists** — no `mypy` config in `pyproject.toml`, no
+  type-check step in any workflow.
+- **The version lives in exactly two files.** The real `v0.2.0` release commit
+  (`2b3915a`) touched `pyproject.toml` and `uv.lock`, nothing else. A stale
+  `uv.lock` fails a `--locked` build, so the pair must not drift — but the
+  exposure here is small and the guard is correspondingly cheap.
+- **There is no release checklist document** (no `RELEASE.md`). The release
+  procedure lives only in git history. That is itself a gap: the guard in
+  item 2 is what makes a checklist unnecessary rather than merely absent.
+- **`latextify/gui/server.py` is 916 lines against a 921-line pin** — five
+  lines of headroom, effectively frozen. The 2026-08-10 privacy GUI work
+  routed its new routes into `gui/uploads_routes.py` specifically to avoid
+  spending them.
+- **CI hardcodes Python versions** with no `.python-version` to derive from.
 
 ### Dependency map
 
@@ -27,17 +47,15 @@ LaTeXtify is a mature single-repo project with ~20k lines of Python, comprehensi
 ## Tier 1 — High Impact
 
 1. **Adopt type checking** — the codebase is thoroughly annotated but NOTHING verifies any of it.
-   - [ ] Verify no `mypy` config exists in `pyproject.toml`
-   - [ ] Verify no type-check step in GitHub workflows
    - [ ] Propose scope: start strict on `latextify/privacy/` and `latextify/model/`, widen from there
    - [ ] Add mypy config to `pyproject.toml` for chosen scope (strict mode)
    - [ ] Add type-check step to CI workflows before tests
    - [ ] Fix any violations in chosen scope (expect moderate fallout; annotations exist, logic is sound)
 
-2. **Version-agreement guard** — project version declared in multiple files, no test asserts they agree.
-   - [ ] Find every file declaring version (expect `pyproject.toml`, `uv.lock`)
-   - [ ] Add assertion to `tests/test_repo_integrity.py` naming files and both values
-   - [ ] Fix any mismatches found
+2. **Version-agreement guard** — `pyproject.toml` and `uv.lock` both record the version; nothing asserts they agree.
+   - [ ] Add the assertion to `tests/test_repo_integrity.py` (the existing home for repo-wide guards)
+   - [ ] Failure message must name the disagreeing file and both values
+   - [ ] Note the Python 3.10 floor: `tomllib` is 3.11+, so match whatever TOML-reading precedent the repo already uses, or use a narrow regex with a comment explaining why
    - [ ] Update documented release checklist against a real release commit history to catch missing files
 
 ## Tier 2 — Medium Impact
