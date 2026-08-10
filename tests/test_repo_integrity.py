@@ -39,7 +39,6 @@ PY_PINS = {
     # ingest/filters.py graduated the same way (1059 -> 402).
     "latextify/emit/project.py": 865,
     "latextify/ingest/metadata_guess.py": 918,
-    "latextify/citations/plaintext.py": 617,
     "latextify/templates/loader.py": 515,
 }
 

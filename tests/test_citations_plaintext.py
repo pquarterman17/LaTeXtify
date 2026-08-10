@@ -12,13 +12,15 @@ from pathlib import Path
 
 from docx import Document
 
+from latextify.citations.body_markers import (
+    expand_numeric_range,
+    link_body_markers,
+    strip_reference_section,
+)
 from latextify.citations.plaintext import (
     PlaintextResult,
     _raw_leading_surname,
-    expand_numeric_range,
-    link_body_markers,
     segment_reference_list,
-    strip_reference_section,
 )
 
 W = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"

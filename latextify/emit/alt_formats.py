@@ -224,7 +224,7 @@ def _strip_reconstructed_reference_section(doc: pf.Doc) -> None:
     (:func:`~latextify.emit.alt_formats_render.render_reference_list_html` /
     ``..._markdown``), so leaving the manuscript's own typed list in the body
     would duplicate it. This is the AST-level counterpart of
-    :func:`~latextify.citations.plaintext.strip_reference_section_to_eof`
+    :func:`~latextify.citations.body_markers.strip_reference_section_to_eof`
     (which cuts already-rendered LaTeX text instead): it scans the top-level
     blocks of ``doc.content`` for the first ``Header`` whose stringified text
     reads as a reference-list heading -- using
