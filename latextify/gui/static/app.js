@@ -11,7 +11,7 @@
     main: "Main text", supplement: "Supplement", figure: "Figure",
     references: "References (.bib)", ignore: "Ignore",
   };
-  const IMAGE_EXTS = ["png", "jpg", "jpeg", "tif", "tiff", "gif", "bmp", "webp", "eps", "svg", "pdf"];
+  const IMAGE_EXTS = ["png", "jpg", "jpeg", "tif", "tiff", "gif", "bmp", "webp", "eps", "svg", "pdf", "emf", "wmf"];
   const REF_EXTS = ["bib", "ris", "json", "xml", "nbib"];
   const MANUSCRIPT_EXTS = ["docx", "odt", "rtf", "md"];
   const CITATION_MODE_LABELS = { numeric: "numeric — [1], [2]", authoryear: "author–year — (Doe, 2020)" };

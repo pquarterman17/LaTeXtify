@@ -172,3 +172,66 @@ def test_python_version_file_matches_ci():
         f"{requires.group(1)} -- the default dev interpreter cannot be older "
         f"than the oldest version the package claims to support."
     )
+
+
+# --------------------------------------------------------------------------- #
+# Figure-extension registration (the dual-registration failure mode)
+# --------------------------------------------------------------------------- #
+
+#: The GUI declares which file extensions count as a figure in THREE places --
+#: the backend validator, the frontend's role auto-detection, and the file
+#: picker's accept attribute. Nothing made them agree, so adding a format to
+#: one and not the others yields the classic integration bug: the picker
+#: refuses a file the backend would accept, or the frontend routes a file the
+#: backend then rejects with a 400. Adding EMF/WMF (GUI_OPTIONS item 11) is
+#: what surfaced the gap; this asserts the three cannot drift apart again.
+_PY_FIGURE_EXTS_RE = re.compile(r"_ALLOWED_FIGURE_EXTS = frozenset\(\s*\{([^}]*)\}", re.S)
+_JS_FIGURE_EXTS_RE = re.compile(r"const IMAGE_EXTS = \[([^\]]*)\]", re.S)
+_ACCEPT_RE = re.compile(r'accept="([^"]*)"')
+
+
+def _quoted(blob: str) -> set[str]:
+    return set(re.findall(r'"([a-z0-9]+)"', blob))
+
+
+def test_gui_figure_extension_lists_agree():
+    backend = _quoted(
+        _PY_FIGURE_EXTS_RE.search((PKG / "gui" / "upload_utils.py").read_text()).group(1)
+    )
+    frontend = _quoted(
+        _JS_FIGURE_EXTS_RE.search((PKG / "gui" / "static" / "app.js").read_text()).group(1)
+    )
+    assert backend, "could not read _ALLOWED_FIGURE_EXTS"
+    assert backend == frontend, (
+        "the GUI's figure-extension lists disagree.\n"
+        f"  backend-only:  {sorted(backend - frontend)}\n"
+        f"  frontend-only: {sorted(frontend - backend)}\n"
+        "app.js routes a dropped file to a role using IMAGE_EXTS; the backend "
+        "validates it against _ALLOWED_FIGURE_EXTS. A format in one but not the "
+        "other is accepted by the UI and 400'd by the server, or vice versa."
+    )
+
+
+def test_file_picker_accepts_every_extension_the_backend_takes():
+    """The picker's accept list must cover every role's extensions.
+
+    A format missing here cannot be chosen through the file dialog at all --
+    only drag-and-drop, which bypasses `accept`. That asymmetry is invisible
+    until a user tries the button.
+    """
+    utils = (PKG / "gui" / "upload_utils.py").read_text()
+    declared: set[str] = set()
+    for name in ("_ALLOWED_FIGURE_EXTS", "_ALLOWED_REFERENCE_EXTS", "_ALLOWED_MANUSCRIPT_EXTS"):
+        match = re.search(rf"{name} = frozenset\(\s*\{{([^}}]*)\}}", utils, re.S)
+        assert match is not None, f"could not read {name}"
+        declared |= _quoted(match.group(1))
+
+    accept = _ACCEPT_RE.search((PKG / "gui" / "static" / "index.html").read_text())
+    assert accept is not None, "index.html has no accept attribute"
+    offered = {part.strip().lstrip(".") for part in accept.group(1).split(",") if part.strip()}
+
+    missing = declared - offered
+    assert not missing, (
+        f"index.html's accept list is missing {sorted(missing)} -- the backend "
+        "accepts them but the file dialog will not offer them."
+    )

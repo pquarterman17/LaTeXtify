@@ -13,7 +13,11 @@ Modules:
     outcome.py  -- ConversionOutcome: what one figure's conversion produced.
                    Its own module so the per-format converters below can
                    return it without importing convert.py circularly.
-    vector.py   -- SVG->PDF (cairosvg, then svglib) and EPS->PDF (Ghostscript)
+    vector.py   -- SVG->PDF (cairosvg, then svglib), EPS->PDF (Ghostscript),
+                   and EMF/WMF->PDF (LibreOffice or Inkscape). Every external
+                   converter here is optional and detected on PATH, never a
+                   declared dependency -- absent one, the figure is not
+                   written and the warning names the fix.
     raster.py   -- alpha flattening, display crop, TIFF->PNG
     convert.py  -- the dispatcher over those; SVG->PDF (cairosvg, falling
                    back to svglib+reportlab on Windows DLL failure) and EPS

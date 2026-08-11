@@ -51,6 +51,19 @@ something Tectonic can actually ``\\includegraphics``:
         file and the fix (verify the TIFF isn't corrupt, or supply a
         pre-converted PNG via figures.yaml or a folder override).
 
+    EMF/WMF -- Windows metafiles, Word's native vector format for a pasted
+        chart or drawing. Converted to PDF by whichever of LibreOffice or
+        Inkscape is found on PATH -- an OPTIONAL, DETECTED converter, exactly
+        like Ghostscript above and for the same reason: the offline install
+        kit bundles only pandoc + Tectonic, and a heavyweight external app
+        could not ride along in it (GUI_OPTIONS_FORMATS_PLAN item 11, owner
+        gate resolved 2026-08-10). With no converter present, nothing is
+        written and the warning names the fix -- the TIFF rule, not the EPS
+        one, because copying a metafile through reintroduces exactly the
+        compile failure this path prevents. Before this existed that is
+        precisely what happened: an .emf was copied to figures/fig<N>.emf
+        with no note and no warning, and the compile died on it.
+
     PDF/PNG/JPG/JPEG -- pass through unchanged (Tectonic embeds all of
         these natively; no conversion needed).
 
@@ -71,12 +84,16 @@ from latextify.figures.crop import uncroppable_message, wants_crop
 from latextify.figures.outcome import ConversionOutcome
 from latextify.figures.raster import convert_tiff, prepare_passthrough_raster
 from latextify.figures.scrub import strip_figure_metadata
-from latextify.figures.vector import convert_eps, convert_svg
+from latextify.figures.vector import convert_eps, convert_metafile, convert_svg
 from latextify.model.figure import CropRect
 
 #: Extensions always converted to PDF before inclusion.
 SVG_EXTENSIONS = frozenset({".svg"})
 EPS_EXTENSIONS = frozenset({".eps"})
+#: Windows metafiles -- Word's native vector format for pasted charts and
+#: drawings. Converted to PDF when a converter is on PATH; see
+#: :func:`latextify.figures.vector.convert_metafile`.
+METAFILE_EXTENSIONS = frozenset({".emf", ".wmf"})
 #: Extensions always converted to PNG before inclusion.
 TIFF_EXTENSIONS = frozenset({".tif", ".tiff"})
 #: Extensions Tectonic embeds natively -- copied through unchanged.
@@ -142,6 +159,10 @@ def _dispatch(
         return _note_uncroppable(convert_svg(src, dest_dir, number, prefix=prefix), crop, "SVG")
     if ext in EPS_EXTENSIONS:
         return _note_uncroppable(convert_eps(src, dest_dir, number, prefix=prefix), crop, "EPS")
+    if ext in METAFILE_EXTENSIONS:
+        return _note_uncroppable(
+            convert_metafile(src, dest_dir, number, prefix=prefix), crop, "EMF/WMF"
+        )
     if ext in TIFF_EXTENSIONS:
         return convert_tiff(src, dest_dir, number, prefix=prefix, crop=crop)
     dest = dest_dir / f"fig{prefix}{number}{ext}"

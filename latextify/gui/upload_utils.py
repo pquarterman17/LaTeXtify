@@ -27,7 +27,7 @@ _MAX_UPLOAD_BYTES = 250 * 1024 * 1024  # 250 MB per file
 # references accept every reference-manager export
 # latextify.citations.refs_import.parse_references_file recognizes.
 _ALLOWED_FIGURE_EXTS = frozenset(
-    {"png", "jpg", "jpeg", "tif", "tiff", "gif", "bmp", "webp", "eps", "svg", "pdf"}
+    {"png", "jpg", "jpeg", "tif", "tiff", "gif", "bmp", "webp", "eps", "svg", "pdf", "emf", "wmf"}
 )
 _ALLOWED_REFERENCE_EXTS = frozenset({"bib", "ris", "json", "xml", "nbib"})
 _ALLOWED_MANUSCRIPT_EXTS = frozenset({"docx", "odt", "rtf", "md"})

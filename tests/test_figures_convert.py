@@ -527,3 +527,143 @@ def test_tectonic_rejects_raw_eps_includegraphics(tmp_path):
 
     assert not result.success
     assert "PostScript images are not supported by Tectonic" in result.raw_log
+
+
+# --------------------------------------------------------------------------- #
+# EMF/WMF -> PDF (GUI_OPTIONS_FORMATS_PLAN item 11)
+#
+# Word's native vector format for a pasted chart or drawing. Tectonic cannot
+# embed a metafile, so before this path existed an .emf figure was copied
+# straight through to figures/fig<N>.emf with NO note and NO warning, and the
+# compile died on it -- the same silent failure the TIFF path was built to
+# prevent. The converter is optional and DETECTED (LibreOffice or Inkscape on
+# PATH), never a declared dependency: the offline install kit bundles only
+# pandoc + Tectonic, and a heavyweight external app could not ride along.
+# --------------------------------------------------------------------------- #
+
+
+@pytest.mark.parametrize("ext", [".emf", ".wmf"])
+def test_metafile_without_a_converter_writes_nothing_and_warns(tmp_path, monkeypatch, ext):
+    monkeypatch.setattr(vector_mod.shutil, "which", lambda name: None)
+    src = tmp_path / f"chart{ext}"
+    src.write_bytes(b"\x01\x00\x00\x00" + b"\x00" * 64)
+    dest_dir = tmp_path / "figures"
+    dest_dir.mkdir()
+
+    outcome = convert_for_latex(src, dest_dir, 3)
+
+    # Nothing written: copying the metafile through would reintroduce exactly
+    # the compile failure this path exists to prevent.
+    assert not outcome.dest_path.exists()
+    assert list(dest_dir.iterdir()) == []
+    assert outcome.note is None
+    assert "Cannot determine size of graphic" in outcome.warning
+    assert "LibreOffice or Inkscape" in outcome.warning
+    assert "figures.yaml" in outcome.warning  # names the fix
+
+
+def test_metafile_is_not_silently_passed_through(tmp_path, monkeypatch):
+    """The regression this item fixes: before it, an .emf reached the output
+    tree unchanged, with no warning, and broke the compile."""
+    monkeypatch.setattr(vector_mod.shutil, "which", lambda name: None)
+    src = tmp_path / "chart.emf"
+    src.write_bytes(b"\x01\x00\x00\x00")
+    dest_dir = tmp_path / "figures"
+    dest_dir.mkdir()
+
+    outcome = convert_for_latex(src, dest_dir, 1)
+
+    assert not (dest_dir / "fig1.emf").exists(), "a raw metafile must never reach figures/"
+    assert outcome.warning is not None, "a metafile figure must never fail silently"
+
+
+def test_metafile_converts_via_inkscape_when_present(tmp_path, monkeypatch):
+    monkeypatch.setattr(
+        vector_mod.shutil, "which", lambda name: "/usr/bin/inkscape" if name == "inkscape" else None
+    )
+    calls: list[list[str]] = []
+
+    def fake_run(cmd, **_kw):
+        calls.append(cmd)
+        Path(cmd[2].split("=", 1)[1]).write_bytes(b"%PDF-1.4 fake")
+        return subprocess.CompletedProcess(cmd, 0, "", "")
+
+    monkeypatch.setattr(vector_mod.subprocess, "run", fake_run)
+    src = tmp_path / "chart.emf"
+    src.write_bytes(b"\x01\x00\x00\x00")
+    dest_dir = tmp_path / "figures"
+    dest_dir.mkdir()
+
+    outcome = convert_for_latex(src, dest_dir, 2)
+
+    assert outcome.dest_path == dest_dir / "fig2.pdf"
+    assert outcome.dest_path.read_bytes().startswith(b"%PDF")
+    assert outcome.warning is None
+    assert "inkscape" in outcome.note
+    assert "--export-type=pdf" in calls[0]
+
+
+def test_metafile_renames_libreoffice_output_into_place(tmp_path, monkeypatch):
+    """LibreOffice takes an output DIRECTORY and names the file itself, so the
+    result lands at <stem>.pdf and has to be moved to fig<N>.pdf."""
+    monkeypatch.setattr(
+        vector_mod.shutil, "which", lambda name: "/usr/bin/soffice" if name == "soffice" else None
+    )
+
+    def fake_run(cmd, **_kw):
+        outdir = Path(cmd[cmd.index("--outdir") + 1])
+        (outdir / "chart.pdf").write_bytes(b"%PDF-1.4 fake")  # LibreOffice's own naming
+        return subprocess.CompletedProcess(cmd, 0, "", "")
+
+    monkeypatch.setattr(vector_mod.subprocess, "run", fake_run)
+    src = tmp_path / "chart.emf"
+    src.write_bytes(b"\x01\x00\x00\x00")
+    dest_dir = tmp_path / "figures"
+    dest_dir.mkdir()
+
+    outcome = convert_for_latex(src, dest_dir, 5)
+
+    assert outcome.dest_path == dest_dir / "fig5.pdf"
+    assert outcome.dest_path.read_bytes().startswith(b"%PDF")
+    assert not (dest_dir / "chart.pdf").exists(), "the converter's own name must not linger"
+    assert outcome.warning is None
+
+
+def test_metafile_converter_failure_writes_nothing_and_warns(tmp_path, monkeypatch):
+    monkeypatch.setattr(
+        vector_mod.shutil, "which", lambda name: "/usr/bin/soffice" if name == "soffice" else None
+    )
+
+    def failing_run(cmd, **_kw):
+        raise subprocess.CalledProcessError(1, cmd, stderr="converter exploded")
+
+    monkeypatch.setattr(vector_mod.subprocess, "run", failing_run)
+    src = tmp_path / "chart.wmf"
+    src.write_bytes(b"\xd7\xcd\xc6\x9a")
+    dest_dir = tmp_path / "figures"
+    dest_dir.mkdir()
+
+    outcome = convert_for_latex(src, dest_dir, 4)
+
+    assert list(dest_dir.iterdir()) == [], "a failed conversion must leave no partial file"
+    assert "soffice" in outcome.warning
+    assert outcome.note is None
+
+
+def test_libreoffice_silent_no_output_is_reported_not_swallowed(tmp_path, monkeypatch):
+    """A converter that exits 0 without producing a file must still warn."""
+    monkeypatch.setattr(
+        vector_mod.shutil, "which", lambda name: "/usr/bin/soffice" if name == "soffice" else None
+    )
+    monkeypatch.setattr(
+        vector_mod.subprocess, "run", lambda cmd, **_kw: subprocess.CompletedProcess(cmd, 0, "", "")
+    )
+    src = tmp_path / "chart.emf"
+    src.write_bytes(b"\x01\x00\x00\x00")
+    dest_dir = tmp_path / "figures"
+    dest_dir.mkdir()
+
+    outcome = convert_for_latex(src, dest_dir, 6)
+
+    assert outcome.warning is not None
+    assert not outcome.dest_path.exists()
