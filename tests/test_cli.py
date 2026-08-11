@@ -1579,8 +1579,17 @@ def test_inspect_invalid_fail_on_value_exits_nonzero_with_choices(tmp_path):
 
 
 def test_inspect_help_shows_fail_on_option():
-    """--help should document the --fail-on option."""
-    result = runner.invoke(app, ["inspect", "--help"])
+    """--help should document the --fail-on option.
+
+    The env pins match tests/test_gui.py's help-output test: Typer renders help
+    through Rich, which wraps its options table to the terminal width and
+    TRUNCATES a long flag name to fit ("--fail-o…"). CI runs at 80 columns, so
+    without a pinned width this assertion passes on a wide dev terminal and
+    fails on a runner -- which is exactly how it first landed.
+    """
+    result = runner.invoke(
+        app, ["inspect", "--help"], env={"NO_COLOR": "1", "TERM": "dumb", "COLUMNS": "200"}
+    )
 
     assert result.exit_code == 0
     assert "--fail-on" in result.output
