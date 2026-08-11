@@ -8,7 +8,8 @@ user-supplied `.bib` (also the long-open offline-plan item 9).
 
 **Status:** Active
 **Created:** 2026-07-12
-**Updated:** 2026-07-12 — items 1–4 shipped; only Tier 3 item 5 remains
+**Updated:** 2026-08-10 — items 1–4 shipped; item 5's detection half shipped,
+its synthesis half remains
 
 ---
 
@@ -54,11 +55,34 @@ user-supplied `.bib` (also the long-open offline-plan item 9).
 
 ## Tier 3 — Nice-to-Have
 
-5. **Fully-separate figures** — insert a dropped figure file for figure N even
-   when the docx has only a caption (no embedded placeholder). Backend gap
-   noted in Context; out of scope unless a real manuscript needs it.
+5. **Fully-separate figures — synthesis half** — insert a dropped
+   `figures/fig<N>.<ext>` for a figure the manuscript only captions. The
+   DETECTION half shipped 2026-08-10 (see Completed) and turned out to be the
+   urgent part: the gap was silently mislabelling figures, not merely being
+   ignored. Synthesis still needs two things the detection did not:
+   - [ ] Both numbering passes (`plant_anchors` and `extract_figures`, two
+         independent pandoc runs kept in sync only by counting `Image` nodes
+         identically) must agree on a figure that exists in NEITHER AST
+   - [ ] The pandoc caption mis-binding must be corrected, not just filled --
+         supplying the missing image alone still leaves the shifted captions
+         attached to the wrong figures
 
 ## Completed
+
+- ~~**#5 Fully-separate figures — detection half**~~ (2026-08-10) —
+  `figures/caption_gaps.py`. The plan called this a capability gap ("nothing
+  to attach a dropped file to"); it is also a live correctness bug. Word and
+  pandoc both bind a caption to the ADJACENT image, so a caption-only
+  "Figure 3" above figure 4's image gets bound to that image. VERIFIED on a
+  generated fixture: captions 1-4 with no image for 3 emits three figures,
+  the third being figure 4's image under figure 3's caption, with
+  "Figure 4: ..." left in the body as ordinary text, and nothing warned.
+  The check reads the `.docx` directly (the AST has already consumed the
+  captions, which IS the mis-binding) and reports which caption has no image
+  beside it. Adjacency-based on purpose: a count-based check names Figure 4
+  in that fixture, sending the author after the wrong file. Non-contiguous
+  numbering and caption-free manuscripts are left alone; an unreadable file
+  degrades to no findings.
 
 - ~~**#1 BibTeX input parser**~~ (2026-07-12) — `latextify/citations/bibtex_in.py`:
   `parse_bibtex(text) → list[RefEntry]`; brace/paren/quote delimiters,

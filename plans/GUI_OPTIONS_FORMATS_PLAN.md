@@ -8,11 +8,10 @@ and figure input formats). Frontend-first: round one restructures and
 clarifies the page, round two adds the per-document emission and new intake
 paths behind it.
 
-**Status:** Active — Tiers 1 + 2 complete; CLI parity (#13) shipped; only
-Tier 3 items 11–12 remain, parked (owner declined the external-converter
-dependency on 2026-07-18 — keep LaTeXtify dependency-light)
+**Status:** Active — Tiers 1 + 2 complete; CLI parity (#13) and EMF/WMF (#11)
+shipped; only Tier 3 item 12 remains, parked (no fallback without LibreOffice)
 **Created:** 2026-07-18
-**Updated:** 2026-08-09
+**Updated:** 2026-08-10 (#11 shipped under a refined converter gate)
 
 ---
 
@@ -101,12 +100,16 @@ recorded in the 2026-07-18 discussion have exactly one home.
 
 - **Demo redeploy** is manual (Render dashboard) — click after round 1
   lands, and per round thereafter.
-- **External converter dependency** (LibreOffice/Inkscape class) needs
-  owner sign-off before items 11–12 start. **Resolved (2026-07-18): declined
-  — keep LaTeXtify dependency-light (pandoc + Tectonic only, both pip-bundled
-  and offline-kit friendly).** Items 11–12 stay parked; do not start without a
-  concrete need and a fresh sign-off (a heavyweight external app can't be
-  bundled and would break the offline-distribution story).
+- **External converter dependency** (LibreOffice/Inkscape class). Resolved
+  (2026-07-18): declined — keep LaTeXtify dependency-light (pandoc + Tectonic
+  only, both pip-bundled and offline-kit friendly).
+  **Refined (2026-08-10, fresh sign-off):** the decline was about a *declared
+  dependency*. An OPTIONAL, DETECTED converter — probed on PATH, never
+  installed, never bundled, degrading to an actionable warning when absent —
+  is in scope, because Ghostscript has worked exactly that way for EPS since
+  item 15 and does not appear in `pyproject.toml` at all. The offline kit is
+  unaffected either way. Item 11 shipped under that shape; item 12 stays
+  parked because it has no no-converter fallback to degrade to.
 
 ---
 
@@ -120,17 +123,29 @@ recorded in the 2026-07-18 discussion have exactly one home.
 
 ## Tier 3 — Nice-to-Have (external-converter gate)
 
-11. **EMF/WMF figure conversion** — Word's native vector format, via a
-    detected external converter with the cairosvg→svglib fallback pattern
-
-12. **`.doc` manuscripts** — LibreOffice-headless pre-conversion to docx as
-    an optional, auto-detected dependency with an actionable error otherwise
-
-*(Items 11 and 12 remain blocked on the external-converter owner gate below.)*
+12. **`.doc` manuscripts** — LibreOffice-headless pre-conversion to docx.
+    Reaffirmed parked (2026-08-10): unlike EMF/WMF there is no fallback, so
+    "optional detected" would mean the feature simply does not exist for
+    anyone without LibreOffice. The existing refusal already names the remedy
+    (Save As .docx). Revisit only with a concrete need.
 
 ---
 
 ## Completed
+
+- ~~**#11 EMF/WMF figure conversion**~~ (2026-08-10) —
+  `figures/vector.py::convert_metafile`, using whichever of LibreOffice or
+  Inkscape is on PATH, in the optional-detected shape Ghostscript already
+  uses for EPS. It also fixed a live silent failure: `.emf` matched no
+  extension rule, so Word's pasted charts were copied to `figures/fig<N>.emf`
+  with no note and no warning and the compile then died on "Cannot determine
+  size of graphic". A metafile now follows the TIFF rule (write nothing,
+  warn actionably) rather than the EPS one. Adding the extension surfaced an
+  older bug too: the GUI declares figure extensions in three places with
+  nothing keeping them in sync, and the widened intake had landed in the
+  backend only — `.odt`/`.rtf`/`.md` and CSL-JSON/EndNote-XML/`.nbib` were
+  unselectable in the file dialog. Fixed, with two repo-integrity tests
+  asserting the three lists cannot drift apart again.
 
 - ~~**#13 CLI parity for submission options**~~ (2026-07-18) — `latextify
   convert` now exposes `--columns`, `--line-numbers`, `--double-spacing`,
