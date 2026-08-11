@@ -78,7 +78,7 @@ def test_stage_vendor_files_copies_into_workdir(tmp_path):
     dest = workdir / "fake-journal.sty"
     assert staged == [dest]
     assert dest.is_file()
-    assert dest.read_text() == "\\ProvidesPackage{fake-journal}\n"
+    assert dest.read_text(encoding="utf-8") == "\\ProvidesPackage{fake-journal}\n"
 
 
 def test_stage_vendor_files_noop_when_vendor_dir_missing(tmp_path):

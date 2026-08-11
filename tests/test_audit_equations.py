@@ -419,7 +419,7 @@ class TestRealCompiles:
     def test_audit_pdf_compiles_for_the_fixture(self, tmp_path):
         out = write_equation_audit(EQUATIONS_DOCX, tmp_path, compile_pdf=True)
 
-        assert out.audit_pdf_path is not None, out.audit_md_path.read_text()
+        assert out.audit_pdf_path is not None, out.audit_md_path.read_text(encoding="utf-8")
         assert out.audit_pdf_path.is_file()
         assert out.audit_pdf_path.stat().st_size > 0
         # Every real equation in this fixture compiles cleanly together, so

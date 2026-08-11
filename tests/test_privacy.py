@@ -27,7 +27,7 @@ from latextify.privacy import (
 )
 
 FIXTURES = Path(__file__).parent / "fixtures"
-TRUTH = json.loads((FIXTURES / "leaky_files.truth.json").read_text())
+TRUTH = json.loads((FIXTURES / "leaky_files.truth.json").read_text(encoding="utf-8"))
 
 DECK = FIXTURES / "leaky_deck.pptx"
 BOOK = FIXTURES / "leaky_book.xlsx"

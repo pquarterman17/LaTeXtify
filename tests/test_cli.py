@@ -206,7 +206,7 @@ def test_convert_with_citation_style_numeric_writes_project(tmp_path):
     )
 
     assert result.exit_code == 0
-    preamble = (output / "elsarticle" / "generated" / "preamble.tex").read_text()
+    preamble = (output / "elsarticle" / "generated" / "preamble.tex").read_text(encoding="utf-8")
     assert "elsarticle-num" in preamble
 
 
@@ -231,7 +231,7 @@ def test_convert_with_citation_style_authoryear_writes_project(tmp_path):
     )
 
     assert result.exit_code == 0
-    preamble = (output / "elsarticle" / "generated" / "preamble.tex").read_text()
+    preamble = (output / "elsarticle" / "generated" / "preamble.tex").read_text(encoding="utf-8")
     assert "elsarticle-harv" in preamble
 
 
@@ -281,7 +281,9 @@ def test_convert_citation_style_switch_on_rerun(tmp_path):
     )
     assert result1.exit_code == 0
 
-    preamble_numeric = (output / "elsarticle" / "generated" / "preamble.tex").read_text()
+    preamble_numeric = (output / "elsarticle" / "generated" / "preamble.tex").read_text(
+        encoding="utf-8"
+    )
     assert "elsarticle-num" in preamble_numeric
 
     # Second run: authoryear into same output dir
@@ -301,7 +303,9 @@ def test_convert_citation_style_switch_on_rerun(tmp_path):
     assert result2.exit_code == 0
     assert "already existed" in result2.output  # main.tex untouched
 
-    preamble_authoryear = (output / "elsarticle" / "generated" / "preamble.tex").read_text()
+    preamble_authoryear = (output / "elsarticle" / "generated" / "preamble.tex").read_text(
+        encoding="utf-8"
+    )
     assert "elsarticle-harv" in preamble_authoryear
     assert "elsarticle-num" not in preamble_authoryear
 
