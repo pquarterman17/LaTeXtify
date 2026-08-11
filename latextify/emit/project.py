@@ -97,6 +97,7 @@ from latextify.emit.submission import (
     strip_acknowledgments,
 )
 from latextify.emit.supplement import emit_supplement
+from latextify.figures.caption_gaps import caption_gaps, gap_warning
 from latextify.figures.extract import extract_figures
 from latextify.figures.override import resolve_overrides
 from latextify.ingest.formats import non_docx_warnings
@@ -279,9 +280,17 @@ def emit_project(
             _prune_stale_figures(figures_dir, "", set())
         else:
             figures = resolve_overrides(extract_figures(docx_path, media_dir), docx_path)
+            # A caption with no image behind it silently mislabels this figure
+            # and every one after it (pandoc binds a caption to the adjacent
+            # image) -- report it rather than shipping a wrong figure number.
+            caption_gap_warnings = [
+                EmitWarning(message=gap_warning(number))
+                for number in caption_gaps(docx_path, len(figures))
+            ]
             figure_files, figures, conversion_warnings = _copy_figures(
                 figures, figures_dir, strip_metadata=strip_figure_metadata
             )
+            conversion_warnings = (*caption_gap_warnings, *conversion_warnings)
 
     citation_result = extract_field_citations(docx_path)
 
