@@ -243,7 +243,6 @@ def test_bare_figure_anchor_swallows_adjacent_duplicate_caption_paragraph(tmp_pa
 
 
 def test_unresolved_figure_anchor_degrades_to_comment_and_warning(tmp_path, monkeypatch):
-    import latextify.emit.project as project_mod
     from latextify.ingest.pandoc import convert_docx_to_body as real_convert
 
     docx = _copy_fixture(tmp_path, FIGURES_DOCX)
@@ -258,7 +257,7 @@ def test_unresolved_figure_anchor_degrades_to_comment_and_warning(tmp_path, monk
             findings=real.findings,
         )
 
-    monkeypatch.setattr(project_mod, "convert_docx_to_body", fake_convert)
+    monkeypatch.setattr("latextify.emit.project.convert_docx_to_body", fake_convert)
 
     result = emit_project(docx, "revtex4-2", tmp_path / "output")
     body = result.body_tex_path.read_text(encoding="utf-8")
@@ -313,7 +312,6 @@ def test_exclude_figures_clears_images_from_a_prior_included_run(tmp_path):
 def test_exclude_figures_strips_even_an_unmatched_anchor(tmp_path, monkeypatch):
     # The included-mode sibling above turns a stray %%FIGURE:99%% into a loud
     # UNRESOLVED placeholder + warning; under exclude it must vanish silently.
-    import latextify.emit.project as project_mod
     from latextify.ingest.pandoc import convert_docx_to_body as real_convert
 
     docx = _copy_fixture(tmp_path, FIGURES_DOCX)
@@ -328,7 +326,7 @@ def test_exclude_figures_strips_even_an_unmatched_anchor(tmp_path, monkeypatch):
             findings=real.findings,
         )
 
-    monkeypatch.setattr(project_mod, "convert_docx_to_body", fake_convert)
+    monkeypatch.setattr("latextify.emit.project.convert_docx_to_body", fake_convert)
 
     result = emit_project(docx, "revtex4-2", tmp_path / "output", exclude_figures=True)
     body = result.body_tex_path.read_text(encoding="utf-8")
@@ -354,7 +352,6 @@ def test_exclude_figures_strips_even_an_unmatched_anchor(tmp_path, monkeypatch):
 
 
 def _inject_cite_anchors(monkeypatch, tex: str) -> None:
-    import latextify.emit.project as project_mod
     from latextify.ingest.pandoc import convert_docx_to_body as real_convert
 
     def fake_convert(docx_path, media_dir, **kwargs):
@@ -367,7 +364,7 @@ def _inject_cite_anchors(monkeypatch, tex: str) -> None:
             findings=(),
         )
 
-    monkeypatch.setattr(project_mod, "convert_docx_to_body", fake_convert)
+    monkeypatch.setattr("latextify.emit.project.convert_docx_to_body", fake_convert)
 
 
 def test_citation_anchors_resolve_to_cite_in_document_order(tmp_path, monkeypatch):
@@ -603,6 +600,20 @@ def test_unknown_journal_raises_manifest_error(tmp_path):
     docx = _copy_fixture(tmp_path, FIGURES_DOCX)
     with pytest.raises(ManifestError):
         emit_project(docx, "no-such-journal", tmp_path / "output")
+
+
+@pytest.mark.parametrize("name", ["../escape", "a/b", "..", ".hidden", "revtex4-2/../x"])
+def test_journal_name_that_is_not_a_plain_directory_name_is_refused(tmp_path, name):
+    """The journal name becomes the output directory name, so anything that could
+    climb out of ``output_root`` is refused up front -- and nothing is written."""
+    from latextify.templates.loader import ManifestError
+
+    docx = _copy_fixture(tmp_path, FIGURES_DOCX)
+    output = tmp_path / "output"
+    with pytest.raises(ManifestError):
+        emit_project(docx, name, output)
+    assert not output.exists()
+    assert sorted(p.name for p in tmp_path.iterdir()) == [docx.name]
 
 
 # --------------------------------------------------------------------------- #

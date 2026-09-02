@@ -35,16 +35,26 @@ FIXTURE_PATH = Path(__file__).with_name("bracket_cited.docx")
 # (number, reference text as typed, WITH its bracket prefix baked in). Entry 4
 # has no space after "]" -- the specific shape that used to leak the bracket.
 REFERENCES: list[str] = [
-    "[1] Alpha, A. Foundational widget calibration techniques. "
-    "Journal of Widget Physics 10, 100-110 (2020).",
-    "[2] Bravo, B. Superconducting widget arrays at low temperature. "
-    "Journal of Widget Physics 11, 200-210 (2019).",
-    "[3] Charlie, C. Magnetotransport in doped widget thin films. "
-    "Journal of Widget Physics 12, 300-310 (2018).",
-    "[4]Delta, D. Widget growth via molecular beam epitaxy. "
-    "Journal of Widget Physics 13, 400-410 (2017).",
-    "[5] Echo, E. Spectroscopic signatures of widget defects. "
-    "Journal of Widget Physics 14, 500-510 (2016).",
+    (
+        "[1] Alpha, A. Foundational widget calibration techniques. "
+        "Journal of Widget Physics 10, 100-110 (2020)."
+    ),
+    (
+        "[2] Bravo, B. Superconducting widget arrays at low temperature. "
+        "Journal of Widget Physics 11, 200-210 (2019)."
+    ),
+    (
+        "[3] Charlie, C. Magnetotransport in doped widget thin films. "
+        "Journal of Widget Physics 12, 300-310 (2018)."
+    ),
+    (
+        "[4]Delta, D. Widget growth via molecular beam epitaxy. "
+        "Journal of Widget Physics 13, 400-410 (2017)."
+    ),
+    (
+        "[5] Echo, E. Spectroscopic signatures of widget defects. "
+        "Journal of Widget Physics 14, 500-510 (2016)."
+    ),
 ]
 
 

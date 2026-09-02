@@ -58,7 +58,6 @@ from latextify.emit.bibliography import BIBLIOGRAPHY_EMPTY, BIBLIOGRAPHY_LINE
 from latextify.emit.citation_resolution import link_plaintext_citations
 from latextify.emit.figures_copy import _copy_figures, _prune_stale_figures
 from latextify.emit.submission import (
-    _ONECOLUMN_FIGURE_ENV,
     DocumentLayout,
     build_supplement_preamble,
 )
@@ -70,12 +69,17 @@ from latextify.model.emit import EmitWarning, SupplementResult
 from latextify.model.figure import Figure
 from latextify.model.meta import Meta
 from latextify.model.refs import Citation, RefEntry
-from latextify.templates.loader import Journal
+from latextify.templates.loader import FigureEnv, Journal
 
 # Supplementary material (plan item 21): a second write-once document, the
 # same shape as main.tex, \input-ing its own regenerated generated/
 # supplement_*.tex set. It shares this project's figures/ and
 # references.bib with the main document.
+# A one-column document has no page-width float, so a wide figure falls back to
+# the ordinary single-column figure environment (figure* is a two-column-only
+# construct).
+_ONECOLUMN_FIGURE_ENV = FigureEnv(single="figure", wide="figure")
+
 _SUPPLEMENT_TEX_TEMPLATE = (
     "\\input{generated/supplement_preamble}\n"
     "\\begin{document}\n"

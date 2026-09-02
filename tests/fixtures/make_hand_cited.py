@@ -30,29 +30,51 @@ FIXTURE_PATH = Path(__file__).with_name("hand_cited.docx")
 
 # (number, reference text). Entry 7 is the intentionally unmatchable one.
 REFERENCES: list[str] = [
-    "Smith, A. B., Jones, C. D. Coherent control of solid-state spin qubits. "
-    "Nature Physics 16, 1201-1210 (2020).",
-    "Anderson, P. W. Observation of topological superconductivity in a planar "
-    "Josephson junction. Physical Review Letters 115, 020501 (2015).",
-    "Brown, R. J., Lee, S. Magnetotransport signatures of Weyl semimetals. "
-    "Physical Review B 98, 035001 (2018).",
-    "Chen, X., Wang, Y. Two-dimensional magnets and their van der Waals "
-    "heterostructures. Nature Materials 18, 1298-1310 (2019).",
-    "Davis, M. K. Quantum oscillations in underdoped high-Tc cuprates. "
-    "Science 356, 512-516 (2017).",
-    "Evans, L., Patel, N. Moire flat bands in magic-angle twisted bilayer "
-    "graphene. Reviews of Modern Physics 93, 025006 (2021).",
-    "Foster, G. Unpublished laboratory notes on cryogenic amplifier noise, "
-    "internal memorandum, 2016.",
-    "Garcia, H., Ito, K. Spin-orbit torque switching of perpendicular "
-    "magnetization. Nature Nanotechnology 9, 548-554 (2014).",
+    (
+        "Smith, A. B., Jones, C. D. Coherent control of solid-state spin qubits. "
+        "Nature Physics 16, 1201-1210 (2020)."
+    ),
+    (
+        "Anderson, P. W. Observation of topological superconductivity in a planar "
+        "Josephson junction. Physical Review Letters 115, 020501 (2015)."
+    ),
+    (
+        "Brown, R. J., Lee, S. Magnetotransport signatures of Weyl semimetals. "
+        "Physical Review B 98, 035001 (2018)."
+    ),
+    (
+        "Chen, X., Wang, Y. Two-dimensional magnets and their van der Waals "
+        "heterostructures. Nature Materials 18, 1298-1310 (2019)."
+    ),
+    (
+        "Davis, M. K. Quantum oscillations in underdoped high-Tc cuprates. "
+        "Science 356, 512-516 (2017)."
+    ),
+    (
+        "Evans, L., Patel, N. Moire flat bands in magic-angle twisted bilayer "
+        "graphene. Reviews of Modern Physics 93, 025006 (2021)."
+    ),
+    (
+        "Foster, G. Unpublished laboratory notes on cryogenic amplifier noise, "
+        "internal memorandum, 2016."
+    ),
+    (
+        "Garcia, H., Ito, K. Spin-orbit torque switching of perpendicular "
+        "magnetization. Nature Nanotechnology 9, 548-554 (2014)."
+    ),
     "Hughes, T. L. Majorana zero modes in semiconductor nanowires. Science 339, 1057-1060 (2013).",
-    "Ito, K., Nakamura, S. Room-temperature superconductivity in a hydride "
-    "under high pressure. Nature 601, 35-40 (2022).",
-    "Johnson, D. R. Berry-phase effects on electronic transport properties. "
-    "Reviews of Modern Physics 84, 1419-1475 (2012).",
-    "Novak, V., Petrov, A. Anomalous Hall effect in itinerant ferromagnets. "
-    "Reviews of Modern Physics 83, 1539-1592 (2011).",
+    (
+        "Ito, K., Nakamura, S. Room-temperature superconductivity in a hydride "
+        "under high pressure. Nature 601, 35-40 (2022)."
+    ),
+    (
+        "Johnson, D. R. Berry-phase effects on electronic transport properties. "
+        "Reviews of Modern Physics 84, 1419-1475 (2012)."
+    ),
+    (
+        "Novak, V., Petrov, A. Anomalous Hall effect in itinerant ferromagnets. "
+        "Reviews of Modern Physics 83, 1539-1592 (2011)."
+    ),
 ]
 
 

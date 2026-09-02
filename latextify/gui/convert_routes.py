@@ -36,7 +36,7 @@ from latextify.emit.project import emit_project
 from latextify.gui.convert_inputs import stage_multi_uploads, validate_multi_form
 from latextify.gui.demo import require_demo_rate_limit
 from latextify.gui.downloads import _issue_token, _register_session, _rmtree
-from latextify.gui.exporting import _export_artifacts
+from latextify.gui.exporting import _export_artifacts, default_export_roots
 from latextify.gui.guard import require_gui_auth
 from latextify.gui.schemas import ConvertMultiResponse, ConvertResponse
 from latextify.gui.upload_utils import (
@@ -48,14 +48,15 @@ from latextify.report.render import write_report
 from latextify.templates import loader as templates_loader
 from latextify.templates.loader import ManifestError
 
-#: Demo mode refuses the server-filesystem export path: a hosted instance must
-#: not write to its own disk because a visitor asked it to.
-_DEMO_FS_DISABLED = (
-    "folder export is disabled in the hosted demo -- download the PDF or the project .zip instead"
-)
 
-
-def register_convert_routes(app: FastAPI, *, root: Path, max_upload_bytes: int, demo: bool) -> None:
+def register_convert_routes(
+    app: FastAPI,
+    *,
+    root: Path,
+    max_upload_bytes: int,
+    demo: bool,
+    export_roots: list[Path] | None = None,
+) -> None:
     """Attach ``/api/convert`` and ``/api/convert-multi`` to ``app``.
 
     Args:
@@ -66,7 +67,10 @@ def register_convert_routes(app: FastAPI, *, root: Path, max_upload_bytes: int, 
         demo: hosted-demo mode, which refuses the server-filesystem export
             path -- a hosted instance must not write to its own disk on
             request.
+        export_roots: folders the optional export step may write under
+            (default: :func:`latextify.gui.exporting.default_export_roots`).
     """
+    export_roots = list(export_roots) if export_roots is not None else default_export_roots()
 
     @app.post(
         "/api/convert",
@@ -385,9 +389,10 @@ def register_convert_routes(app: FastAPI, *, root: Path, max_upload_bytes: int, 
                     set(export_types),
                     output_dir=result.output_dir,
                     produced=produced,
+                    roots=export_roots,
                 )
                 warnings.extend(export_warnings)
-            except OSError as exc:
+            except (OSError, ValueError) as exc:
                 _rmtree(session_dir)
                 raise HTTPException(
                     status_code=400, detail=f"could not export to {export_dir!r}: {exc}"

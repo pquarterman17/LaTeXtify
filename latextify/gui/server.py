@@ -85,7 +85,7 @@ from latextify.gui.downloads import (
     _touch_session,
     register_download_routes,
 )
-from latextify.gui.exporting import _export_artifacts
+from latextify.gui.exporting import _export_artifacts, default_export_roots
 from latextify.gui.folder_picker import pick_folder_native
 from latextify.gui.guard import inject_gui_secret, new_gui_secret, require_gui_auth
 from latextify.gui.lifecycle import register_lifecycle, start_client_monitor
@@ -126,6 +126,7 @@ def create_app(
     gui_secret: str | None = None,
     demo: bool = False,
     auto_shutdown: bool = False,
+    export_roots: list[Path] | None = None,
 ) -> FastAPI:
     """Build the GUI FastAPI app.
 
@@ -148,7 +149,12 @@ def create_app(
             browser tab showing this page has closed. Off by default; the
             local ``gui`` CLI command turns it on unless ``--keep-alive`` is
             given, and the hosted demo never turns it on.
+        export_roots: folders the Export panel may copy artifacts into.
+            Defaults to :func:`latextify.gui.exporting.default_export_roots`
+            (the user's home directory plus ``LATEXTIFY_EXPORT_ROOTS``); a
+            destination outside them is refused with a 400.
     """
+    export_roots = list(export_roots) if export_roots is not None else default_export_roots()
     root = Path(workdir) if workdir is not None else Path(tempfile.mkdtemp(prefix="latextify-gui-"))
     root.mkdir(parents=True, exist_ok=True)
     # Only a root WE created (no caller workdir) is ours to delete on shutdown;
@@ -247,7 +253,9 @@ def create_app(
         infos.sort(key=lambda info: info.display_name.lower())
         return infos
 
-    register_convert_routes(app, root=root, max_upload_bytes=max_upload_bytes, demo=demo)
+    register_convert_routes(
+        app, root=root, max_upload_bytes=max_upload_bytes, demo=demo, export_roots=export_roots
+    )
 
     # Single-manuscript upload-processing routes (/api/clean-docx,
     # /api/export-format) live in latextify.gui.uploads_routes, and their
@@ -301,8 +309,9 @@ def create_app(
                 set(req.export_types),
                 output_dir=session["output_dir"],  # type: ignore[arg-type]
                 produced=session["produced"],  # type: ignore[arg-type]
+                roots=export_roots,
             )
-        except OSError as exc:
+        except (OSError, ValueError) as exc:
             raise HTTPException(
                 status_code=400, detail=f"could not export to {req.export_dir!r}: {exc}"
             ) from exc

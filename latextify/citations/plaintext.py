@@ -39,10 +39,7 @@ from ..ingest.formats import is_docx
 from ..model.reconcile import ReconcileRecord, ReconciliationReport
 from ..model.refs import RefEntry
 from . import crossref, reconcile
-from .authoryear_index import (  # noqa: F401 -- _raw_leading_surname re-exported for tests
-    _raw_leading_surname,
-    build_author_year_index,
-)
+from .authoryear_index import build_author_year_index
 from .fields import read_document_xml
 from .reconcile import ReferenceItem
 

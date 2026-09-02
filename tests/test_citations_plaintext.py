@@ -12,6 +12,7 @@ from pathlib import Path
 
 from docx import Document
 
+from latextify.citations.authoryear_index import _raw_leading_surname
 from latextify.citations.body_markers import (
     expand_numeric_range,
     link_body_markers,
@@ -19,7 +20,6 @@ from latextify.citations.body_markers import (
 )
 from latextify.citations.plaintext import (
     PlaintextResult,
-    _raw_leading_surname,
     segment_reference_list,
 )
 
