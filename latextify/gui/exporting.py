@@ -36,14 +36,15 @@ def resolve_export_dir(export_dir: str, roots: Iterable[Path]) -> Path:
     never steer a copy to an arbitrary place on the host's filesystem.
     """
     roots = list(roots)
-    # Every path is resolved (symlinks, ``..``, ``~``) and compared with a
+    # Every path is resolved (symlinks, ``..``, ``~``, and on Windows the
+    # on-disk letter case of every existing component) and compared with a
     # trailing separator, so ``/home/me/papers2`` never passes as being under
-    # ``/home/me/papers``, while a root itself (``dest == root``) does.
+    # ``/home/me/papers``, while a root itself (``dest == root``) does. No
+    # ``normcase`` here: it would lowercase the path handed back to the user.
     allowed = tuple(
-        os.path.normcase(os.path.realpath(os.path.expanduser(str(root)))).rstrip(os.sep) + os.sep
-        for root in roots
+        os.path.realpath(os.path.expanduser(str(root))).rstrip(os.sep) + os.sep for root in roots
     )
-    dest = os.path.normcase(os.path.realpath(os.path.expanduser(export_dir))) + os.sep
+    dest = os.path.realpath(os.path.expanduser(export_dir)) + os.sep
     if not dest.startswith(allowed):
         allowed_list = ", ".join(str(r) for r in roots) or "(none)"
         raise ValueError(
