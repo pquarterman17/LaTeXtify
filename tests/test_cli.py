@@ -758,8 +758,6 @@ def test_convert_pdf_compile_timeout_is_a_clean_structured_error(tmp_path, monke
     raw traceback."""
     import subprocess
 
-    import latextify.cli_convert as cli_module
-
     docx = tmp_path / "figures.docx"
     shutil.copy(FIGURES_DOCX, docx)
     output = tmp_path / "output"
@@ -767,8 +765,8 @@ def test_convert_pdf_compile_timeout_is_a_clean_structured_error(tmp_path, monke
     def _fake_compile_document(*args, **kwargs):
         raise subprocess.TimeoutExpired(cmd=["tectonic"], timeout=0.001)
 
-    monkeypatch.setattr(cli_module, "compile_document", _fake_compile_document)
-    monkeypatch.setattr(cli_module, "ensure_tectonic", lambda: Path("fake-tectonic"))
+    monkeypatch.setattr("latextify.cli_convert.compile_document", _fake_compile_document)
+    monkeypatch.setattr("latextify.cli_convert.ensure_tectonic", lambda: Path("fake-tectonic"))
 
     result = runner.invoke(
         app,
@@ -787,8 +785,6 @@ def test_convert_pdf_tectonic_present_but_fails_to_execute(tmp_path, monkeypatch
     """A tectonic binary that exists on PATH/cache but can't actually be
     executed (corrupt download, permissions, wrong architecture, ...)
     surfaces as OSError from subprocess.run -- must be a clean error too."""
-    import latextify.cli_convert as cli_module
-
     docx = tmp_path / "figures.docx"
     shutil.copy(FIGURES_DOCX, docx)
     output = tmp_path / "output"
@@ -796,8 +792,8 @@ def test_convert_pdf_tectonic_present_but_fails_to_execute(tmp_path, monkeypatch
     def _fake_compile_document(*args, **kwargs):
         raise OSError("[WinError 216] This version of %1 is not compatible")
 
-    monkeypatch.setattr(cli_module, "compile_document", _fake_compile_document)
-    monkeypatch.setattr(cli_module, "ensure_tectonic", lambda: Path("fake-tectonic"))
+    monkeypatch.setattr("latextify.cli_convert.compile_document", _fake_compile_document)
+    monkeypatch.setattr("latextify.cli_convert.ensure_tectonic", lambda: Path("fake-tectonic"))
 
     result = runner.invoke(
         app,

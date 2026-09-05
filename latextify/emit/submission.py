@@ -30,7 +30,7 @@ import re
 from dataclasses import dataclass, replace
 
 from latextify.model.meta import Author, Meta
-from latextify.templates.loader import FigureEnv, Journal
+from latextify.templates.loader import Journal
 
 # --------------------------------------------------------------------------- #
 # Per-document layout
@@ -198,10 +198,6 @@ _PLAIN_ARTICLE_SUPPLEMENT_PREAMBLE = (
     "\\usepackage[colorlinks=true,linkcolor=blue,citecolor=blue,urlcolor=blue]{hyperref}\n"
     "\\bibliographystyle{unsrtnat}\n"
 )
-# A one-column document has no page-width float, so a wide figure falls back to
-# the ordinary single-column figure environment (figure* is a two-column-only
-# construct).
-_ONECOLUMN_FIGURE_ENV = FigureEnv(single="figure", wide="figure")
 
 
 def _ensure_hyperref(preamble_text: str) -> str:

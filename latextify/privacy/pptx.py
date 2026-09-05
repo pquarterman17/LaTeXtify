@@ -53,9 +53,6 @@ _AUTHORS_PART = "ppt/commentAuthors.xml"
 _EMBEDDING_RE = re.compile(r"^ppt/embeddings/[^/]+$")
 _CHART_RE = re.compile(r"^ppt/charts/chart\d+\.xml$")
 
-#: EMU per inch; slide coordinates are English Metric Units.
-_EMU_PER_INCH = 914400
-
 
 def _parse(data: bytes) -> etree._Element | None:
     try:

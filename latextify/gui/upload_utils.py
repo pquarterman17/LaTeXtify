@@ -32,6 +32,18 @@ _ALLOWED_FIGURE_EXTS = frozenset(
 _ALLOWED_REFERENCE_EXTS = frozenset({"bib", "ris", "json", "xml", "nbib"})
 _ALLOWED_MANUSCRIPT_EXTS = frozenset({"docx", "odt", "rtf", "md"})
 
+# Shared with the route modules that enforce the allowlists (convert_inputs,
+# uploads_routes); named here so the sharing is explicit rather than incidental.
+__all__ = [
+    "_ALLOWED_FIGURE_EXTS",
+    "_ALLOWED_MANUSCRIPT_EXTS",
+    "_ALLOWED_REFERENCE_EXTS",
+    "_MAX_UPLOAD_BYTES",
+    "_lower_ext",
+    "_safe_filename",
+    "_stream_upload",
+]
+
 
 def _lower_ext(name: str | None) -> str:
     """Lowercase extension without the dot ("Paper.DOCX" -> "docx"); "" if none."""

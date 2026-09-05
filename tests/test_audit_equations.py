@@ -158,20 +158,16 @@ def test_exotic_blank_equation_is_inline_and_empty(result):
 
 def test_mismatch_flag_when_pandoc_drops_an_equation(monkeypatch):
     """Simulate pandoc converting fewer equations than the raw OMML walk found."""
-    import latextify.audit.equations as audit_equations
-
     monkeypatch.setattr(
-        audit_equations,
-        "_pandoc_math_nodes",
+        "latextify.audit.equations._pandoc_math_nodes",
         lambda docx_path: [pf.Math("a+b", format="InlineMath")],
     )
     monkeypatch.setattr(
-        audit_equations,
-        "_walk_raw_equations",
+        "latextify.audit.equations._walk_raw_equations",
         lambda document_root: [(False, "first"), (True, "second"), (False, "third")],
     )
 
-    out = audit_equations.extract_equations(EQUATIONS_DOCX)
+    out = extract_equations(EQUATIONS_DOCX)
 
     assert out.raw_omml_count == 3
     assert out.converted_count == 1
@@ -187,21 +183,18 @@ def test_mismatch_flag_when_pandoc_drops_an_equation(monkeypatch):
 
 def test_mismatch_flag_when_pandoc_invents_an_equation(monkeypatch):
     """Simulate pandoc producing MORE Math nodes than the raw OMML walk found."""
-    import latextify.audit.equations as audit_equations
-
     monkeypatch.setattr(
-        audit_equations,
-        "_pandoc_math_nodes",
+        "latextify.audit.equations._pandoc_math_nodes",
         lambda docx_path: [
             pf.Math("a", format="InlineMath"),
             pf.Math("b", format="DisplayMath"),
         ],
     )
     monkeypatch.setattr(
-        audit_equations, "_walk_raw_equations", lambda document_root: [(False, "only one")]
+        "latextify.audit.equations._walk_raw_equations", lambda document_root: [(False, "only one")]
     )
 
-    out = audit_equations.extract_equations(EQUATIONS_DOCX)
+    out = extract_equations(EQUATIONS_DOCX)
 
     assert out.raw_omml_count == 1
     assert out.converted_count == 2
@@ -216,18 +209,15 @@ def test_mismatch_flag_when_pandoc_invents_an_equation(monkeypatch):
 
 
 def test_no_mismatch_when_counts_agree(monkeypatch):
-    import latextify.audit.equations as audit_equations
-
     monkeypatch.setattr(
-        audit_equations,
-        "_pandoc_math_nodes",
+        "latextify.audit.equations._pandoc_math_nodes",
         lambda docx_path: [pf.Math("x", format="InlineMath")],
     )
     monkeypatch.setattr(
-        audit_equations, "_walk_raw_equations", lambda document_root: [(False, "snippet")]
+        "latextify.audit.equations._walk_raw_equations", lambda document_root: [(False, "snippet")]
     )
 
-    out = audit_equations.extract_equations(EQUATIONS_DOCX)
+    out = extract_equations(EQUATIONS_DOCX)
     assert out.count_mismatch is False
 
 
@@ -339,12 +329,10 @@ def test_cli_equations_pdf_compile_timeout_is_a_clean_structured_error(tmp_path,
     equivalent guard around compile_document)."""
     import subprocess
 
-    import latextify.audit.equations as audit_equations
-
     def _fake_compile_document(*args, **kwargs):
         raise subprocess.TimeoutExpired(cmd=["tectonic"], timeout=0.001)
 
-    monkeypatch.setattr(audit_equations, "compile_document", _fake_compile_document)
+    monkeypatch.setattr("latextify.audit.equations.compile_document", _fake_compile_document)
 
     output = tmp_path / "audit"
     cli_result = runner.invoke(
@@ -362,12 +350,11 @@ def test_cli_equations_pdf_tectonic_present_but_fails_to_execute(tmp_path, monke
     """A tectonic binary that exists but can't actually be executed (corrupt
     download, permissions, wrong architecture, ...) raises OSError from
     subprocess.run -- must be a clean error too, not a raw traceback."""
-    import latextify.audit.equations as audit_equations
 
     def _fake_compile_document(*args, **kwargs):
         raise OSError("[WinError 216] This version of %1 is not compatible")
 
-    monkeypatch.setattr(audit_equations, "compile_document", _fake_compile_document)
+    monkeypatch.setattr("latextify.audit.equations.compile_document", _fake_compile_document)
 
     output = tmp_path / "audit"
     cli_result = runner.invoke(

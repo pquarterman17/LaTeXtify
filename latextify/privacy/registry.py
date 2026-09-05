@@ -24,11 +24,11 @@ from .report import Finding, InspectReport, SanitizeReport
 
 
 class _Handler(Protocol):
-    def inspect(self, path: Path) -> tuple[list[Finding], list[str]]: ...
+    def inspect(self, path: Path) -> tuple[list[Finding], list[str]]:
+        """Return ``(findings, notes)`` for the file at ``path``."""
 
-    def sanitize(
-        self, src: Path, dest: Path, **options: object
-    ) -> tuple[list[Finding], list[str]]: ...
+    def sanitize(self, src: Path, dest: Path, **options: object) -> tuple[list[Finding], list[str]]:
+        """Write a scrubbed copy of ``src`` to ``dest``; return ``(findings, notes)``."""
 
 
 #: extension -> (handler module, human format name)

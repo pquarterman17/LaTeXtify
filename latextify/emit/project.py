@@ -74,6 +74,8 @@ main document's output byte-identical to before item 21.
 
 from __future__ import annotations
 
+import os
+import re
 import tempfile
 from pathlib import Path
 
@@ -120,6 +122,37 @@ _MAIN_TEX_TEMPLATE = (
     "\\input{generated/bibliography}\n"
     "\\end{document}\n"
 )
+
+
+#: A journal name doubles as the per-journal output directory name, so it must
+#: be one plain path component: no separators, no leading dot, nothing that
+#: could climb out of ``output_root``. Every shipped manifest already fits.
+_JOURNAL_NAME_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
+
+
+def _journal_output_dir(output_root: Path, journal_name: str) -> Path:
+    """Return ``output_root / journal_name``, refusing a name that escapes the root.
+
+    ``journal_name`` reaches here from the CLI and from a GUI form field, and it
+    becomes a directory name every generated file is written under. Validating
+    the spelling first, and then checking that the normalized destination still
+    sits directly inside ``output_root``, keeps a crafted name such as
+    ``../../etc`` from steering the writes anywhere else. Raises
+    :class:`~latextify.templates.loader.ManifestError` (a ``ValueError``) so
+    every caller's existing bad-journal handling applies.
+    """
+    if not _JOURNAL_NAME_RE.fullmatch(journal_name):
+        raise templates_loader.ManifestError(
+            f"{journal_name!r}: journal name must be a single plain path component "
+            "(letters, digits, '.', '_' and '-' only)"
+        )
+    root = os.path.normpath(os.path.abspath(output_root))
+    candidate = os.path.normpath(os.path.join(root, journal_name))
+    if not candidate.startswith(os.path.join(root, "")) or os.path.dirname(candidate) != root:
+        raise templates_loader.ManifestError(
+            f"{journal_name!r}: journal name resolves outside the output directory"
+        )
+    return Path(candidate)
 
 
 def emit_project(
@@ -236,7 +269,7 @@ def emit_project(
         ``None`` unless ``supplement_docx_path`` was given.
     """
     docx_path = Path(docx_path)
-    output_dir = Path(output_root) / journal_name
+    output_dir = _journal_output_dir(Path(output_root), journal_name)
     generated_dir = output_dir / "generated"
     figures_dir = output_dir / "figures"
     generated_dir.mkdir(parents=True, exist_ok=True)

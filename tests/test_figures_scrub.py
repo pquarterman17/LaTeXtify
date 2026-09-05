@@ -104,7 +104,8 @@ def test_jpeg_loses_its_exif_and_gps(tmp_path):
     _leaky_jpeg(figure)
     assert images.inspect(figure)[0], "fixture should start out leaky"
 
-    assert strip_figure_metadata(figure) is None
+    warning = strip_figure_metadata(figure)
+    assert warning is None
     assert images.inspect(figure)[0] == []
 
 
@@ -127,7 +128,8 @@ def test_jpeg_keeps_its_icc_profile(tmp_path):
 
     strip_figure_metadata(figure)
 
-    assert Image.open(figure).info.get("icc_profile")
+    stripped = Image.open(figure)
+    assert stripped.info.get("icc_profile")
     assert images.inspect(figure)[0] == []
 
 
@@ -162,7 +164,8 @@ def test_jpeg_thumbnail_does_not_survive(tmp_path):
     assert 0xE1 in _jpeg_markers(figure)
     assert thumbnail.getvalue() in figure.read_bytes()
 
-    assert strip_figure_metadata(figure) is None
+    warning = strip_figure_metadata(figure)
+    assert warning is None
 
     assert 0xE1 not in _jpeg_markers(figure)
     assert thumbnail.getvalue() not in figure.read_bytes()
@@ -203,7 +206,8 @@ def test_a_file_that_is_not_really_an_image_is_left_silently_alone(tmp_path):
     figure = tmp_path / "fig1.png"
     figure.write_bytes(b"not really a png")
 
-    assert strip_figure_metadata(figure) is None
+    warning = strip_figure_metadata(figure)
+    assert warning is None
     assert figure.read_bytes() == b"not really a png"
 
 
@@ -212,11 +216,13 @@ def test_png_loses_its_text_chunks_and_exif(tmp_path):
     _leaky_png(figure)
     assert "tEXt" in _png_chunks(figure)
 
-    assert strip_figure_metadata(figure) is None
+    warning = strip_figure_metadata(figure)
+    assert warning is None
 
     assert "tEXt" not in _png_chunks(figure)
     assert "eXIf" not in _png_chunks(figure)
-    assert not Image.open(figure).getexif()
+    stripped = Image.open(figure)
+    assert not stripped.getexif()
 
 
 def test_png_keeps_pixels_and_colour_profile(tmp_path):
@@ -238,7 +244,8 @@ def test_a_clean_image_is_left_byte_identical(tmp_path):
     _gradient().save(figure)
     before = figure.read_bytes()
 
-    assert strip_figure_metadata(figure) is None
+    warning = strip_figure_metadata(figure)
+    assert warning is None
     assert figure.read_bytes() == before
 
 
@@ -247,7 +254,8 @@ def test_non_raster_figures_are_left_alone(tmp_path, name):
     figure = tmp_path / name
     figure.write_bytes(b"%PDF-1.4 not really")
 
-    assert strip_figure_metadata(figure) is None
+    warning = strip_figure_metadata(figure)
+    assert warning is None
     assert figure.read_bytes() == b"%PDF-1.4 not really"
 
 

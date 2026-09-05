@@ -586,6 +586,7 @@ def test_live_crossref_returns_a_doi():
         "Novoselov, K. S. et al. Electric field effect in atomically thin carbon "
         "films. Science 306, 666-669 (2004)."
     )
+    candidates = []
     try:
         with crossref.CrossrefClient(mailto="latextify-test@example.com") as client:
             candidates = client.query_bibliographic(reference, rows=3)

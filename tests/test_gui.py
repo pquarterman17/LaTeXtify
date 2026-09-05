@@ -52,7 +52,9 @@ def _client_for(application) -> TestClient:
 
 
 def _client(tmp_path: Path) -> TestClient:
-    application = create_app(workdir=tmp_path / "gui-workdir", gui_secret=_TEST_SECRET)
+    application = create_app(
+        workdir=tmp_path / "gui-workdir", gui_secret=_TEST_SECRET, export_roots=[tmp_path]
+    )
     return _client_for(application)
 
 
@@ -708,6 +710,65 @@ def test_export_endpoint_blank_folder_is_400(tmp_path):
     assert response.status_code == 400
 
 
+def test_export_outside_the_allowed_roots_is_400(tmp_path):
+    """A destination is a string the page sent, so it may only land under a
+    configured export root (the test app allows ``tmp_path``). A sibling that
+    merely shares the prefix, or a ``..`` climb out, is refused before any copy."""
+    client = _client(tmp_path)
+    with FIGURES_DOCX.open("rb") as fh:
+        token = client.post(
+            "/api/convert-multi",
+            files={"main": ("figures.docx", fh, "application/octet-stream")},
+            data={"journal": "revtex4-2", "pdf": "false"},
+        ).json()["export_token"]
+
+    outside = tmp_path.parent / (tmp_path.name + "-sibling")
+    for dest in (outside, tmp_path / ".." / outside.name):
+        response = client.post(
+            "/api/export",
+            json={"export_token": token, "export_dir": str(dest), "export_types": ["project"]},
+        )
+        assert response.status_code == 400, response.text
+        assert "export folder must be inside" in response.json()["detail"]
+        assert not outside.exists()
+
+
+def test_convert_multi_export_outside_the_allowed_roots_is_400(tmp_path):
+    client = _client(tmp_path)
+    outside = tmp_path.parent / (tmp_path.name + "-sibling")
+    with FIGURES_DOCX.open("rb") as fh:
+        response = client.post(
+            "/api/convert-multi",
+            files={"main": ("figures.docx", fh, "application/octet-stream")},
+            data={
+                "journal": "revtex4-2",
+                "pdf": "false",
+                "export_dir": str(outside),
+                "export_types": ["project"],
+            },
+        )
+    assert response.status_code == 400, response.text
+    assert not outside.exists()
+
+
+def test_default_export_roots_are_home_plus_env(monkeypatch, tmp_path):
+    import os
+
+    from latextify.gui.exporting import EXPORT_ROOTS_ENV, default_export_roots, resolve_export_dir
+
+    monkeypatch.delenv(EXPORT_ROOTS_ENV, raising=False)
+    assert default_export_roots() == [Path.home()]
+
+    extra = tmp_path / "extra"
+    monkeypatch.setenv(EXPORT_ROOTS_ENV, os.pathsep.join([str(extra), "  "]))
+    assert default_export_roots() == [Path.home(), extra]
+    # The root itself and its descendants pass; a prefix-sharing sibling does not.
+    assert resolve_export_dir(str(extra), [extra]) == extra.resolve()
+    assert resolve_export_dir(str(extra / "sub"), [extra]) == (extra / "sub").resolve()
+    with pytest.raises(ValueError):
+        resolve_export_dir(str(tmp_path / "extra2"), [extra])
+
+
 # --------------------------------------------------------------------------- #
 # POST /api/pick-folder -- native dialog on the server host
 # --------------------------------------------------------------------------- #
@@ -1209,6 +1270,7 @@ def test_export_artifacts_can_copy_supplement_pdf(tmp_path):
         {"supplement_pdf"},
         output_dir=tmp_path / "proj",
         produced={"project": tmp_path / "proj", "supplement_pdf": src},
+        roots=[tmp_path],
     )
     assert "supplement.pdf" in exported
     assert (dest_dir / "supplement.pdf").is_file()
@@ -1963,7 +2025,7 @@ async def _run_monitor(app: FastAPI, seconds: float) -> None:
         try:
             await task
         except asyncio.CancelledError:
-            pass
+            pass  # the cancelled task unwinding is the expected outcome
 
 
 def _monitor_app() -> FastAPI:
@@ -2007,7 +2069,7 @@ def test_monitor_shuts_down_after_the_last_tab_closes_and_grace_elapses():
         try:
             await task
         except asyncio.CancelledError:
-            pass
+            pass  # the cancelled task unwinding is the expected outcome
 
     asyncio.run(_drive())
     application.state.shutdown.assert_called_once()
@@ -2034,7 +2096,7 @@ def test_monitor_reload_within_grace_window_cancels_the_shutdown():
         try:
             await task
         except asyncio.CancelledError:
-            pass
+            pass  # the cancelled task unwinding is the expected outcome
 
     asyncio.run(_drive())
     application.state.shutdown.assert_not_called()
