@@ -60,11 +60,14 @@
   }
 
   /* Vector art has no resolution to report — that is the point of supplying
-     it — so it gets a dash rather than a number. */
-  function dpiText(fig, minDpi) {
+     it — so it gets a dash rather than a number.
+
+     "too low" is decided on the raw value, not the rounded one: rounding
+     first showed 299.7 DPI as an unflagged "300" while the summary below
+     still listed that figure as needing replacement. */
+  function dpiText(fig) {
     if (fig.dpi == null) return fig.is_vector ? "—" : "?";
-    const rounded = Math.round(fig.dpi);
-    return rounded + (rounded < minDpi ? " — too low" : "");
+    return Math.round(fig.dpi) + (fig.needs_attention ? " — too low" : "");
   }
 
   function renderTable(body) {
@@ -87,7 +90,7 @@
       tr.appendChild(cell(fig.source));
       tr.appendChild(cell(KIND_LABEL[fig.kind] || fig.kind));
       tr.appendChild(cell(sizeText(fig)));
-      tr.appendChild(cell(dpiText(fig, body.min_print_dpi)));
+      tr.appendChild(cell(dpiText(fig)));
       const caption = fig.caption || (fig.in_table ? "(in a table cell)" : "(no caption found)");
       tr.appendChild(cell(caption, "name"));
       tbody.appendChild(tr);

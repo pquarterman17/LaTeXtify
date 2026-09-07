@@ -23,9 +23,18 @@ stapling) and rasters through Pillow, so both paths agree.
 The "raster inside a PDF" case is called out separately on purpose. Printing a
 screenshot to PDF is the single most common way an author believes they have
 supplied vector art when they have not; the file passes every extension check
-and still prints as pixels. :func:`classify` looks for the signature -- a
-one-page PDF carrying image data and no text -- and reports it as such, hedged
-("appears to be") because the check reads structure rather than rendering.
+and still prints as pixels. :func:`classify` looks for the signature -- image
+data, no extractable text, and a content stream short enough to be a bare
+image placement -- and reports it as such, hedged ("appears to be") because the
+check reads structure rather than rendering.
+
+Two details exist because getting them wrong silently misreports resolution,
+which is the one number this module is for:
+
+    * a Word display crop shrinks the file that ships (the emitter trims the
+      hidden pixels), so :func:`describe` applies it -- see :func:`_cropped`;
+    * ``/Rotate`` is applied when a PDF page is rendered, so a portrait page
+      marked ``/Rotate 90`` is measured landscape.
 """
 
 from __future__ import annotations
@@ -253,6 +262,19 @@ def _page_content_length(page: object) -> int:
         return -1
 
 
+def _quarter_turns(page: object) -> int:
+    """``page``'s /Rotate as a count of 90-degree turns (0-3); 0 when absent.
+
+    /Rotate is inheritable and may be negative or beyond 360, so it is
+    normalized here rather than compared literally against 90/270.
+    """
+    try:
+        raw = page.get("/Rotate", 0)  # type: ignore[attr-defined]
+        return int(raw) // 90 % 4
+    except Exception:  # a malformed /Rotate is not worth failing a measurement
+        return 0
+
+
 def _pdf_measurement(path: Path) -> tuple[FigureKind, Measurement | None]:
     """Classify and measure a PDF: real vector art, or a wrapped screenshot.
 
@@ -267,7 +289,15 @@ def _pdf_measurement(path: Path) -> tuple[FigureKind, Measurement | None]:
         return FigureKind.UNKNOWN, None
     try:
         box = page.mediabox  # type: ignore[attr-defined]
-        measurement = Measurement(width=float(box.width), height=float(box.height))
+        width, height = float(box.width), float(box.height)
+        # /Rotate is applied when the page is RENDERED, so a portrait mediabox
+        # with /Rotate 90 ships landscape. Ignoring it measured such a figure
+        # portrait: it lost the two-column float this module exists to restore,
+        # and a wrapped screenshot's DPI was computed against the narrow
+        # reference width, reporting roughly double the real number.
+        if _quarter_turns(page) % 2 == 1:
+            width, height = height, width
+        measurement = Measurement(width=width, height=height)
     except Exception:
         measurement = None
 
@@ -327,6 +357,45 @@ def is_wide(path: Path | str) -> bool:
     return measurement.aspect >= WIDE_ASPECT_THRESHOLD
 
 
+def _cropped(
+    measurement: Measurement | None, figure: Figure, kind: FigureKind
+) -> Measurement | None:
+    """Shrink ``measurement`` by the Word display crop the emitter will apply.
+
+    Word crops an image for display (``a:srcRect``) but keeps every original
+    pixel embedded, and :mod:`latextify.figures.convert` trims those hidden
+    regions on the way into ``figures/``. So the file that SHIPS is smaller
+    than the file measured here, and describing the uncropped original
+    overstated print resolution -- a figure cropped to a third of its width
+    reported three times its true DPI and passed a 300 DPI check it should
+    have failed.
+
+    Applied under exactly the conditions the emitter applies the crop itself:
+    a raster (a crop cannot be baked into vector art or a PDF, which is warned
+    about instead) whose file came from the document rather than from a
+    deliberate user override authored against no ``srcRect``.
+    """
+    crop = figure.crop
+    if (
+        measurement is None
+        or crop is None
+        or not crop.is_effective()
+        or kind is not FigureKind.RASTER
+        or figure.source is not FigureSource.EMBEDDED
+    ):
+        return measurement
+    width_kept = max(0.0, 1.0 - crop.left - crop.right)
+    height_kept = max(0.0, 1.0 - crop.top - crop.bottom)
+    if width_kept <= 0.0 or height_kept <= 0.0:  # a crop that hides everything
+        return measurement
+    pixel_width = measurement.pixel_width
+    return Measurement(
+        width=measurement.width * width_kept,
+        height=measurement.height * height_kept,
+        pixel_width=int(pixel_width * width_kept) if pixel_width is not None else None,
+    )
+
+
 def describe(figure: Figure, *, path: Path | None = None) -> FigureFacts:
     """Build the :class:`FigureFacts` record for one resolved ``figure``.
 
@@ -335,9 +404,13 @@ def describe(figure: Figure, *, path: Path | None = None) -> FigureFacts:
     describing the source would tell an author to replace a figure that is
     already vector in what actually ships. Defaults to the figure's own
     resolved source file, which is what the pre-conversion listing wants.
+
+    A Word display crop is applied to the measurement (see :func:`_cropped`)
+    so the reported size and DPI describe what ships, not the original.
     """
     path = figure.resolved_path if path is None else Path(path)
     kind, measurement = classify(path)
+    measurement = _cropped(measurement, figure, kind)
     wide = (
         not figure.in_table
         and measurement is not None

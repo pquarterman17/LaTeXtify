@@ -33,6 +33,7 @@ from latextify.figures.inventory import (
     inventory,
 )
 from latextify.figures.override import resolve_overrides
+from latextify.model.figure import FigureSource
 
 # The 300 DPI figure quoted in this command's help text is
 # latextify.figures.inventory.MIN_PRINT_DPI; tests/test_figures_inventory.py
@@ -69,11 +70,16 @@ def _size_cell(facts: FigureFacts) -> str:
 
 
 def _dpi_cell(facts: FigureFacts) -> str:
-    """The DPI column: blank for vector art, flagged when below the floor."""
+    """The DPI column: blank for vector art, flagged when below the floor.
+
+    The LOW flag is decided on the raw value and only then rounded for
+    display. Rounding first made 299.7 DPI print as an unflagged "300" while
+    the summary below still listed that figure as needing replacement.
+    """
     dpi = facts.dpi
     if dpi is None:
         return "-" if facts.is_vector else "?"
-    return f"{dpi:.0f}{' LOW' if dpi < MIN_PRINT_DPI else ''}"
+    return f"{dpi:.0f}{' LOW' if facts.needs_attention else ''}"
 
 
 def _as_dict(facts: FigureFacts) -> dict[str, object]:
@@ -82,7 +88,11 @@ def _as_dict(facts: FigureFacts) -> dict[str, object]:
         "number": facts.number,
         "caption": facts.caption,
         "source": facts.source.value,
-        "path": str(facts.path),
+        # Only a user-supplied override has a path worth handing to a script.
+        # An embedded figure's media is extracted into a temporary directory
+        # that is already gone by the time this prints, so reporting it would
+        # be a dangling path in an interface documented as scriptable.
+        "path": str(facts.path) if facts.source is not FigureSource.EMBEDDED else None,
         "kind": facts.kind.value,
         "is_vector": facts.is_vector,
         "needs_attention": facts.needs_attention,
@@ -135,8 +145,11 @@ def figures_cmd(
     try:
         facts, gaps = _describe_manuscript(docx_path)
     except ValueError as exc:
+        # Exit 1, as convert/export/equations do for the same unreadable-or-
+        # unsupported-manuscript ValueError. (`inspect` uses 2, but it grades
+        # findings by severity and needs a code that is not "findings found".)
         typer.echo(f"error: {exc}", err=True)
-        raise typer.Exit(code=2) from exc
+        raise typer.Exit(code=1) from exc
 
     if as_json:
         typer.echo(

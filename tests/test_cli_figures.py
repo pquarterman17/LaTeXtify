@@ -258,3 +258,113 @@ def test_report_figure_line_survives_an_unmeasurable_figure(tmp_path):
     report = result.report_path.read_text(encoding="utf-8")
 
     assert "**Fig 1** (EMBEDDED)" in report
+
+
+# --------------------------------------------------------------------------- #
+# Findings from the self-review: JSON paths, threshold rounding, exit code
+# --------------------------------------------------------------------------- #
+
+
+def test_json_never_reports_a_path_into_a_deleted_temporary_directory(tmp_path):
+    """--json is documented as scriptable, so its paths must be usable.
+
+    An embedded figure's media is extracted into a TemporaryDirectory already
+    gone by the time the output prints; reporting it would be a dangling path.
+    """
+    docx = _manuscript(tmp_path / "paper.docx", sizes=((400, 300),))
+    (tmp_path / "figures").mkdir()
+    override = _vector_pdf(tmp_path / "figures" / "fig1.pdf")
+
+    embedded = json.loads(runner.invoke(app, ["figures", str(docx), "--json"]).output)
+    assert embedded["figures"][0]["source"] == "override"
+    assert embedded["figures"][0]["path"] == str(override)
+
+    override.unlink()  # now nothing is supplied, so the figure is embedded
+    body = json.loads(runner.invoke(app, ["figures", str(docx), "--json"]).output)
+    assert body["figures"][0]["source"] == "embedded"
+    assert body["figures"][0]["path"] is None
+
+
+def test_the_low_flag_and_the_summary_never_disagree(tmp_path):
+    """Rounding for display before comparing showed 299.7 DPI as an unflagged
+    "300" while the summary below still listed it as needing replacement."""
+    from latextify.cli_figures import _dpi_cell
+    from latextify.figures.inventory import MIN_PRINT_DPI, describe
+    from latextify.model.figure import Figure, FigureSource
+
+    # 1019 px over 3.4 in is 299.7 DPI: rounds to 300, is below the floor.
+    png = tmp_path / "borderline.png"
+    Image.new("RGB", (1019, 1019), (40, 90, 160)).save(png)
+    facts = describe(Figure(number=1, caption="c", embedded_path=png, source=FigureSource.EMBEDDED))
+
+    assert facts.dpi < MIN_PRINT_DPI
+    assert facts.needs_attention is True
+    assert "LOW" in _dpi_cell(facts)  # the row agrees with the summary
+
+
+def test_an_unreadable_manuscript_exits_one_like_every_other_command(tmp_path):
+    """convert/export/equations all exit 1 for the same ValueError."""
+    bogus = tmp_path / "not-really.docx"
+    bogus.write_bytes(b"certainly not a docx")
+
+    result = runner.invoke(app, ["figures", str(bogus)])
+
+    assert result.exit_code == 1
+
+
+# --------------------------------------------------------------------------- #
+# Supplementary material gets the same treatment as the main document
+# --------------------------------------------------------------------------- #
+
+
+def test_vector_figures_reports_supplement_figures_too(tmp_path):
+    """The flag says "every figure"; SI figures were silently exempt because
+    emit_supplement copied figures on its own path instead of the shared one."""
+    main = _manuscript(tmp_path / "paper.docx", sizes=((400, 300),))
+    si = _manuscript(tmp_path / "si.docx", sizes=((400, 300),))
+
+    result = runner.invoke(
+        app,
+        [
+            "convert",
+            str(main),
+            "-j",
+            "revtex4-2",
+            "-o",
+            str(tmp_path / "out"),
+            "--supplement",
+            str(si),
+            "--vector-figures",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    # The SI figure is named figS1, and its warning is supplement-scoped.
+    assert "figures/figS1.pdf" in result.output
+    assert "supplement:" in result.output
+
+
+def test_a_supplied_supplement_vector_override_is_not_reported(tmp_path):
+    main = _manuscript(tmp_path / "paper.docx", sizes=((400, 300),))
+    si = _manuscript(tmp_path / "si.docx", sizes=((400, 300),))
+    (tmp_path / "figures").mkdir()
+    _vector_pdf(tmp_path / "figures" / "figS1.pdf")
+
+    result = runner.invoke(
+        app,
+        [
+            "convert",
+            str(main),
+            "-j",
+            "revtex4-2",
+            "-o",
+            str(tmp_path / "out"),
+            "--supplement",
+            str(si),
+            "--vector-figures",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert "figures/figS1.pdf" not in result.output
+    assert "figures/fig1.pdf" in result.output  # the main document still is

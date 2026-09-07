@@ -426,6 +426,7 @@ def emit_project(
             layout=supplement_layout,
             figures_at_end=figures_at_end,
             strip_figure_metadata=strip_figure_metadata,
+            vector_figures=vector_figures,
         )
         # references.bib is shared by main.tex and supplement.tex; rewrite it
         # with the merged set now that any new SI-only references were

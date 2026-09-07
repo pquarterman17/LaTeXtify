@@ -56,17 +56,14 @@ from latextify.citations.merge import merge_ref_entries
 from latextify.emit.anchors import remap_cite_keys_in_text, resolve_anchors
 from latextify.emit.bibliography import BIBLIOGRAPHY_EMPTY, BIBLIOGRAPHY_LINE
 from latextify.emit.citation_resolution import link_plaintext_citations
-from latextify.emit.figures_copy import _copy_figures, _prune_stale_figures
+from latextify.emit.figures_stage import run_figure_stage
 from latextify.emit.submission import (
     DocumentLayout,
     build_supplement_preamble,
 )
-from latextify.figures.extract import extract_figures
-from latextify.figures.override import resolve_overrides
 from latextify.ingest.pandoc import convert_docx_to_body
 from latextify.ingest.preflight import run_preflight
 from latextify.model.emit import EmitWarning, SupplementResult
-from latextify.model.figure import Figure
 from latextify.model.meta import Meta
 from latextify.model.refs import Citation, RefEntry
 from latextify.templates.loader import FigureEnv, Journal
@@ -148,6 +145,7 @@ def emit_supplement(
     layout: DocumentLayout | None = None,
     figures_at_end: bool = False,
     strip_figure_metadata: bool = True,
+    vector_figures: bool = False,
 ) -> tuple[SupplementResult, list[RefEntry]]:
     """Emit the supplementary-material project (plan item 21).
 
@@ -191,22 +189,19 @@ def emit_supplement(
     with tempfile.TemporaryDirectory(prefix="latextify-si-media-") as tmp:
         si_media_dir = Path(tmp)
         si_body_result = convert_docx_to_body(supplement_docx_path, si_media_dir)
-        if exclude_figures:
-            # Text-only emit: keep the SI consistent with the main document.
-            si_figures: tuple[Figure, ...] = ()
-            si_figure_files: dict[int, str] = {}
-            si_conversion_warnings: tuple[EmitWarning, ...] = ()
-            # Clear any S-prefixed images a prior (figure-including) run left.
-            _prune_stale_figures(figures_dir, "S", set())
-        else:
-            si_figures = resolve_overrides(
-                extract_figures(supplement_docx_path, si_media_dir),
-                supplement_docx_path,
-                prefix="S",
-            )
-            si_figure_files, si_figures, si_conversion_warnings = _copy_figures(
-                si_figures, figures_dir, prefix="S", strip_metadata=strip_figure_metadata
-            )
+        # The same stage the main document runs, with prefix="S" so both
+        # documents share figures/ without colliding. Routing through it is
+        # what lets --vector-figures see SI figures at all, and it brings the
+        # SI the caption-gap check the main document has always had.
+        si_figures, si_figure_files, si_conversion_warnings = run_figure_stage(
+            supplement_docx_path,
+            si_media_dir,
+            figures_dir,
+            exclude_figures=exclude_figures,
+            strip_metadata=strip_figure_metadata,
+            vector_figures=vector_figures,
+            prefix="S",
+        )
 
     si_raw_tex = si_body_result.tex.replace("\r\n", "\n").replace("\r", "\n")
     warnings.extend(

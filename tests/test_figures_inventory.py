@@ -35,7 +35,7 @@ from latextify.figures.inventory import (
     is_wide,
     raster_warnings,
 )
-from latextify.model.figure import Figure, FigureSource
+from latextify.model.figure import CropRect, Figure, FigureSource
 
 
 def _png(path: Path, size: tuple[int, int] = (1200, 800)) -> Path:
@@ -294,3 +294,134 @@ def test_print_dpi_threshold_matches_the_number_quoted_in_the_cli_help():
 
     assert MIN_PRINT_DPI == 300
     assert f"{MIN_PRINT_DPI} DPI" in figures_cmd.__doc__
+
+
+# --------------------------------------------------------------------------- #
+# Word's display crop: the shipped file is smaller than the source
+# --------------------------------------------------------------------------- #
+
+
+def test_a_word_crop_lowers_the_reported_resolution(tmp_path):
+    """Word keeps every original pixel but the emitter trims the hidden ones.
+
+    Measuring the uncropped original overstated print resolution -- a figure
+    cropped to a third of its width reported three times its true DPI and
+    passed a 300 DPI check it should have failed.
+    """
+    png = _png(tmp_path / "wide.png", (1200, 800))
+    whole = describe(_figure(1, png))
+    cropped = describe(
+        Figure(
+            number=1,
+            caption="c",
+            embedded_path=png,
+            source=FigureSource.EMBEDDED,
+            crop=CropRect(left=0.33, right=0.34),
+        )
+    )
+
+    assert cropped.measurement.pixel_width == pytest.approx(1200 * 0.33, abs=2)
+    assert cropped.dpi < whole.dpi
+
+
+def test_a_crop_that_makes_a_figure_portrait_drops_the_wide_float(tmp_path):
+    """Crop changes the aspect ratio, so it changes the column decision too."""
+    png = _png(tmp_path / "wide.png", (1200, 800))
+    assert describe(_figure(1, png)).wide is True
+
+    cropped = describe(
+        Figure(
+            number=1,
+            caption="c",
+            embedded_path=png,
+            source=FigureSource.EMBEDDED,
+            crop=CropRect(left=0.33, right=0.34),
+        )
+    )
+    assert cropped.wide is False
+
+
+def test_a_crop_is_ignored_where_the_emitter_ignores_it(tmp_path):
+    """A crop cannot be baked into an override the author authored themselves,
+    nor into vector art or a PDF -- the emitter warns instead of cropping, so
+    the description must not pretend the pixels went away."""
+    png = _png(tmp_path / "wide.png", (1200, 800))
+    crop = CropRect(left=0.33, right=0.34)
+    override = Figure(
+        number=1,
+        caption="c",
+        embedded_path=png,
+        override_path=png,
+        source=FigureSource.OVERRIDE,
+        crop=crop,
+    )
+    assert describe(override).dpi == describe(_figure(1, png)).dpi
+
+    wrapped = _screenshot_pdf(tmp_path / "shot.pdf")
+    pdf_figure = Figure(
+        number=1, caption="c", embedded_path=wrapped, source=FigureSource.EMBEDDED, crop=crop
+    )
+    assert describe(pdf_figure).dpi == describe(_figure(1, wrapped)).dpi
+
+
+def test_a_crop_hiding_everything_is_left_alone(tmp_path):
+    """Degenerate input must not produce a zero-width measurement."""
+    png = _png(tmp_path / "wide.png", (1200, 800))
+    figure = Figure(
+        number=1,
+        caption="c",
+        embedded_path=png,
+        source=FigureSource.EMBEDDED,
+        crop=CropRect(left=0.5, right=0.5),
+    )
+    assert describe(figure).measurement.pixel_width == 1200
+
+
+# --------------------------------------------------------------------------- #
+# /Rotate: a page renders turned, so it must be measured turned
+# --------------------------------------------------------------------------- #
+
+
+def _rotated_pdf(path: Path, degrees: int, size: tuple[float, float] = (400, 600)) -> Path:
+    from pypdf import PdfReader, PdfWriter
+
+    source = _vector_pdf(path.with_suffix(".src.pdf"), size)
+    writer = PdfWriter()
+    page = PdfReader(str(source)).pages[0]
+    page.rotate(degrees)
+    writer.add_page(page)
+    with path.open("wb") as handle:
+        writer.write(handle)
+    return path
+
+
+@pytest.mark.parametrize("degrees", [90, 270])
+def test_a_rotated_portrait_page_measures_landscape(tmp_path, degrees):
+    """/Rotate is applied when the page is RENDERED.
+
+    Ignoring it measured such a figure portrait: it lost the two-column float
+    this module exists to restore, and a wrapped screenshot's DPI was computed
+    against the narrow reference width, reporting roughly double the truth.
+    """
+    assert is_wide(_rotated_pdf(tmp_path / f"r{degrees}.pdf", degrees)) is True
+
+
+@pytest.mark.parametrize("degrees", [0, 180])
+def test_a_half_turn_leaves_the_orientation_alone(tmp_path, degrees):
+    assert is_wide(_rotated_pdf(tmp_path / f"r{degrees}.pdf", degrees)) is False
+
+
+def test_a_malformed_rotate_does_not_break_measurement(tmp_path):
+    from pypdf import PdfReader, PdfWriter
+    from pypdf.generic import NameObject, TextStringObject
+
+    source = _vector_pdf(tmp_path / "src.pdf", (600, 200))
+    writer = PdfWriter()
+    page = PdfReader(str(source)).pages[0]
+    page[NameObject("/Rotate")] = TextStringObject("sideways")
+    writer.add_page(page)
+    path = tmp_path / "bad-rotate.pdf"
+    with path.open("wb") as handle:
+        writer.write(handle)
+
+    assert is_wide(path) is True  # falls back to the unrotated measurement

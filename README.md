@@ -84,9 +84,12 @@ latextify figures paper.docx
 3 figure(s) in paper.docx
 
 FIG  SOURCE    KIND        SIZE           DPI       CAPTION
-  1  embedded  raster      1200x800       353       Device schematic and measurement setup.
-  2  embedded  raster      640x480        188 LOW   Raman spectra of the three samples.
-  3  embedded  raster-pdf  595x842pt      92 LOW    Temperature dependence of the resistance.
+  1  embedded  raster      1100x900       324       Device schematic and measurement setup.
+  2  embedded  raster      640x480        91 LOW    Raman spectra of the three samples.
+  3  override  raster-pdf  468x351pt      109 LOW   Temperature dependence of the resistance.
+
+0 of 3 already vector.
+Figure(s) 2, 3 would print below 300 DPI. Supply a vector version of each as figures/fig<N>.pdf (or .eps/.svg) beside the manuscript.
 ```
 
 Three things this tells you that guessing cannot:
@@ -98,9 +101,14 @@ Three things this tells you that guessing cannot:
   swaps two figures in your submission.
 - **What each file really is.** `raster-pdf` above means a PDF whose content is
   a single image and no text: a screenshot someone printed to PDF. It has a
-  vector file's extension and a raster's limits.
-- **How it will print.** DPI is the effective resolution at the width shown,
-  flagged `LOW` below 300.
+  vector file's extension and a raster's limits — note that figure 3 is an
+  `override`, i.e. a file someone supplied *believing* it was vector.
+- **How it will print.** DPI is the effective resolution at the width it will
+  be printed at, flagged `LOW` below 300. A landscape figure is assumed to span
+  both columns, so it needs roughly twice the pixels of a single-column one —
+  which is why figure 2 above fails at 640x480 while figure 1 passes at
+  1100x900. Any crop you applied in Word is accounted for, since those pixels
+  never reach the output.
 
 The same table is in the web GUI under *What are my figures?*, and
 `--json` makes it scriptable.
@@ -136,16 +144,17 @@ latextify convert paper.docx -j revtex4-2 --pdf --vector-figures
 DPI and the exact filename to supply:
 
 ```
-warning: figure 3 appears to be a raster image wrapped in a PDF -- about 92 DPI
-at 3.4 in wide, below the 300 DPI most journals require. Supply a vector
-version as figures/fig3.pdf (PDF, EPS or SVG) to replace it.
+warning: figure 3 appears to be a raster image wrapped in a PDF -- about 109 DPI
+at 7 in wide, below the 300 DPI most journals require. Supply a vector version
+as figures/fig3.pdf (PDF, EPS or SVG) to replace it.
 ```
 
 `report.md` records the same thing durably, per figure:
 
 ```
-**Fig 2** (OVERRIDE, vector)
-**Fig 3** (EMBEDDED, raster in a PDF 92 DPI at 3.4 in — below 300 DPI)
+**Fig 1** (EMBEDDED, raster 324 DPI at 3.4 in)
+**Fig 2** (EMBEDDED, raster 91 DPI at 7 in — below 300 DPI)
+**Fig 3** (OVERRIDE, raster in a PDF 109 DPI at 7 in — below 300 DPI)
 ```
 
 ### Getting vector out of Word in the first place

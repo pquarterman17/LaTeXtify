@@ -54,6 +54,12 @@ sharp it will print.
 - Effective DPI is reported at a reference printed width (3.4 in single column,
   7.0 in for a figure spanning both columns), flagged below `MIN_PRINT_DPI`
   (300). Vector art reports no DPI — that is the point of supplying it.
+- Two adjustments that a self-review caught, both of which silently misreported
+  the one number this exists to give: a Word display crop shrinks the file that
+  ships, so it is applied to the measurement (under exactly the conditions the
+  emitter applies it — rasters from the document, never an override or a PDF);
+  and a PDF's `/Rotate` is applied at render time, so a portrait page marked
+  `/Rotate 90` measures landscape.
 - A file that cannot be read is `UNKNOWN` and is never flagged. Warning about a
   file we failed to parse would be guessing.
 
@@ -75,7 +81,10 @@ produces. A test asserts the two are literally the same function.
 - **`convert --vector-figures`** — one warning per figure that is still raster,
   naming its DPI and the exact `figures/fig<N>.pdf` to supply. Opt-in, because
   a raster figure still compiles and is the right call for a micrograph;
-  off by default so existing runs do not change shape.
+  off by default so existing runs do not change shape. Covers supplementary
+  material too: `emit_supplement` now routes through the same
+  `run_figure_stage`, which also brings the SI the caption-gap check the main
+  document has always had.
 - **`report.md`** — each figure line gains `, vector` or
   `, raster 92 DPI at 3.4 in — below 300 DPI`. Always on, since it costs
   nothing and is the durable record.
