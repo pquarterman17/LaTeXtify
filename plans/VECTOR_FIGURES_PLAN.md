@@ -161,6 +161,28 @@ adding `EXPLICIT` left it returning the *embedded* file — `--figure N=PATH`
 relabelled provenance and changed nothing that shipped. It now asks "not
 EMBEDDED", so a future tier cannot reintroduce that.
 
+### Closing the pipeline
+
+Two gaps left between "the CLI can do it" and "the pipeline is done", both now
+closed:
+
+- **The GUI could not take a bundle.** Uploading a multi-page PDF as an
+  ordinary figure used page 1 and silently discarded the rest. There is now a
+  *figure bundle (PDF)* role that routes to the same `split_figures_pdf`, and
+  an unreadable bundle is a 400 like any other bad upload.
+  Individual uploads beat the bundle's page for their number, but write order
+  cannot express that: `fig2.pdf` and `fig2.png` do not overwrite each other,
+  and the folder override picks by extension priority, so the bundle's PDF won
+  regardless. Staging therefore deletes `fig<N>.*` for every individually
+  supplied number before writing it. A test pins the precedence.
+- **`emit_project` created directories before it could reject the run.** A bad
+  journal name, or a citation mode the journal does not support, left an empty
+  `output/<journal>/` behind. Validation now runs first and nothing is created.
+  That pushed `project.py` over the 500-line ceiling again, so
+  `journal_output_dir` moved to `emit/output_dir.py` -- a clean seam, since it
+  exists only to keep a caller-supplied name from steering writes out of the
+  root.
+
 ## Deliberately not done
 
 - **Harvesting figures out of a finished paper PDF.** A different feature with

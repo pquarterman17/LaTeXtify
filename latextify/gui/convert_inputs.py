@@ -27,6 +27,7 @@ from pathlib import Path
 from fastapi import HTTPException, UploadFile
 
 from latextify.emit.submission import DocumentLayout, parse_layout_form
+from latextify.figures.override import split_figures_pdf
 from latextify.gui.downloads import _rmtree
 from latextify.gui.upload_utils import (
     _ALLOWED_FIGURE_EXTS,
@@ -151,6 +152,7 @@ async def stage_multi_uploads(
     references: UploadFile | None,
     figures: list[UploadFile],
     figure_numbers: list[int],
+    figures_pdf: UploadFile | None = None,
 ) -> StagedUploads:
     """Stream one request's uploads into a fresh session directory under ``root``.
 
@@ -160,9 +162,18 @@ async def stage_multi_uploads(
     misread as corrupt.
 
     Figure files land as ``figures/fig<N>.<ext>`` beside the main manuscript so
-    the existing folder-convention override picks them up. Note that an
-    override REPLACES an embedded figure -- a manuscript with no embedded image
-    for figure N has nothing to attach the dropped file to.
+    the existing folder-convention override picks them up.
+
+    ``figures_pdf`` is the browser's counterpart to ``--figures-pdf``: one
+    multi-page PDF whose page N becomes figure N. Without it, uploading such a
+    bundle as an ordinary figure silently used page 1 alone and discarded the
+    rest. Its pages are written into the same staging directory, and the page
+    for any number that ALSO has an individual upload is deleted rather than
+    left beside it -- matching the CLI, where naming one file outright beats
+    "page N of the bundle". Write order cannot express that on its own: the
+    two land under different extensions (``fig2.pdf`` and ``fig2.png``), so
+    neither overwrites the other and the folder override would pick the PDF
+    on extension priority regardless of which was written last.
 
     An oversized or failed upload removes the session directory before
     re-raising, so a rejected request never orphans one.
@@ -185,10 +196,24 @@ async def stage_multi_uploads(
             references_path = upload_dir / f"references.{_lower_ext(references.filename)}"
             await _stream_upload(references, references_path, max_bytes=max_upload_bytes)
 
+        figures_override_dir = upload_dir / "figures"
+        if figures_pdf is not None:
+            bundle = upload_dir / "figures-bundle.pdf"
+            await _stream_upload(figures_pdf, bundle, max_bytes=max_upload_bytes)
+            # Raises ValueError naming the file for an unreadable/empty PDF,
+            # which the route turns into a 400 like every other bad upload.
+            split_figures_pdf(bundle, figures_override_dir)
+
         if figures:
             # Numbers are validated positive+unique upstream, so these are unique.
-            figures_override_dir = upload_dir / "figures"
             figures_override_dir.mkdir(exist_ok=True)
+            for number in figure_numbers:
+                # Clear this number's bundle page first (see the docstring):
+                # the folder override resolves fig<N>.* by extension priority,
+                # not by mtime, so leaving fig<N>.pdf beside a freshly
+                # uploaded fig<N>.png would hand the win back to the bundle.
+                for stale in figures_override_dir.glob(f"fig{number}.*"):
+                    stale.unlink()
             for fig_upload, number in zip(figures, figure_numbers, strict=True):
                 ext = _lower_ext(fig_upload.filename)
                 if ext == "jpeg":  # normalize deliberately so fig<N>.jpg is canonical

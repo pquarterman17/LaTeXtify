@@ -18,6 +18,7 @@ from unittest.mock import Mock
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from PIL import Image
 from typer.testing import CliRunner
 
 from latextify.cli import app
@@ -1832,6 +1833,99 @@ def test_clean_file_endpoint_requires_secret(tmp_path):
 def test_clean_endpoint_unknown_token_is_404(tmp_path):
     client = _client(tmp_path)
     assert client.get("/api/clean/does-not-exist").status_code == 404
+
+
+# --------------------------------------------------------------------------- #
+# POST /api/convert-multi -- a multi-page figure bundle (page N = figure N)
+# --------------------------------------------------------------------------- #
+
+
+def _bundle_pdf(path, pages: int = 3):
+    """A multi-page PDF: the browser counterpart of --figures-pdf."""
+    from reportlab.pdfgen import canvas
+
+    c = canvas.Canvas(str(path), pagesize=(400, 200))
+    for page in range(pages):
+        c.drawString(20, 100, f"bundle page {page + 1}")
+        for i in range(300):
+            c.line(i % 400, 0, i % 400, 40)
+        c.showPage()
+    c.save()
+    return path
+
+
+def test_a_figure_bundle_supplies_one_figure_per_page(tmp_path):
+    """Before this, uploading a bundle as an ordinary figure used page 1 alone
+    and silently discarded the rest."""
+    client = _client(tmp_path)
+    bundle = _bundle_pdf(tmp_path / "all.pdf", pages=3)
+
+    with FIGURES_DOCX.open("rb") as fh, bundle.open("rb") as bh:
+        response = client.post(
+            "/api/convert-multi",
+            files=[
+                ("main", ("figures.docx", fh, "application/octet-stream")),
+                ("figures_pdf", ("all.pdf", bh, "application/pdf")),
+            ],
+            data={"journal": "revtex4-2", "pdf": "false"},
+        )
+
+    assert response.status_code == 200, response.text
+    body_tex = (Path(response.json()["output_dir"]) / "generated" / "body.tex").read_text(
+        encoding="utf-8"
+    )
+    for number in (1, 2, 3):
+        assert f"figures/fig{number}.pdf" in body_tex
+
+
+def test_an_individually_uploaded_figure_beats_the_bundle(tmp_path):
+    """Naming one file outright is more specific than "page N of the bundle",
+    matching the CLI's --figure over --figures-pdf precedence."""
+    client = _client(tmp_path)
+    bundle = _bundle_pdf(tmp_path / "all.pdf", pages=3)
+    single = tmp_path / "one.png"
+    Image.new("RGB", (900, 700), (10, 120, 90)).save(single)
+
+    with FIGURES_DOCX.open("rb") as fh, bundle.open("rb") as bh, single.open("rb") as sh:
+        response = client.post(
+            "/api/convert-multi",
+            files=[
+                ("main", ("figures.docx", fh, "application/octet-stream")),
+                ("figures_pdf", ("all.pdf", bh, "application/pdf")),
+                ("figures", ("one.png", sh, "image/png")),
+            ],
+            data={"journal": "revtex4-2", "pdf": "false", "figure_numbers": "2"},
+        )
+
+    assert response.status_code == 200, response.text
+    body_tex = (Path(response.json()["output_dir"]) / "generated" / "body.tex").read_text(
+        encoding="utf-8"
+    )
+    assert "figures/fig1.pdf" in body_tex  # from the bundle
+    assert "figures/fig2.png" in body_tex  # the individually uploaded one wins
+    assert "figures/fig3.pdf" in body_tex
+
+
+def test_an_unreadable_figure_bundle_is_a_400_not_a_traceback(tmp_path):
+    client = _client(tmp_path)
+    with FIGURES_DOCX.open("rb") as fh:
+        response = client.post(
+            "/api/convert-multi",
+            files=[
+                ("main", ("figures.docx", fh, "application/octet-stream")),
+                ("figures_pdf", ("nope.pdf", b"certainly not a pdf", "application/pdf")),
+            ],
+            data={"journal": "revtex4-2", "pdf": "false"},
+        )
+
+    assert response.status_code == 400
+    assert "could not be read as a PDF" in response.json()["detail"]
+
+
+def test_the_ui_offers_the_figure_bundle_role(tmp_path):
+    text = _ui_text(_client(tmp_path))
+    assert "figures_pdf" in text
+    assert "Figure bundle" in text
 
 
 # --------------------------------------------------------------------------- #
