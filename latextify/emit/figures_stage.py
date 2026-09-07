@@ -6,15 +6,23 @@ only part of the emit that owns figure *policy* rather than orchestration.
 Moving it also gave the vector-figure reporting below a home; ``project.py``
 sits against the repo's 500-line ceiling and had no room for it.
 
-The stage answers three questions in order:
+The stage answers four questions in order:
 
-    1. which file wins for each figure (embedded media, a ``figures/fig<N>``
-       folder-convention file, or a ``figures.yaml`` entry), and
-    2. does the manuscript caption a figure it has no image for, and
-    3. -- new -- is each winning file actually vector art, or a screenshot
-       that will print soft?
+    1. does the manuscript caption a figure it has no image for -- and if a
+       replacement was supplied, repair it (see
+       :mod:`latextify.figures.gap_fill`);
+    2. which file wins for each figure, across every override tier
+       (``--figure N=PATH``, a ``--figures-dir`` or split ``--figures-pdf``,
+       ``figures.yaml``, the ``figures/`` folder beside the manuscript, then
+       the embedded media);
+    3. what lands in ``figures/`` (conversion, cropping, the metadata strip);
+    4. is each winning file actually vector art, or a screenshot that will
+       print soft?
 
-Question 3 is opt-in (``latextify convert --vector-figures``) because it is
+Question 1 runs BEFORE question 2 deliberately -- see the comment at the call
+site; resolving first let one supplied file be consumed by two figures.
+
+Question 4 is opt-in (``latextify convert --vector-figures``) because it is
 advice rather than a defect: a raster figure still compiles, still ships, and
 is the right call for a micrograph. It is off by default so an existing
 conversion's warning list does not change shape underneath anyone.
@@ -27,8 +35,9 @@ from pathlib import Path
 from latextify.emit.figures_copy import _copy_figures, _prune_stale_figures
 from latextify.figures.caption_gaps import caption_gaps, gap_warning
 from latextify.figures.extract import extract_figures
+from latextify.figures.gap_fill import GapFillPlan, plan_gap_fill
 from latextify.figures.inventory import describe, raster_warnings
-from latextify.figures.override import resolve_overrides
+from latextify.figures.override import OverrideSources, resolve_overrides
 from latextify.model.emit import EmitWarning
 from latextify.model.figure import Figure
 
@@ -42,7 +51,8 @@ def run_figure_stage(
     strip_metadata: bool = True,
     vector_figures: bool = False,
     prefix: str = "",
-) -> tuple[tuple[Figure, ...], dict[int, str], tuple[EmitWarning, ...]]:
+    sources: OverrideSources | None = None,
+) -> tuple[tuple[Figure, ...], dict[int, str], tuple[EmitWarning, ...], GapFillPlan]:
     """Resolve, copy and report this document's figures.
 
     Args:
@@ -60,24 +70,49 @@ def run_figure_stage(
             art, naming the file to create to replace it.
         prefix: ``""`` for the main document, ``"S"`` for a supplement, so
             the two never collide in the shared ``figures/`` directory.
+        sources: extra places to look for replacement files -- an explicit
+            ``--figure N=PATH`` map and any ``--figures-dir`` / split
+            ``--figures-pdf`` directories. Empty by default, in which case
+            resolution is the manifest and the folder beside the manuscript,
+            exactly as before.
 
-    Returns ``(figures, figure_files, warnings)`` -- the resolved figure
-    records, a map of figure number to the LaTeX-relative path to include,
-    and every warning the stage produced.
+    Returns ``(figures, figure_files, warnings, gap_plan)``. The plan says
+    whether a captioned-but-missing figure was supplied and therefore whether
+    the caller must rewrite the body (see
+    :func:`latextify.figures.gap_fill.apply_to_body`); it is inert when nothing
+    was filled.
     """
     if exclude_figures:
         _prune_stale_figures(figures_dir, prefix, set())
-        return (), {}, ()
-
-    figures = resolve_overrides(extract_figures(docx_path, media_dir), docx_path, prefix=prefix)
+        return (), {}, (), GapFillPlan(figures=())
 
     # A caption with no image behind it silently mislabels this figure and
-    # every one after it (pandoc binds a caption to the adjacent image) --
-    # report it rather than shipping a wrong figure number.
-    warnings = [
-        EmitWarning(message=gap_warning(number, prefix))
-        for number in caption_gaps(docx_path, len(figures))
-    ]
+    # every one after it (pandoc binds a caption to the adjacent image). Given
+    # a replacement file we repair it outright -- renumbering to the stated
+    # captions and planting the missing figure where its orphaned caption sat.
+    # Without one, nothing changes and the warning still names the remedy.
+    #
+    # This runs BEFORE override resolution, and the order is load-bearing.
+    # Resolving first meant a file supplied for gap 3 was ALSO picked up by
+    # whichever document-order figure happened to be numbered 3 -- the same
+    # file emitted twice, under two different figure numbers. Renumbering
+    # first means every figure resolves against the number it will actually
+    # ship as.
+    plan = plan_gap_fill(extract_figures(docx_path, media_dir), docx_path, sources, prefix=prefix)
+    figures = resolve_overrides(plan.figures, docx_path, prefix=prefix, sources=sources)
+    still_missing = plan.unfilled if plan.changed else caption_gaps(docx_path, len(figures))
+    warnings = [EmitWarning(message=gap_warning(number, prefix)) for number in still_missing]
+    if plan.filled:
+        supplied = ", ".join(str(n) for n in plan.filled)
+        warnings.append(
+            EmitWarning(
+                message=(
+                    f"figure(s) {supplied} were captioned but had no image; the supplied "
+                    "file(s) were placed at their captions and the remaining figures "
+                    "renumbered to match the captions. Check the figure order in the PDF."
+                )
+            )
+        )
 
     figure_files, figures, conversion_warnings = _copy_figures(
         figures, figures_dir, prefix=prefix, strip_metadata=strip_metadata
@@ -103,4 +138,4 @@ def run_figure_stage(
             for message in raster_warnings(tuple(written), prefix=prefix)
         )
 
-    return figures, figure_files, tuple(warnings)
+    return figures, figure_files, tuple(warnings), plan

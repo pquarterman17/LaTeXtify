@@ -99,6 +99,8 @@ from latextify.emit.submission import (
     strip_acknowledgments,
 )
 from latextify.emit.supplement import emit_supplement
+from latextify.figures.gap_fill import apply_to_body as apply_gap_fill
+from latextify.figures.override import OverrideSources
 from latextify.ingest.formats import non_docx_warnings
 from latextify.ingest.metadata_guess import sidecar_path_for
 from latextify.ingest.pandoc import convert_docx_to_body
@@ -166,6 +168,7 @@ def emit_project(
     supplement_onecolumn: bool = False,
     check_references: bool = False,
     vector_figures: bool = False,
+    figure_sources: OverrideSources | None = None,
     main_layout: DocumentLayout | None = None,
     supplement_layout: DocumentLayout | None = None,
     anonymize: bool = False,
@@ -224,6 +227,11 @@ def emit_project(
             to supply instead. Advice, not a defect: a raster figure still
             compiles and is the right call for a micrograph, so this is
             opt-in and off by default.
+        figure_sources: extra places to look for replacement figure files --
+            an explicit ``{number: path}`` map (``--figure N=PATH``) and any
+            folders to search (``--figures-dir``, or the split pages of a
+            ``--figures-pdf``). Also used to fill a figure the manuscript
+            captions but never had an image for.
         supplement_onecolumn: when True (and a supplement is given), the
             Supplementary Information is emitted as a simplified one-column
             ``\\documentclass[11pt]{article}`` instead of the journal's class,
@@ -303,13 +311,14 @@ def emit_project(
         # by the journal metadata template, so remove it from the body to
         # avoid it appearing twice in the PDF (gap 4).
         body_result = convert_docx_to_body(docx_path, media_dir, strip_front_matter=True)
-        figures, figure_files, conversion_warnings = run_figure_stage(
+        figures, figure_files, conversion_warnings, gap_plan = run_figure_stage(
             docx_path,
             media_dir,
             figures_dir,
             exclude_figures=exclude_figures,
             strip_metadata=strip_figure_metadata,
             vector_figures=vector_figures,
+            sources=figure_sources,
         )
 
     citation_result = extract_field_citations(docx_path)
@@ -317,6 +326,10 @@ def emit_project(
     # pandoc's LaTeX writer emits CRLF on Windows; downstream regexes match
     # literal "\n" boundaries, so normalize before resolving anchors.
     raw_tex = body_result.tex.replace("\r\n", "\n").replace("\r", "\n")
+    # A captioned-but-missing figure that WAS supplied is planted where its
+    # orphaned caption paragraph sat, and every anchor renumbered to the
+    # numbers the captions state. Inert unless a gap was actually filled.
+    raw_tex = apply_gap_fill(raw_tex, gap_plan)
     resolved_tex, anchor_warnings = resolve_anchors(
         raw_tex,
         figures,

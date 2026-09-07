@@ -27,6 +27,7 @@ from latextify.cli_review import review_corrections
 from latextify.compile.tectonic import compile_document, ensure_tectonic
 from latextify.emit.project import emit_project
 from latextify.emit.submission import parse_layout_form
+from latextify.figures.override import build_sources
 from latextify.model.emit import EmitResult
 from latextify.report.render import write_report
 from latextify.templates.loader import ManifestError, load
@@ -151,6 +152,32 @@ def convert(
         "--supplement-double-spacing/--no-supplement-double-spacing",
         help="Double-space the supplement. Needs --supplement.",
     ),
+    figures_dir: Path = typer.Option(
+        None,
+        "--figures-dir",
+        exists=True,
+        file_okay=False,
+        readable=True,
+        help="A folder of replacement figures named fig<N>.<ext>, anywhere on disk "
+        "(the fig<N> convention without having to sit beside the manuscript). "
+        "Beats figures.yaml and the figures/ folder next to the .docx.",
+    ),
+    figure: list[str] = typer.Option(
+        [],
+        "--figure",
+        metavar="N=PATH",
+        help="Replace one figure explicitly, e.g. --figure 3=plots/spectra.pdf. "
+        "Repeatable. The most specific option, so it beats every other source.",
+    ),
+    figures_pdf: Path = typer.Option(
+        None,
+        "--figures-pdf",
+        exists=True,
+        dir_okay=False,
+        readable=True,
+        help="One multi-page PDF holding every figure: page N replaces figure N. "
+        "Handy when you export all figures from Illustrator or matplotlib at once.",
+    ),
     vector_figures: bool = typer.Option(
         False,
         "--vector-figures",
@@ -201,25 +228,31 @@ def convert(
         raise typer.Exit(code=1) from exc
     try:
         journal_obj = load(journal)
-        result = emit_project(
-            docx_path,
-            journal,
-            output,
-            citation_style=citation_style,
-            crossref_mailto=crossref_mailto,
-            report=report,
-            exclude_figures=exclude_figures,
-            main_layout=main_layout,
-            supplement_layout=supplement_layout,
-            anonymize=anonymize,
-            figures_at_end=figures_at_end,
-            supplement_docx_path=supplement,
-            references_bib_path=references,
-            supplement_onecolumn=supplement_onecolumn,
-            check_references=check_references,
-            vector_figures=vector_figures,
-            strip_figure_metadata=not keep_figure_metadata,
-        )
+        # The split pages of a --figures-pdf live in a temporary directory that
+        # must outlive the emit and nothing more, hence the context manager.
+        with build_sources(
+            figures_dir=figures_dir, figure_arguments=figure, figures_pdf=figures_pdf
+        ) as figure_sources:
+            result = emit_project(
+                docx_path,
+                journal,
+                output,
+                citation_style=citation_style,
+                crossref_mailto=crossref_mailto,
+                report=report,
+                exclude_figures=exclude_figures,
+                main_layout=main_layout,
+                supplement_layout=supplement_layout,
+                anonymize=anonymize,
+                figures_at_end=figures_at_end,
+                supplement_docx_path=supplement,
+                references_bib_path=references,
+                supplement_onecolumn=supplement_onecolumn,
+                check_references=check_references,
+                vector_figures=vector_figures,
+                figure_sources=figure_sources,
+                strip_figure_metadata=not keep_figure_metadata,
+            )
     except ManifestError as exc:
         typer.echo(f"error: {exc}", err=True)
         raise typer.Exit(code=1) from exc

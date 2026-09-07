@@ -64,11 +64,15 @@ class FigureSource(StrEnum):
         beside the source docx (plan item 9).
     MANIFEST -- an explicit ``figures.yaml`` mapping entry beside the source
         docx (plan item 15); beats OVERRIDE on conflict for the same number.
+    EXPLICIT -- a ``--figure N=PATH`` argument naming one file for one
+        figure. The most specific thing a user can say, so it beats every
+        other tier.
     """
 
     EMBEDDED = "embedded"
     OVERRIDE = "override"
     MANIFEST = "manifest"
+    EXPLICIT = "explicit"
 
 
 @dataclass(frozen=True)
@@ -137,10 +141,14 @@ class Figure:
 
     @property
     def resolved_path(self) -> Path:
-        """The file that should be used for this figure: manifest/override beat embedded."""
-        if (
-            self.source in (FigureSource.OVERRIDE, FigureSource.MANIFEST)
-            and self.override_path is not None
-        ):
+        """The file that should be used for this figure: any override beats embedded.
+
+        Phrased as "not EMBEDDED" rather than by listing the override tiers.
+        Listing them meant that adding ``EXPLICIT`` (``--figure N=PATH``) left
+        this returning the *embedded* file for such a figure -- the option
+        relabelled a figure's provenance and changed nothing that shipped. A
+        new tier must not be able to reintroduce that.
+        """
+        if self.source is not FigureSource.EMBEDDED and self.override_path is not None:
             return self.override_path
         return self.embedded_path
