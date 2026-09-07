@@ -190,6 +190,27 @@
   </section>
 
   <section class="panel">
+    <h2>What are my figures?</h2>
+    <p class="hint">
+      Figure overrides are matched by <strong>number</strong>, and the number is the image's
+      position in the document &mdash; not necessarily what its caption says. List them here
+      before you assign numbers to uploads, so a replacement lands on the figure you meant.
+      Nothing is converted and nothing is written.
+    </p>
+    <div class="row">
+      <div class="field">
+        <label for="figures-file">Manuscript</label>
+        <input id="figures-file" type="file" accept=".docx,.odt,.rtf,.md" />
+      </div>
+    </div>
+    <div class="actions">
+      <button id="figures-btn" type="button" disabled>List figures</button>
+    </div>
+    <div id="figures-status" class="status"></div>
+    <div id="figures-report" class="hidden"></div>
+  </section>
+
+  <section class="panel">
     <h2>Export to HTML or Markdown</h2>
     <p class="hint">Standalone tool, independent of the conversion above: export a manuscript to a
       single self-contained <strong>.html</strong> file or a plain <strong>.md</strong> file — no
@@ -222,6 +243,7 @@
 <script src="/static/export.js"></script>
 <script src="/static/review.js"></script>
 <script src="/static/clean.js"></script>
+<script src="/static/figures.js"></script>
 <script src="/static/alt-export.js"></script>
 <script src="/static/lifecycle.js"></script>
 </body>

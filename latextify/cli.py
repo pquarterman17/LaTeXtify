@@ -15,6 +15,9 @@ Current surface (plan items 3, 5, 16, 18, 19, 20, 21, 23):
     latextify batch folder --journal J [--citation-style S] [--pdf] \\
         [--output output] [--recursive]          # batch conversion (item 20)
     latextify journals              # list registered journal templates (item 18)
+    latextify figures paper.docx [--json]  # list figures: number, caption,
+                                    # format and effective print DPI, so an
+                                    # override file can be named by number
     latextify equations paper.docx [--output DIR] [--pdf]  # equation audit (item 23)
     latextify clean paper.docx clean.docx  # strip metadata/tracked changes/comments (item 3)
     latextify export paper.docx --format html|markdown [--output FILE] \\
@@ -37,6 +40,7 @@ from latextify.cli_batch import batch
 from latextify.cli_convert import convert
 from latextify.cli_equations import equations
 from latextify.cli_export import export
+from latextify.cli_figures import figures_cmd
 from latextify.cli_kit import make_kit_cmd
 from latextify.cli_privacy import clean, formats
 from latextify.cli_privacy import inspect as inspect_cmd
@@ -92,6 +96,10 @@ app.command()(equations)
 app.command(name="clean")(clean)
 app.command(name="inspect")(inspect_cmd)
 app.command(name="formats")(formats)
+# `figures` lists a manuscript's figures with their print resolution so an
+# override file can be named by number with certainty; lives in
+# latextify.cli_figures, registered on the shared app like the rest.
+app.command(name="figures")(figures_cmd)
 
 # HTML/Markdown export (items 4-5, FORMATS_AND_PRIVACY) lives in
 # latextify.cli_export; register its command on the shared app.

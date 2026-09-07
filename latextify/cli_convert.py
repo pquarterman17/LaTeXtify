@@ -151,6 +151,14 @@ def convert(
         "--supplement-double-spacing/--no-supplement-double-spacing",
         help="Double-space the supplement. Needs --supplement.",
     ),
+    vector_figures: bool = typer.Option(
+        False,
+        "--vector-figures",
+        help="Report every figure that is not vector art -- a pasted screenshot, or "
+        "a raster wrapped in a PDF -- with its effective print DPI and the "
+        "figures/fig<N>.pdf file to supply instead. Run `latextify figures` on the "
+        "manuscript first to see which number is which. Off by default.",
+    ),
     check_references: bool = typer.Option(
         False,
         "--check-references",
@@ -209,6 +217,7 @@ def convert(
             references_bib_path=references,
             supplement_onecolumn=supplement_onecolumn,
             check_references=check_references,
+            vector_figures=vector_figures,
             strip_figure_metadata=not keep_figure_metadata,
         )
     except ManifestError as exc:

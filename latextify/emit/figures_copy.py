@@ -22,35 +22,17 @@ from dataclasses import replace
 from pathlib import Path
 
 from latextify.figures.convert import convert_for_latex
+from latextify.figures.inventory import is_wide as _is_wide_figure
 from latextify.model.emit import EmitWarning
 from latextify.model.figure import Figure, FigureSource
 
-#: A figure whose pixel width-to-height ratio meets this threshold is emitted
-#: as the journal's wide float (usually ``figure*``) so it spans both columns
-#: of a two-column layout instead of being squeezed unreadably into one. 1.3
-#: sits between portrait/near-square single-panel plots (kept single-column)
-#: and the landscape multi-panel composites that dominate real papers.
-#: Deliberately a general ratio, not tuned to any single manuscript (see the
-#: generalize-fixes rule).
-_WIDE_ASPECT_THRESHOLD = 1.3
-
-
-def _is_wide_figure(path: Path) -> bool:
-    """True when the raster image at ``path`` is landscape past the threshold.
-
-    Measures the copied output file's pixel aspect ratio with Pillow. Any
-    failure -- a vector/PDF figure Pillow cannot open, a corrupt file, a zero
-    height -- degrades to ``False`` (single-column), never an exception: figure
-    *sizing* must not be able to fail a conversion that otherwise compiles.
-    """
-    try:
-        from PIL import Image
-
-        with Image.open(path) as image:
-            width, height = image.size
-        return height > 0 and width / height >= _WIDE_ASPECT_THRESHOLD
-    except Exception:  # Pillow's failure modes vary; never crash the emit
-        return False
+# The wide-float decision (aspect ratio past a threshold -> the journal's
+# two-column float) lives in latextify.figures.inventory, which measures PDFs
+# through pypdf as well as rasters through Pillow. This module measured with
+# Pillow alone until 2026-09-05, so a PDF -- the format the override order
+# PREFERS -- could not be measured at all and every vector figure silently fell
+# back to a single-column float however landscape it was. Sharing the measure
+# also keeps `latextify figures` predicting the layout the emitter produces.
 
 
 def _copy_figures(
