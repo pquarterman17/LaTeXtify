@@ -249,6 +249,12 @@ def test_convert_unsupported_citation_style_exits_nonzero_with_clear_error(tmp_p
             "ieeetran",
             "--citation-style",
             "authoryear",
+            # --output is not optional here even though this run must FAIL:
+            # emit_project creates the output directory before it validates the
+            # citation style, so omitting it left an `output/` tree in the REPO
+            # ROOT every time the suite ran.
+            "--output",
+            str(tmp_path / "output"),
         ],
     )
 
