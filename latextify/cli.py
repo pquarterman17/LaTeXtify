@@ -15,7 +15,8 @@ Current surface (plan items 3, 5, 16, 18, 19, 20, 21, 23):
     latextify batch folder --journal J [--citation-style S] [--pdf] \\
         [--output output] [--recursive]          # batch conversion (item 20)
     latextify journals              # list registered journal templates (item 18)
-    latextify figures paper.docx [--json]  # list figures: number, caption,
+    latextify figures paper.docx [--json] [--figures-dir DIR] \\
+        [--figure N=PATH] [--figures-pdf FILE]  # list figures: number, caption,
                                     # format and effective print DPI, so an
                                     # override file can be named by number
     latextify equations paper.docx [--output DIR] [--pdf]  # equation audit (item 23)

@@ -26,13 +26,14 @@ import typer
 
 from latextify.figures.caption_gaps import caption_gaps
 from latextify.figures.extract import extract_figures
+from latextify.figures.gap_fill import plan_gap_fill
 from latextify.figures.inventory import (
     MIN_PRINT_DPI,
     FigureFacts,
     FigureKind,
     inventory,
 )
-from latextify.figures.override import resolve_overrides
+from latextify.figures.override import OverrideSources, build_sources, resolve_overrides
 from latextify.model.figure import FigureSource
 
 # The 300 DPI figure quoted in this command's help text is
@@ -105,16 +106,26 @@ def _as_dict(facts: FigureFacts) -> dict[str, object]:
     }
 
 
-def _describe_manuscript(docx_path: Path) -> tuple[tuple[FigureFacts, ...], list[int]]:
+def _describe_manuscript(
+    docx_path: Path, sources: OverrideSources
+) -> tuple[tuple[FigureFacts, ...], list[int]]:
     """Resolve and describe ``docx_path``'s figures, plus its caption gaps.
+
+    Runs the same gap planning a conversion does, so a manuscript whose
+    missing figure HAS been supplied is listed the way it will actually be
+    emitted -- renumbered to the captions, with the filled figure present --
+    rather than showing the pre-repair numbering the author would then have
+    to second-guess.
 
     Media is extracted into a temporary directory that is discarded on the way
     out -- this command reports, it does not write into the user's tree.
     """
     with tempfile.TemporaryDirectory(prefix="latextify-figures-") as tmp:
-        figures = resolve_overrides(extract_figures(docx_path, Path(tmp)), docx_path)
+        plan = plan_gap_fill(extract_figures(docx_path, Path(tmp)), docx_path, sources)
+        figures = resolve_overrides(plan.figures, docx_path, sources=sources)
         facts = inventory(figures)
-    return facts, caption_gaps(docx_path, len(facts))
+    gaps = list(plan.unfilled) if plan.changed else caption_gaps(docx_path, len(facts))
+    return facts, gaps
 
 
 def figures_cmd(
@@ -123,6 +134,29 @@ def figures_cmd(
     ),
     as_json: bool = typer.Option(
         False, "--json", help="Emit the inventory as JSON instead of a table."
+    ),
+    figures_dir: Path = typer.Option(
+        None,
+        "--figures-dir",
+        exists=True,
+        file_okay=False,
+        readable=True,
+        help="Also consider replacement figures in this folder (fig<N>.<ext>), "
+        "so the listing matches what `convert --figures-dir` would use.",
+    ),
+    figure: list[str] = typer.Option(
+        [],
+        "--figure",
+        metavar="N=PATH",
+        help="Also consider this explicit replacement, e.g. --figure 3=spectra.pdf. Repeatable.",
+    ),
+    figures_pdf: Path = typer.Option(
+        None,
+        "--figures-pdf",
+        exists=True,
+        dir_okay=False,
+        readable=True,
+        help="Also consider a multi-page PDF where page N replaces figure N.",
     ),
 ) -> None:
     """List DOCX_PATH's figures: number, caption, source, format and print DPI.
@@ -143,7 +177,10 @@ def figures_cmd(
     ``latextify convert --vector-figures`` to gate a conversion on it.
     """
     try:
-        facts, gaps = _describe_manuscript(docx_path)
+        with build_sources(
+            figures_dir=figures_dir, figure_arguments=figure, figures_pdf=figures_pdf
+        ) as sources:
+            facts, gaps = _describe_manuscript(docx_path, sources)
     except ValueError as exc:
         # Exit 1, as convert/export/equations do for the same unreadable-or-
         # unsupported-manuscript ValueError. (`inspect` uses 2, but it grades

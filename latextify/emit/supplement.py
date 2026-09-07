@@ -193,7 +193,7 @@ def emit_supplement(
         # documents share figures/ without colliding. Routing through it is
         # what lets --vector-figures see SI figures at all, and it brings the
         # SI the caption-gap check the main document has always had.
-        si_figures, si_figure_files, si_conversion_warnings = run_figure_stage(
+        si_figures, si_figure_files, si_conversion_warnings, _si_gap_plan = run_figure_stage(
             supplement_docx_path,
             si_media_dir,
             figures_dir,

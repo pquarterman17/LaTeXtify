@@ -33,7 +33,7 @@ owner before any code was written:
    elsewhere.
 4. **Undiscoverable.** One line in the README; nothing in the GUI.
 
-## Stage 1 — diagnostics (this change)
+## Stage 1 — diagnostics
 
 Fixes gaps 1, 2 and 4, and a layout bug found while reading the code.
 
@@ -108,28 +108,58 @@ figure stage moved to `emit/figures_stage.py` — a pure move along a seam the
 file already had (`emit_project` ran the block inline). `project.py` came out
 at 477 with the new option added.
 
-## Stage 2 — input mechanisms (not yet built)
+## Stage 2 — input mechanisms (built)
 
-Fixes gap 3. Agreed with the owner, deliberately deferred so the diagnostics
-above can be used on a real manuscript first.
-
-- `--figures-dir PATH` — the `fig<N>` convention, folder anywhere.
-- `--figure N=PATH` — repeatable explicit mapping.
-- `--figures-pdf FILE` — one multi-page PDF, page N becomes figure N (split
-  with pypdf).
-- **Caption-gap insertion** — supplying `fig5.pdf` creates figure 5 even when
-  no image was ever pasted for it.
+Fixes gap 3, and turns the caption-gap warning into a repair.
 
 All four layer onto the one existing resolution step rather than becoming
-parallel paths, with the beside-the-docx folder and `figures.yaml` staying
-lowest priority.
+parallel paths. `OverrideSources` (an explicit `{number: path}` map plus an
+ordered list of directories) is the only new concept; `resolve_overrides`
+consults it, and `_resolve_one` holds the whole tier order in one readable
+place:
 
-**Known risk on the last item.** Every figure today is emitted by resolving a
-`%%FIGURE:N%%` marker planted where the image was. A figure that was never
-pasted has no marker, so creating one means locating the caption paragraph in
-the generated LaTeX and replacing it with a float — text surgery on generated
-output. It needs real fixtures before it can be trusted, and if it turns ugly
-the alternative goes back to the owner rather than being forced.
+1. `--figure N=PATH` → `FigureSource.EXPLICIT`
+2. a `fig<N>.<ext>` in `--figures-dir`, then in the split `--figures-pdf`
+3. `figures.yaml`
+4. `figures/fig<N>.<ext>` beside the manuscript
+5. the embedded image
+
+`--figures-pdf` needs no rules of its own: it is split with pypdf into a
+temporary directory of `fig<N>.pdf` and handed to the same directory tier,
+which is why one mechanism covers two options. `build_sources` is a context
+manager so that staging directory outlives the conversion and nothing more.
+
+### Caption-gap repair — better than expected
+
+The known risk was real but the shape of the problem turned out to help.
+VERIFIED on a fixture captioning 1-4 with no image for 3:
+
+- pandoc leaves the orphaned `Figure 3: ...` paragraph in the body **as
+  ordinary text**, exactly where the figure belongs, so there is a precise
+  anchor point to replace — no guessing at insertion position;
+- LaTeX numbers floats by position, so planting the float there makes the
+  printed numbering correct with no counter manipulation.
+
+So the repair does more than fill a hole. It renumbers the extracted figures
+from document order to the numbers the captions *state*, which re-pairs every
+shifted caption with its own image — the mis-binding that made this bug worth
+fixing in the first place.
+
+It stays inert unless a replacement file was actually supplied for a gap.
+Repairing the numbering when we cannot also supply the missing image would
+silently reshape a project an author is already working with.
+
+**A bug found while building it, worth remembering.** Resolution originally ran
+before renumbering, so a file supplied for gap 3 was *also* picked up by
+whichever document-order figure happened to be numbered 3 — the same file
+emitted twice under two numbers, and the real figure 4 losing its own image.
+Gap planning now runs first, so every figure resolves against the number it
+will actually ship as. A test pins the written filenames.
+
+**A second one:** `Figure.resolved_path` listed the override tiers by name, so
+adding `EXPLICIT` left it returning the *embedded* file — `--figure N=PATH`
+relabelled provenance and changed nothing that shipped. It now asks "not
+EMBEDDED", so a future tier cannot reintroduce that.
 
 ## Deliberately not done
 
@@ -137,6 +167,10 @@ the alternative goes back to the owner rather than being forced.
   a much harder core (region detection); bundling it would blur this one.
 - **Cropping a multi-page PDF's pages to their content bounding box.** Needs
   Ghostscript or pdfcrop, neither of which is a dependency. Revisit only if
-  full-page margins turn out to be a real annoyance in stage 2.
+  full-page margins turn out to be a real annoyance in practice.
+- **A manuscript with captions and no pasted images at all.** The repair fills
+  gaps in a document that still has *some* figures; a fully image-less
+  manuscript would need the caption walk to drive emission outright. Not asked
+  for, and a much larger change to the anchor contract.
 - **Raising the DPI floor per journal.** 300 is near-universal; a per-journal
   override is easy to add later if any target actually differs.

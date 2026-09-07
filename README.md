@@ -134,6 +134,40 @@ number. For names that don't follow the convention, map them explicitly in a
 3: plots/resistance-vs-temperature.pdf
 ```
 
+Or keep them wherever they already live:
+
+```bash
+# a folder anywhere, same fig<N> naming
+latextify convert paper.docx -j revtex4-2 --figures-dir ~/plots
+
+# one file, named outright (beats every other source)
+latextify convert paper.docx -j revtex4-2 --figure 3=~/plots/spectra.pdf
+
+# everything in one exported PDF: page N replaces figure N
+latextify convert paper.docx -j revtex4-2 --figures-pdf ~/plots/all-figures.pdf
+```
+
+`latextify figures` takes the same three options, so you can preview exactly
+what a conversion would use before running it.
+
+### A figure you never pasted into Word
+
+If the manuscript *captions* Figure 3 but no image was ever pasted for it,
+supplying `fig3.pdf` inserts it at that caption. This is worth doing even if
+you don't care about vector art, because of what the gap does otherwise:
+
+Word binds a caption to the image next to it, so a missing figure 3 means the
+image belonging to caption 4 gets emitted **carrying caption 3's text**, and
+every later figure is shifted the same way. The orphaned "Figure 3" caption is
+left behind in the body as ordinary prose. Nothing about the output looks
+broken; the figures are simply mislabelled.
+
+Supplying the missing file repairs all of it — the figures are renumbered to
+the numbers your captions state, so each image is re-paired with its own
+caption, and the new figure is planted where the orphan paragraph sat. Without
+a replacement file nothing is renumbered; you get the warning naming the fix,
+exactly as before.
+
 ### 3. Convert, and check it took
 
 ```bash
