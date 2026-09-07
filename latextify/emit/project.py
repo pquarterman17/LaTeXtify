@@ -74,8 +74,6 @@ main document's output byte-identical to before item 21.
 
 from __future__ import annotations
 
-import os
-import re
 import tempfile
 from pathlib import Path
 
@@ -92,6 +90,7 @@ from latextify.emit.bibliography import (
 from latextify.emit.citation_resolution import link_plaintext_citations, run_reference_validation
 from latextify.emit.figures_stage import run_figure_stage
 from latextify.emit.metadata import load_meta, write_metadata_tex
+from latextify.emit.output_dir import journal_output_dir
 from latextify.emit.submission import (
     DocumentLayout,
     anonymize_meta,
@@ -120,37 +119,6 @@ _MAIN_TEX_TEMPLATE = (
     "\\input{generated/bibliography}\n"
     "\\end{document}\n"
 )
-
-
-#: A journal name doubles as the per-journal output directory name, so it must
-#: be one plain path component: no separators, no leading dot, nothing that
-#: could climb out of ``output_root``. Every shipped manifest already fits.
-_JOURNAL_NAME_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
-
-
-def _journal_output_dir(output_root: Path, journal_name: str) -> Path:
-    """Return ``output_root / journal_name``, refusing a name that escapes the root.
-
-    ``journal_name`` reaches here from the CLI and from a GUI form field, and it
-    becomes a directory name every generated file is written under. Validating
-    the spelling first, and then checking that the normalized destination still
-    sits directly inside ``output_root``, keeps a crafted name such as
-    ``../../etc`` from steering the writes anywhere else. Raises
-    :class:`~latextify.templates.loader.ManifestError` (a ``ValueError``) so
-    every caller's existing bad-journal handling applies.
-    """
-    if not _JOURNAL_NAME_RE.fullmatch(journal_name):
-        raise templates_loader.ManifestError(
-            f"{journal_name!r}: journal name must be a single plain path component "
-            "(letters, digits, '.', '_' and '-' only)"
-        )
-    root = os.path.normpath(os.path.abspath(output_root))
-    candidate = os.path.normpath(os.path.join(root, journal_name))
-    if not candidate.startswith(os.path.join(root, "")) or os.path.dirname(candidate) != root:
-        raise templates_loader.ManifestError(
-            f"{journal_name!r}: journal name resolves outside the output directory"
-        )
-    return Path(candidate)
 
 
 def emit_project(
@@ -280,7 +248,17 @@ def emit_project(
         ``None`` unless ``supplement_docx_path`` was given.
     """
     docx_path = Path(docx_path)
-    output_dir = _journal_output_dir(Path(output_root), journal_name)
+
+    # Everything that can REJECT this run happens before anything is created on
+    # disk: the journal must exist, and it must support the requested citation
+    # mode. Loading the journal used to happen after the output tree was made,
+    # so `convert --journal ieeetran --citation-style authoryear` -- which is
+    # correctly refused -- still left an empty output/ieeetran/ behind. A run
+    # that fails should leave the filesystem as it found it.
+    journal = templates_loader.load(journal_name, journals_dir=journals_dir)
+    journal.resolve_mode(citation_style)
+
+    output_dir = journal_output_dir(Path(output_root), journal_name)
     generated_dir = output_dir / "generated"
     figures_dir = output_dir / "figures"
     generated_dir.mkdir(parents=True, exist_ok=True)
@@ -296,7 +274,6 @@ def emit_project(
     # Preflight: inventory and flag unsupported constructs before any conversion.
     preflight_report = run_preflight(docx_path)
 
-    journal = templates_loader.load(journal_name, journals_dir=journals_dir)
     sidecar_existed = sidecar_path_for(docx_path).exists()  # before load_meta may write it
     meta = load_meta(docx_path)
     if anonymize:

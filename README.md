@@ -150,6 +150,10 @@ latextify convert paper.docx -j revtex4-2 --figures-pdf ~/plots/all-figures.pdf
 `latextify figures` takes the same three options, so you can preview exactly
 what a conversion would use before running it.
 
+In the web GUI, drop the bundle in as a **figure bundle (PDF)** rather than as
+an ordinary figure — as a plain figure only its first page would be used. An
+individually uploaded figure still wins over that number's page in the bundle.
+
 ### A figure you never pasted into Word
 
 If the manuscript *captions* Figure 3 but no image was ever pasted for it,

@@ -181,6 +181,7 @@ def register_convert_routes(
         supplement: UploadFile | None = File(None),
         figures: list[UploadFile] = File([]),
         figure_numbers: list[int] = Form([]),
+        figures_pdf: UploadFile | None = File(None),
         references: UploadFile | None = File(None),
         citation_style: str | None = Form(None),
         crossref_mailto: str | None = Form(None),
@@ -234,7 +235,9 @@ def register_convert_routes(
         except ManifestError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-        staged = await stage_multi_uploads(
+        # stage_multi_uploads raises ValueError for an unreadable figures_pdf,
+        # the same contract every other bad upload uses.
+        staged = await _stage_or_400(
             root=root,
             max_upload_bytes=max_upload_bytes,
             main=main,
@@ -242,6 +245,7 @@ def register_convert_routes(
             references=references,
             figures=figures,
             figure_numbers=figure_numbers,
+            figures_pdf=figures_pdf,
         )
         session_dir = staged.session_dir
         main_path = staged.main_path
@@ -453,3 +457,17 @@ def register_convert_routes(
             export_token=export_token,
             validation=validation_out,
         )
+
+
+async def _stage_or_400(**kwargs: object):  # noqa: ANN003, ANN201 -- thin passthrough
+    """Stage this request's uploads, turning a bad one into a 400.
+
+    :func:`latextify.gui.convert_inputs.stage_multi_uploads` raises a clean
+    ``ValueError`` naming the file for an unreadable multi-page figure bundle
+    (the same contract every ingest boundary uses). Without this it would have
+    surfaced as a raw 500 traceback.
+    """
+    try:
+        return await stage_multi_uploads(**kwargs)  # type: ignore[arg-type]
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc

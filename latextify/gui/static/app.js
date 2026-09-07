@@ -6,9 +6,13 @@
 (function () {
   "use strict";
 
-  const ROLES = ["main", "supplement", "figure", "references", "ignore"];
+  const ROLES = ["main", "supplement", "figure", "figures_pdf", "references", "ignore"];
   const ROLE_LABELS = {
     main: "Main text", supplement: "Supplement", figure: "Figure",
+    /* One multi-page PDF holding every figure: page N replaces figure N. Its
+       own role because uploading such a bundle as an ordinary Figure used
+       page 1 alone and silently discarded the rest. */
+    figures_pdf: "Figure bundle (page N = figure N)",
     references: "References (.bib)", ignore: "Ignore",
   };
   const IMAGE_EXTS = ["png", "jpg", "jpeg", "tif", "tiff", "gif", "bmp", "webp", "eps", "svg", "pdf", "emf", "wmf"];
@@ -235,7 +239,9 @@
     optCombine.disabled = !hasSupp;
     if (!hasSupp) optCombine.checked = false;
     optCombine.title = hasSupp ? "" : "Add a file with the Supplement role to enable.";
-    const figsStaged = entries.some((x) => x.role === "figure");
+    const figsStaged = entries.some(
+      (x) => x.role === "figure" || x.role === "figures_pdf"
+    );
     el("nofigs-warning").classList.toggle("hidden", !(optNoFigs.checked && figsStaged));
   }
 
@@ -367,6 +373,11 @@
       fd.append("figures", f.file);
       fd.append("figure_numbers", String(f.number || 1));
     });
+    /* Sent alongside the individual figures, not instead of them: the server
+       writes the bundle's pages first so a file uploaded for the same number
+       wins, matching the CLI's --figure over --figures-pdf precedence. */
+    const bundle = entries.find((x) => x.role === "figures_pdf");
+    if (bundle) fd.append("figures_pdf", bundle.file);
     const mainLayout = main.layout || defaultLayout();
     fd.append("main_columns", mainLayout.columns || "default");
     fd.append("main_line_numbers", mainLayout.linenos ? "true" : "false");
@@ -410,6 +421,10 @@
     const figs = entries.filter((x) => x.role === "figure");
     if (figs.some((f) => !(f.number > 0))) {
       showError("Every figure needs a positive figure number.");
+      return;
+    }
+    if (entries.filter((x) => x.role === "figures_pdf").length > 1) {
+      showError("Only one file can be the Figure bundle — the rest would be ignored.");
       return;
     }
 
