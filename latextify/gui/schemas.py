@@ -216,3 +216,39 @@ class AltExportResponse(BaseModel):
     figure_count: int
     citation_count: int
     warnings: list[str] = []
+
+
+class FigureFactsModel(BaseModel):
+    """One figure in the ``POST /api/figures`` inventory.
+
+    Mirrors :class:`latextify.figures.inventory.FigureFacts` -- the same facts
+    ``latextify figures`` prints -- so the browser can show an author which
+    number belongs to which caption before they assign uploads to numbers.
+    """
+
+    number: int
+    caption: str
+    source: str
+    kind: str
+    is_vector: bool
+    needs_attention: bool
+    wide: bool
+    in_table: bool
+    width: float | None = None
+    height: float | None = None
+    dpi: float | None = None
+    print_width_inches: float
+
+
+class FiguresResponse(BaseModel):
+    """Body of ``POST /api/figures``: what the manuscript's figures are.
+
+    ``caption_gaps`` lists figure numbers the manuscript captions but has no
+    image for. They matter here because every figure after a gap is numbered
+    one lower than its caption claims, which is exactly the mismatch that
+    makes an author name an override file for the wrong figure.
+    """
+
+    figures: list[FigureFactsModel]
+    caption_gaps: list[int]
+    min_print_dpi: int

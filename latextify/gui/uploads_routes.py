@@ -8,6 +8,9 @@ token for the file produced -- the same session/token pattern
 back by token):
 
     POST /api/inspect         report an uploaded file's metadata (writes nothing)
+    POST /api/figures         list an uploaded manuscript's figures, with the
+                               format and print resolution of each (writes
+                               nothing)
     POST /api/clean-file      sanitize an uploaded file -> token + what was removed
     POST /api/export-format   export an uploaded manuscript to a single
                                self-contained HTML file or plain Markdown
@@ -29,12 +32,15 @@ from pathlib import Path
 from fastapi import Depends, FastAPI, File, Form, HTTPException, UploadFile
 
 from latextify.emit.alt_formats import export_html, export_markdown
+from latextify.figures.inventory import MIN_PRINT_DPI
 from latextify.gui.demo import require_demo_rate_limit
 from latextify.gui.downloads import _issue_token, _register_session, _rmtree
+from latextify.gui.figures_view import build_figures_response
 from latextify.gui.guard import require_gui_auth
 from latextify.gui.schemas import (
     AltExportResponse,
     CleanFileResponse,
+    FiguresResponse,
     FindingModel,
     InspectResponse,
 )
@@ -166,6 +172,43 @@ def register_upload_routes(app: FastAPI, *, root: Path, max_upload_bytes: int) -
             removed=_as_models(report.sorted_removed()),
             warnings=report.warnings,
         )
+
+    @app.post(
+        "/api/figures",
+        response_model=FiguresResponse,
+        dependencies=[Depends(require_gui_auth), Depends(require_demo_rate_limit)],
+    )
+    async def figures(main: UploadFile = File(...)) -> FiguresResponse:
+        """List an uploaded manuscript's figures without converting it.
+
+        The Figures panel calls this before an author assigns uploads to
+        figure numbers, because the override mechanism is keyed by NUMBER and
+        the number is document order -- not necessarily what a caption says.
+        Guessing it wrong silently swaps two figures in a submission.
+
+        Writes nothing that outlives the call: the upload is staged in a
+        session directory and removed on the way out, since there is no
+        artifact to hand back.
+        """
+        ext = _lower_ext(main.filename)
+        if ext not in _ALLOWED_MANUSCRIPT_EXTS:
+            raise HTTPException(
+                status_code=400,
+                detail="manuscript must be one of: "
+                + ", ".join("." + e for e in sorted(_ALLOWED_MANUSCRIPT_EXTS)),
+            )
+
+        session_dir = root / uuid.uuid4().hex
+        upload_dir = session_dir / "upload"
+        upload_dir.mkdir(parents=True, exist_ok=True)
+        src_path = upload_dir / f"main.{ext}"
+        try:
+            await _stream_upload(main, src_path, max_bytes=max_upload_bytes)
+            return build_figures_response(src_path, min_print_dpi=MIN_PRINT_DPI)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        finally:
+            _rmtree(session_dir)
 
     @app.post(
         "/api/export-format",

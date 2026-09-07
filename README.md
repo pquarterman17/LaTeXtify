@@ -45,10 +45,13 @@ locally for private, full-speed conversions.
   recompiled. On by default in the GUI.
 - **Figures** — extracts embedded images, or swap in your own
   vector/high-res files by dropping `figures/fig1.pdf` beside the docx (or
-  an explicit `figures.yaml`). SVG converts to PDF automatically. Embedded
-  camera metadata — GPS, body/lens serial numbers, the photographer's name,
-  the capture thumbnail — is stripped on the way into `figures/`, losslessly:
-  pixels and colour profile are untouched. `--keep-figure-metadata` opts out.
+  an explicit `figures.yaml`). SVG converts to PDF automatically.
+  `latextify figures paper.docx` lists what you have and what it will print
+  at — see [Replacing pasted screenshots with vector art](#replacing-pasted-screenshots-with-vector-art).
+  Embedded camera metadata — GPS, body/lens serial numbers, the photographer's
+  name, the capture thumbnail — is stripped on the way into `figures/`,
+  losslessly: pixels and colour profile are untouched.
+  `--keep-figure-metadata` opts out.
 - **Equations** — Word equation editor (OMML) math converts to LaTeX;
   `latextify equations` produces a side-by-side audit for equation-heavy
   papers.
@@ -62,6 +65,119 @@ locally for private, full-speed conversions.
 - **Re-run safe** — `main.tex` is written once and never overwritten; your
   manual LaTeX polish survives re-conversion (regenerated content lives in
   `generated/`).
+
+## Replacing pasted screenshots with vector art
+
+A figure pasted into Word as a screenshot is pixels forever. Printed at column
+width it is usually well under the 300 DPI journals ask for, and no conversion
+step can recover detail that was never captured. The fix is to supply the
+original vector file — LaTeXtify will use it instead of what is in the
+document.
+
+### 1. See what you actually have
+
+```bash
+latextify figures paper.docx
+```
+
+```
+3 figure(s) in paper.docx
+
+FIG  SOURCE    KIND        SIZE           DPI       CAPTION
+  1  embedded  raster      1100x900       324       Device schematic and measurement setup.
+  2  embedded  raster      640x480        91 LOW    Raman spectra of the three samples.
+  3  override  raster-pdf  468x351pt      109 LOW   Temperature dependence of the resistance.
+
+0 of 3 already vector.
+Figure(s) 2, 3 would print below 300 DPI. Supply a vector version of each as figures/fig<N>.pdf (or .eps/.svg) beside the manuscript.
+```
+
+Three things this tells you that guessing cannot:
+
+- **Which figure is number 3.** Figures are numbered by position in the
+  document, which is *not* always what a caption says — a caption with no image
+  behind it shifts every later number, and the listing warns when it finds one.
+  The number is what names the replacement file, so getting it wrong silently
+  swaps two figures in your submission.
+- **What each file really is.** `raster-pdf` above means a PDF whose content is
+  a single image and no text: a screenshot someone printed to PDF. It has a
+  vector file's extension and a raster's limits — note that figure 3 is an
+  `override`, i.e. a file someone supplied *believing* it was vector.
+- **How it will print.** DPI is the effective resolution at the width it will
+  be printed at, flagged `LOW` below 300. A landscape figure is assumed to span
+  both columns, so it needs roughly twice the pixels of a single-column one —
+  which is why figure 2 above fails at 640x480 while figure 1 passes at
+  1100x900. Any crop you applied in Word is accounted for, since those pixels
+  never reach the output.
+
+The same table is in the web GUI under *What are my figures?*, and
+`--json` makes it scriptable.
+
+### 2. Drop the vector files in
+
+Put them beside the manuscript, named by figure number:
+
+```
+paper.docx
+figures/
+  fig2.pdf
+  fig3.svg
+```
+
+PDF, EPS and SVG are all accepted; SVG and EPS are converted to PDF for you.
+A vector file always beats the embedded image, and beats a raster of the same
+number. For names that don't follow the convention, map them explicitly in a
+`figures.yaml` beside the docx:
+
+```yaml
+2: plots/raman-spectra.pdf
+3: plots/resistance-vs-temperature.pdf
+```
+
+### 3. Convert, and check it took
+
+```bash
+latextify convert paper.docx -j revtex4-2 --pdf --vector-figures
+```
+
+`--vector-figures` reports every figure that is *still* raster, with its print
+DPI and the exact filename to supply:
+
+```
+warning: figure 3 appears to be a raster image wrapped in a PDF -- about 109 DPI
+at 7 in wide, below the 300 DPI most journals require. Supply a vector version
+as figures/fig3.pdf (PDF, EPS or SVG) to replace it.
+```
+
+`report.md` records the same thing durably, per figure:
+
+```
+**Fig 1** (EMBEDDED, raster 324 DPI at 3.4 in)
+**Fig 2** (EMBEDDED, raster 91 DPI at 7 in — below 300 DPI)
+**Fig 3** (OVERRIDE, raster in a PDF 109 DPI at 7 in — below 300 DPI)
+```
+
+### Getting vector out of Word in the first place
+
+Word is not the problem as often as it seems. It cannot hold vector for a
+screen capture — that is raster the moment you press Print Screen — but it
+holds real vector for anything drawn:
+
+- **Paste Special, not Ctrl+V.** Copy a chart from Excel, Origin, MATLAB or
+  Illustrator, then Home ▸ Paste ▸ Paste Special ▸ *Picture (Enhanced
+  Metafile)*. That lands as EMF, which is vector. A plain Ctrl+V usually gives
+  you a bitmap.
+- **LaTeXtify converts EMF and WMF to PDF** when LibreOffice or Inkscape is on
+  your PATH. Neither is a dependency — without one, the figure is skipped and
+  the warning names the fix.
+- **Export from the plotting tool.** Saving directly to PDF or SVG and dropping
+  it in as `figures/fig<N>.pdf` skips Word entirely and is the most reliable
+  route.
+- **A micrograph or photograph has no vector form.** Supply it at a size that
+  reaches 300 DPI at print width instead — roughly 1000 px across for a
+  single-column figure, 2100 px for one spanning both columns. `latextify
+  figures` reports exactly this, so you can check before submitting rather than
+  after a desk rejection.
 
 ## Supported journals
 
@@ -159,6 +275,12 @@ latextify convert paper.docx --journal revtex4-2 --check-references
 
 # ...and interactively approve/deny/edit each correction, then rewrite + recompile
 latextify convert paper.docx --journal revtex4-2 --pdf --review
+
+# List a manuscript's figures: number, caption, format, effective print DPI
+latextify figures paper.docx
+
+# Convert, reporting every figure that is still a screenshot rather than vector
+latextify convert paper.docx --journal revtex4-2 --pdf --vector-figures
 
 # A folder of manuscripts at once (continue-on-error + summary)
 latextify batch drafts/ --journal revtex4-2 --pdf

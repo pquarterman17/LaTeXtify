@@ -17,8 +17,10 @@ from __future__ import annotations
 from datetime import datetime
 from pathlib import Path
 
+from latextify.figures.inventory import MIN_PRINT_DPI, FigureKind, describe
 from latextify.model.compile import CompileResult
 from latextify.model.emit import EmitResult, SupplementResult
+from latextify.model.figure import Figure
 from latextify.model.preflight import PreflightReport
 from latextify.model.reconcile import ReconciliationReport
 from latextify.model.validate import ValidationRecord, ValidationReport
@@ -257,7 +259,8 @@ def render_report(
         for figure in sorted_figures:
             source_label = figure.source.value.upper()
             conv_note = f" — {figure.conversion_note}" if figure.conversion_note else ""
-            lines.append(f"**Fig {figure.number}** ({source_label}){conv_note}\n")
+            quality = _figure_quality(figure, emit_result.figures_dir)
+            lines.append(f"**Fig {figure.number}** ({source_label}{quality}){conv_note}\n")
             if figure.caption:
                 lines.append(f"> {_flatten(figure.caption)}\n")
     else:
@@ -347,3 +350,29 @@ def write_report(
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(report_text, encoding="utf-8")
     return output_path
+
+
+def _figure_quality(figure: Figure, figures_dir: Path) -> str:
+    """ ", vector" / ", raster 152 DPI" for the figure file actually written.
+
+    Describes the OUTPUT file rather than ``figure.resolved_path``: an SVG
+    source has become a PDF by the time the report is written, and reporting
+    the source would call an already-vector figure a raster. The written file
+    is found by glob because only the emitter knows what extension conversion
+    settled on. Returns "" when no file can be found or measured, so a figure
+    this cannot describe simply reads as it always did.
+    """
+    written = sorted(figures_dir.glob(f"fig{figure.number}.*")) if figures_dir.is_dir() else []
+    if not written:
+        return ""
+    facts = describe(figure, path=written[0])
+    if facts.kind is FigureKind.UNKNOWN:
+        return ""
+    if facts.is_vector:
+        return ", vector"
+    dpi = facts.dpi
+    if dpi is None:
+        return ", raster"
+    flag = "" if dpi >= MIN_PRINT_DPI else f" — below {MIN_PRINT_DPI} DPI"
+    kind = "raster in a PDF" if facts.kind is FigureKind.RASTER_IN_PDF else "raster"
+    return f", {kind} {dpi:.0f} DPI at {facts.print_width_inches:g} in{flag}"

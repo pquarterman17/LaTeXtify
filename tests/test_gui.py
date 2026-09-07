@@ -71,6 +71,7 @@ def _ui_text(client: TestClient) -> str:
         + client.get("/static/results.js").text
         + client.get("/static/export.js").text
         + client.get("/static/review.js").text
+        + client.get("/static/figures.js").text
     )
 
 
@@ -1831,6 +1832,90 @@ def test_clean_file_endpoint_requires_secret(tmp_path):
 def test_clean_endpoint_unknown_token_is_404(tmp_path):
     client = _client(tmp_path)
     assert client.get("/api/clean/does-not-exist").status_code == 404
+
+
+# --------------------------------------------------------------------------- #
+# POST /api/figures -- what the manuscript's figures are, before converting
+# --------------------------------------------------------------------------- #
+
+
+def test_figures_endpoint_lists_each_figure_with_its_number(tmp_path):
+    """The panel exists so an author can see which figure is number 3 BEFORE
+    assigning uploads to numbers -- guessing it wrong swaps two figures."""
+    client = _client(tmp_path)
+    with FIGURES_DOCX.open("rb") as fh:
+        response = client.post(
+            "/api/figures",
+            files={"main": ("figures.docx", fh, "application/octet-stream")},
+        )
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert [f["number"] for f in body["figures"]] == [1, 2, 3]
+    assert all(f["source"] == "embedded" for f in body["figures"])
+    assert all(f["kind"] == "raster" for f in body["figures"])
+    assert body["min_print_dpi"] == 300
+    assert body["caption_gaps"] == []
+    # Every figure carries the caption that identifies it to a human.
+    assert body["figures"][0]["caption"]
+
+
+def test_figures_endpoint_reports_what_needs_replacing(tmp_path):
+    client = _client(tmp_path)
+    with FIGURES_DOCX.open("rb") as fh:
+        body = client.post(
+            "/api/figures",
+            files={"main": ("figures.docx", fh, "application/octet-stream")},
+        ).json()
+
+    assert all(f["needs_attention"] for f in body["figures"])
+    assert all(not f["is_vector"] for f in body["figures"])
+    assert all(f["dpi"] is not None for f in body["figures"])
+
+
+def test_figures_endpoint_rejects_a_non_manuscript(tmp_path):
+    client = _client(tmp_path)
+    response = client.post(
+        "/api/figures",
+        files={"main": ("photo.png", b"not a manuscript", "image/png")},
+    )
+
+    assert response.status_code == 400
+    assert "manuscript must be one of" in response.json()["detail"]
+
+
+def test_figures_endpoint_leaves_nothing_on_disk(tmp_path):
+    """It reports on a manuscript; it does not convert one, so it keeps nothing."""
+    workdir = tmp_path / "gui-workdir"
+    client = _client(tmp_path)
+    with FIGURES_DOCX.open("rb") as fh:
+        assert (
+            client.post(
+                "/api/figures",
+                files={"main": ("figures.docx", fh, "application/octet-stream")},
+            ).status_code
+            == 200
+        )
+
+    assert not workdir.exists() or not any(workdir.iterdir())
+
+
+def test_figures_endpoint_needs_the_gui_secret(tmp_path):
+    """Same guard as every other mutating /api/* endpoint."""
+    application = create_app(workdir=tmp_path / "wd", gui_secret=_TEST_SECRET)
+    unguarded = TestClient(application, base_url="http://127.0.0.1")
+    with FIGURES_DOCX.open("rb") as fh:
+        response = unguarded.post(
+            "/api/figures",
+            files={"main": ("figures.docx", fh, "application/octet-stream")},
+        )
+    assert response.status_code == 403
+
+
+def test_ui_offers_the_figures_panel(tmp_path):
+    text = _ui_text(_client(tmp_path))
+    assert "/api/figures" in text
+    assert "figures-btn" in text
 
 
 # --------------------------------------------------------------------------- #

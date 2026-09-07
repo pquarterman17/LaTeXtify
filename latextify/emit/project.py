@@ -90,7 +90,7 @@ from latextify.emit.bibliography import (
     legacy_bibliography_warning,
 )
 from latextify.emit.citation_resolution import link_plaintext_citations, run_reference_validation
-from latextify.emit.figures_copy import _copy_figures, _prune_stale_figures
+from latextify.emit.figures_stage import run_figure_stage
 from latextify.emit.metadata import load_meta, write_metadata_tex
 from latextify.emit.submission import (
     DocumentLayout,
@@ -99,15 +99,11 @@ from latextify.emit.submission import (
     strip_acknowledgments,
 )
 from latextify.emit.supplement import emit_supplement
-from latextify.figures.caption_gaps import caption_gaps, gap_warning
-from latextify.figures.extract import extract_figures
-from latextify.figures.override import resolve_overrides
 from latextify.ingest.formats import non_docx_warnings
 from latextify.ingest.metadata_guess import sidecar_path_for
 from latextify.ingest.pandoc import convert_docx_to_body
 from latextify.ingest.preflight import run_preflight
 from latextify.model.emit import EmitResult, EmitWarning, SupplementResult
-from latextify.model.figure import Figure
 from latextify.model.reconcile import ReconciliationReport
 from latextify.model.refs import RefEntry
 from latextify.model.validate import ValidationReport
@@ -169,6 +165,7 @@ def emit_project(
     references_bib_path: Path | str | None = None,
     supplement_onecolumn: bool = False,
     check_references: bool = False,
+    vector_figures: bool = False,
     main_layout: DocumentLayout | None = None,
     supplement_layout: DocumentLayout | None = None,
     anonymize: bool = False,
@@ -221,6 +218,12 @@ def emit_project(
             and summarized in report.md. Degrades gracefully -- a Crossref
             outage marks references ``unchecked`` rather than failing the emit.
             Defaults to ``False`` (no network).
+        vector_figures: when True, report every emitted figure that is not
+            vector art -- a pasted screenshot, or a raster wrapped in a PDF --
+            naming its effective print DPI and the ``figures/fig<N>.pdf`` file
+            to supply instead. Advice, not a defect: a raster figure still
+            compiles and is the right call for a micrograph, so this is
+            opt-in and off by default.
         supplement_onecolumn: when True (and a supplement is given), the
             Supplementary Information is emitted as a simplified one-column
             ``\\documentclass[11pt]{article}`` instead of the journal's class,
@@ -300,30 +303,14 @@ def emit_project(
         # by the journal metadata template, so remove it from the body to
         # avoid it appearing twice in the PDF (gap 4).
         body_result = convert_docx_to_body(docx_path, media_dir, strip_front_matter=True)
-        if exclude_figures:
-            # Text-only emit (--exclude-figures): skip figure extraction and
-            # copy entirely; the anchors left in the body are stripped below.
-            figures: tuple[Figure, ...] = ()
-            figure_files: dict[int, str] = {}
-            conversion_warnings: tuple[EmitWarning, ...] = ()
-            # Re-running with figures now excluded into an existing tree would
-            # otherwise leave a prior run's images behind (and in any .zip
-            # export) -- clear this document's owned figures so "exclude" truly
-            # ships no images.
-            _prune_stale_figures(figures_dir, "", set())
-        else:
-            figures = resolve_overrides(extract_figures(docx_path, media_dir), docx_path)
-            # A caption with no image behind it silently mislabels this figure
-            # and every one after it (pandoc binds a caption to the adjacent
-            # image) -- report it rather than shipping a wrong figure number.
-            caption_gap_warnings = [
-                EmitWarning(message=gap_warning(number))
-                for number in caption_gaps(docx_path, len(figures))
-            ]
-            figure_files, figures, conversion_warnings = _copy_figures(
-                figures, figures_dir, strip_metadata=strip_figure_metadata
-            )
-            conversion_warnings = (*caption_gap_warnings, *conversion_warnings)
+        figures, figure_files, conversion_warnings = run_figure_stage(
+            docx_path,
+            media_dir,
+            figures_dir,
+            exclude_figures=exclude_figures,
+            strip_metadata=strip_figure_metadata,
+            vector_figures=vector_figures,
+        )
 
     citation_result = extract_field_citations(docx_path)
 
@@ -439,6 +426,7 @@ def emit_project(
             layout=supplement_layout,
             figures_at_end=figures_at_end,
             strip_figure_metadata=strip_figure_metadata,
+            vector_figures=vector_figures,
         )
         # references.bib is shared by main.tex and supplement.tex; rewrite it
         # with the merged set now that any new SI-only references were
