@@ -21,7 +21,19 @@ if not errorlevel 1 goto launch
 
 :setup
 where uv >nul 2>&1
+if errorlevel 1 goto install_uv
+goto have_uv
+
+:install_uv
+echo uv is not installed -- installing it now...
+>> "%LOG%" echo --- installing uv via official installer ---
+powershell -ExecutionPolicy ByPass -NoProfile -Command "irm https://astral.sh/uv/install.ps1 | iex" >> "%LOG%" 2>&1
+REM The installer adds uv to the user PATH but this shell does not see it yet.
+set "PATH=%USERPROFILE%\.local\bin;%PATH%"
+where uv >nul 2>&1
 if errorlevel 1 goto no_uv
+
+:have_uv
 echo Setting up LaTeXtify - first run installs dependencies, please wait...
 >> "%LOG%" echo --- uv sync --extra gui ---
 uv sync --extra gui >> "%LOG%" 2>&1
@@ -37,9 +49,8 @@ echo LaTeXtify has stopped.
 exit /b 0
 
 :no_uv
->> "%LOG%" echo ERROR: 'uv' is not installed or not on your PATH, and the
->> "%LOG%" echo environment (.venv) is not set up yet.
->> "%LOG%" echo Install uv from https://docs.astral.sh/uv/ then run this again.
+>> "%LOG%" echo ERROR: automatic uv install failed. Install it manually from
+>> "%LOG%" echo https://docs.astral.sh/uv/ then run this again.
 goto fail
 
 :fail
