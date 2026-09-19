@@ -28,7 +28,6 @@ goto have_uv
 echo uv is not installed -- installing it now...
 >> "%LOG%" echo --- installing uv via official installer ---
 powershell -ExecutionPolicy ByPass -NoProfile -Command "irm https://astral.sh/uv/install.ps1 | iex" >> "%LOG%" 2>&1
-if errorlevel 1 goto no_uv
 REM The installer adds uv to the user PATH but this shell does not see it yet.
 set "PATH=%USERPROFILE%\.local\bin;%PATH%"
 where uv >nul 2>&1

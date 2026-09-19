@@ -43,10 +43,9 @@ if [ "$needs_setup" -eq 1 ]; then
   if ! command -v uv >/dev/null 2>&1; then
     echo "uv is not installed -- installing it now..."
     echo "--- installing uv via official installer ---" >> "$LOG"
-    if curl -LsSf https://astral.sh/uv/install.sh | sh >> "$LOG" 2>&1; then
-      [ -f "$HOME/.local/bin/env" ] && . "$HOME/.local/bin/env"
-      export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH"
-    fi
+    curl -LsSf https://astral.sh/uv/install.sh 2>> "$LOG" | sh >> "$LOG" 2>&1 || true
+    [ -f "$HOME/.local/bin/env" ] && . "$HOME/.local/bin/env"
+    export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH"
     if ! command -v uv >/dev/null 2>&1; then
       {
         echo "ERROR: automatic uv install failed. Install it manually from"
