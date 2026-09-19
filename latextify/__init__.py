@@ -12,4 +12,12 @@ Pipeline stages (each is a subpackage; see plans/LATEXTIFY_PLAN.md):
     report    -> consolidated per-run conversion report
 """
 
-__version__ = "0.1.0"
+from importlib.metadata import PackageNotFoundError, version
+
+# Derived from the installed distribution so pyproject.toml is the only place
+# the version is written. A hardcoded copy here went stale for all of v0.2.0:
+# the offline kit's install check (kit/install_template.py) reported "0.1.0".
+try:
+    __version__ = version("latextify")
+except PackageNotFoundError:  # running from a source tree that was never installed
+    __version__ = "0+unknown"
