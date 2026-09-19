@@ -41,13 +41,20 @@ fi
 
 if [ "$needs_setup" -eq 1 ]; then
   if ! command -v uv >/dev/null 2>&1; then
-    {
-      echo "ERROR: 'uv' is not installed or not on your PATH, and the"
-      echo "environment (.venv) is not set up yet."
-      echo "Install uv from https://docs.astral.sh/uv/ then run this again."
-    } >> "$LOG"
-    show_log
-    exit 1
+    echo "uv is not installed -- installing it now..."
+    echo "--- installing uv via official installer ---" >> "$LOG"
+    if curl -LsSf https://astral.sh/uv/install.sh | sh >> "$LOG" 2>&1; then
+      [ -f "$HOME/.local/bin/env" ] && . "$HOME/.local/bin/env"
+      export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH"
+    fi
+    if ! command -v uv >/dev/null 2>&1; then
+      {
+        echo "ERROR: automatic uv install failed. Install it manually from"
+        echo "https://docs.astral.sh/uv/ then run this again."
+      } >> "$LOG"
+      show_log
+      exit 1
+    fi
   fi
   echo "Setting up LaTeXtify - first run installs dependencies, please wait..."
   echo "--- uv sync --extra gui ---" >> "$LOG"
