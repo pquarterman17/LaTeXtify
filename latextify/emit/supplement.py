@@ -148,6 +148,7 @@ def emit_supplement(
     strip_figure_metadata: bool = True,
     vector_figures: bool = False,
     figure_placements: FigurePlacements | None = None,
+    optimize_figure_placement: bool = True,
 ) -> tuple[SupplementResult, list[RefEntry]]:
     """Emit the supplementary-material project (plan item 21).
 
@@ -204,6 +205,7 @@ def emit_supplement(
             vector_figures=vector_figures,
             prefix="S",
             placements=figure_placements,
+            optimize_placement=optimize_figure_placement,
         )
 
     si_raw_tex = si_body_result.tex.replace("\r\n", "\n").replace("\r", "\n")

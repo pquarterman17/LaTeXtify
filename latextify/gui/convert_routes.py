@@ -5,12 +5,6 @@
                               overrides, and reference-manager export, with
                               per-document layout options
 
-Together these were 467 of ``server.py``'s 909 lines -- it was pinned at 921
-by the size ratchet and had spent years accreting here because the routes are
-closures over ``create_app``'s scope. They need exactly three values from it
-(``root``, ``max_upload_bytes``, ``demo``), so they take those as arguments
-instead and ``server.py`` drops under the general ceiling entirely.
-
 :func:`register_convert_routes` attaches both to an app, mirroring
 :func:`latextify.gui.uploads_routes.register_upload_routes` and
 :func:`latextify.gui.downloads.register_download_routes`. Both carry the same
@@ -204,7 +198,10 @@ def register_convert_routes(
         anonymize: bool = Form(False),
         figures_at_end: bool = Form(False),
         inline_supplement: bool = Form(False),
+        inline_supplement_columns: str = Form("same"),
         figure_columns: str | None = Form(None),
+        strip_figure_metadata: bool = Form(True),
+        optimize_figure_placement: bool = Form(True),
     ) -> ConvertMultiResponse:
         """Convert a main manuscript plus optional supplement/figures/.bib in one call.
 
@@ -246,7 +243,8 @@ def register_convert_routes(
                 status_code=400,
                 detail="inline supplement cannot be combined with figures-at-end",
             )
-
+        if inline_supplement_columns not in {"same", "one"}:
+            raise HTTPException(status_code=400, detail="invalid inline supplement columns")
         try:
             journal_obj = templates_loader.load(journal)
         except ManifestError as exc:
@@ -286,7 +284,10 @@ def register_convert_routes(
                 anonymize=anonymize,
                 figures_at_end=figures_at_end,
                 inline_supplement=inline_supplement,
+                inline_supplement_columns=inline_supplement_columns,
                 figure_placements=figure_placements,
+                strip_figure_metadata=strip_figure_metadata,
+                optimize_figure_placement=optimize_figure_placement,
             )
         except ValueError as exc:
             _rmtree(session_dir)  # a failed emit leaves the upload behind otherwise

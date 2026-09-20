@@ -47,7 +47,9 @@ Everything installs into this folder; nothing else on the system is touched.
    ```
 
    On Windows, double-clicking `Start-LaTeXtify-GUI.bat` is enough. Crossref
-   checks are disabled in this offline launch mode.
+   checks are disabled in this offline launch mode. The GUI still supports a
+   combined main+supplement Word document, per-figure 1-/2-column choices,
+   metadata stripping, automatic figure placement, and PDF/project export.
 
 4. Or convert a manuscript with the generated command-line launcher:
 

@@ -1,8 +1,5 @@
-/* LaTeXtify GUI — main application logic (split from index.html; served at
-   /static/app.js). Buildless vanilla JS: no imports, no build step. The
-   reference-review panel lives in review.js; the two files talk through the
-   window.LTXApp / window.LTXReview namespaces (load order does not matter —
-   each is only dereferenced inside event handlers). */
+/* LaTeXtify GUI main application logic. Buildless vanilla JS; specialized
+   panels communicate through small window.LTX* namespaces. */
 (function () {
   "use strict";
 
@@ -30,14 +27,13 @@
   const optPdf = el("opt-pdf"), optCombine = el("opt-combine"), optZip = el("opt-zip"),
     optNoFigs = el("opt-nofigs"), optAudit = el("opt-audit"), optCheckRefs = el("opt-checkrefs"),
     optAnon = el("opt-anonymize"), optFigsEnd = el("opt-figsend"),
-    optInlineSupp = el("opt-inline-supp"), figureColumns = el("figure-columns");
+    optStripMetadata = el("opt-strip-metadata"), optOptimizeFigures = el("opt-optimize-figures"),
+    mergedLayout = el("merged-layout");
   const convertBtn = el("convert-btn");
   const statusEl = el("status");
   const errorBox = el("error-box");
 
-  // Advertise the real accepted formats from the same lists role detection
-  // uses, and keep the file picker's filter in sync (one source of truth —
-  // the server's upload allowlists mirror these).
+  // Keep the displayed formats, role detection, and file picker in sync.
   el("dropzone-text").innerHTML =
     "Drag &amp; drop files here — manuscript (<strong>." + MANUSCRIPT_EXTS.join(" .") +
     "</strong>), figures (<strong>." + IMAGE_EXTS.join(" .") + "</strong>), references (<strong>." +
@@ -49,18 +45,16 @@
       .join(",")
   );
 
-  // Each entry: {file, role, number}. `number` only meaningful for figures.
   let entries = [];
   let journals = [];
-  // Token for the most recent successful preview; the Export step copies THAT
-  // result's artifacts. Cleared whenever inputs change so a stale preview can
-  // never be exported (you must re-preview first).
+  // Cleared on input changes so Export cannot copy a stale preview.
   let lastExportToken = null;
   // Citation-style override state (plan item 4): a pick that differs from the
   // journal's declared default blocks conversion until confirmed or reverted;
   // a confirmed override holds until the journal changes.
   let citationOverridePending = false;
   let citationConfirmedJournal = null;
+  let figurePlacement;
 
   const ext = (name) => (name.split(".").pop() || "").toLowerCase();
   const setStatus = (t) => { statusEl.textContent = t || ""; };
@@ -144,6 +138,7 @@
       numInput.addEventListener("change", () => {
         const v = parseInt(numInput.value, 10);
         entry.number = Number.isFinite(v) && v > 0 ? v : null;
+        figurePlacement.sync();
         invalidatePreview();
       });
       numTd.appendChild(numInput);
@@ -171,6 +166,7 @@
       }
     });
     filelist.classList.toggle("hidden", entries.length === 0);
+    figurePlacement.sync();
   }
 
   // Per-document layout mini-panel (plan item 6): a second table row under a
@@ -240,11 +236,12 @@
     optCombine.disabled = !hasSupp;
     if (!hasSupp) optCombine.checked = false;
     optCombine.title = hasSupp ? "" : "Add a file with the Supplement role to enable.";
-    optInlineSupp.disabled = hasSupp;
-    if (hasSupp) optInlineSupp.checked = false;
-    optInlineSupp.title = hasSupp ? "Remove the separate Supplement file to enable." : "";
-    optFigsEnd.disabled = optInlineSupp.checked;
-    if (optInlineSupp.checked) optFigsEnd.checked = false;
+    mergedLayout.disabled = hasSupp;
+    if (hasSupp) mergedLayout.value = "none";
+    mergedLayout.title = hasSupp ? "Remove the separate Supplement file to enable." : "";
+    const inlineSupplement = mergedLayout.value !== "none";
+    optFigsEnd.disabled = inlineSupplement;
+    if (inlineSupplement) optFigsEnd.checked = false;
     const figsStaged = entries.some(
       (x) => x.role === "figure" || x.role === "figures_pdf"
     );
@@ -260,6 +257,16 @@
     // (inputs changed), review.js hides the now-stale corrections UI.
     window.LTXReview.reset();
   }
+
+  figurePlacement = window.LTXFigurePlacement.create({
+    getMainFile: () => {
+      const main = entries.find((entry) => entry.role === "main");
+      return main ? main.file : null;
+    },
+    getUploadedFigures: () => entries.filter((entry) => entry.role === "figure")
+      .map((entry) => ({ number: entry.number, name: entry.file.name })),
+    invalidate: invalidatePreview,
+  });
 
 
   // -- dropzone + input wiring --
@@ -356,14 +363,14 @@
   // it changes what the conversion emits, so a prior preview no longer applies).
   [
     citationSelect, optPdf, optCombine, optZip,
-    optAudit, optCheckRefs, optAnon, optFigsEnd, optInlineSupp,
+    optAudit, optCheckRefs, optAnon, optFigsEnd, mergedLayout,
+    optStripMetadata, optOptimizeFigures,
   ].forEach((ctrl) => ctrl.addEventListener("change", invalidatePreview));
   optNoFigs.addEventListener("change", invalidatePreview);
   optNoFigs.addEventListener("change", updateOptionState);
-  optInlineSupp.addEventListener("change", updateOptionState);
+  mergedLayout.addEventListener("change", updateOptionState);
   citationSelect.addEventListener("change", onCitationChange);
   crossrefEmail.addEventListener("input", invalidatePreview);
-  figureColumns.addEventListener("input", invalidatePreview);
 
   function buildFormData() {
     const fd = new FormData();
@@ -388,7 +395,10 @@
     const bundle = entries.find((x) => x.role === "figures_pdf");
     if (bundle) fd.append("figures_pdf", bundle.file);
     const mainLayout = main.layout || defaultLayout();
-    fd.append("main_columns", mainLayout.columns || "default");
+    const mergedMode = mergedLayout.value;
+    const mainColumns = mergedMode === "wordlike" ? "one" :
+      (mergedMode === "two_two" || mergedMode === "two_one" ? "two" : mainLayout.columns);
+    fd.append("main_columns", mainColumns || "default");
     fd.append("main_line_numbers", mainLayout.linenos ? "true" : "false");
     fd.append("main_double_spacing", mainLayout.dblspace ? "true" : "false");
     if (supplement) {
@@ -405,8 +415,12 @@
     fd.append("check_references", optCheckRefs.checked ? "true" : "false");
     fd.append("anonymize", optAnon.checked ? "true" : "false");
     fd.append("figures_at_end", optFigsEnd.checked ? "true" : "false");
-    fd.append("inline_supplement", optInlineSupp.checked ? "true" : "false");
-    if (figureColumns.value.trim()) fd.append("figure_columns", figureColumns.value.trim());
+    fd.append("inline_supplement", mergedMode !== "none" ? "true" : "false");
+    fd.append("inline_supplement_columns", mergedMode === "two_one" ? "one" : "same");
+    fd.append("strip_figure_metadata", optStripMetadata.checked ? "true" : "false");
+    fd.append("optimize_figure_placement", optOptimizeFigures.checked ? "true" : "false");
+    const manualPlacements = figurePlacement.serialize();
+    if (manualPlacements) fd.append("figure_columns", manualPlacements);
     // Preview never exports — the Export button copies the previewed result via
     // its export_token (see /api/export).
     return fd;

@@ -150,7 +150,9 @@ def emit_project(
     figures_at_end: bool = False,
     strip_figure_metadata: bool = True,
     inline_supplement: bool = False,
+    inline_supplement_columns: str = "same",
     figure_placements: FigurePlacements | None = None,
+    optimize_figure_placement: bool = True,
 ) -> EmitResult:
     """Convert ``docx_path`` into a journal-ready LaTeX project.
 
@@ -250,7 +252,6 @@ def emit_project(
         figures_at_end: gather figure/table floats after the references via
             the ``endfloat`` package, as several publishers require at
             submission. Applies to both emitted documents.
-
     Returns:
         An :class:`~latextify.model.emit.EmitResult` naming every written
         path plus any anchor-resolution warnings. ``.supplement`` is
@@ -261,7 +262,8 @@ def emit_project(
         raise ValueError("inline supplement cannot be combined with a separate supplement file")
     if inline_supplement and figures_at_end:
         raise ValueError("inline supplement cannot be combined with figures-at-end")
-
+    if inline_supplement_columns not in {"same", "one"}:
+        raise ValueError("inline supplement columns must be 'same' or 'one'")
     journal = templates_loader.load(journal_name, journals_dir=journals_dir)
     journal.resolve_mode(citation_style)
 
@@ -269,14 +271,12 @@ def emit_project(
     generated_dir = output_dir / "generated"
     figures_dir = output_dir / "figures"
 
-    # Parse the author's .bib once (if given); shared by the main document and
-    # the supplement's plain-text citation paths. Field-coded documents ignore
-    # it -- they already carry full metadata in their citation field codes.
+    # Parse the author's .bib once; field-coded documents ignore it because
+    # their citation fields already carry full metadata.
     bib_entries: list[RefEntry] | None = None
     if references_bib_path is not None:
         bib_entries = parse_references_file(references_bib_path)
 
-    # Preflight: inventory and flag unsupported constructs before any conversion.
     preflight_report = run_preflight(docx_path)
 
     sidecar_existed = sidecar_path_for(docx_path).exists()  # before load_meta may write it
@@ -309,10 +309,10 @@ def emit_project(
             vector_figures=vector_figures,
             sources=figure_sources,
             placements=figure_placements,
+            optimize_placement=optimize_figure_placement,
         )
 
     citation_result = extract_field_citations(docx_path)
-
     # pandoc's LaTeX writer emits CRLF on Windows; downstream regexes match
     # literal "\n" boundaries, so normalize before resolving anchors.
     # A captioned-but-missing figure that WAS supplied is planted where its
@@ -390,7 +390,7 @@ def emit_project(
         warnings.append(EmitWarning(message=note + " (double-blind review)."))
 
     if inline_supplement:
-        resolved_tex = render_inline_supplement(resolved_tex)
+        resolved_tex = render_inline_supplement(resolved_tex, columns=inline_supplement_columns)
 
     preamble_text = build_main_preamble(
         journal.render_preamble(mode=citation_style),
@@ -443,6 +443,7 @@ def emit_project(
             strip_figure_metadata=strip_figure_metadata,
             vector_figures=vector_figures,
             figure_placements=figure_placements,
+            optimize_figure_placement=optimize_figure_placement,
         )
         # references.bib is shared by main.tex and supplement.tex; rewrite it
         # with the merged set now that any new SI-only references were
@@ -485,7 +486,6 @@ def emit_project(
         entries=tuple(entries),
     )
 
-    # Write the report once, now that the full EmitResult is available.
     if report:
         write_report(
             output_dir / "report.md",

@@ -67,8 +67,25 @@ def mark_inline_supplement(tex: str) -> str:
     return tex[: match.start()] + replacement + tex[match.end() :]
 
 
-def render_inline_supplement(tex: str) -> str:
-    """Turn the protected marker into a page break and S-numbering reset."""
+def render_inline_supplement(tex: str, *, columns: str = "same") -> str:
+    """Turn the marker into a page break, optional column switch, and S-numbering.
+
+    ``columns="same"`` keeps the main manuscript's layout. ``columns="one"``
+    changes to one-column mode at the page boundary, which is the common
+    main-two-column/SI-one-column submission shape.
+    """
+    if columns not in {"same", "one"}:
+        raise ValueError("inline supplement columns must be 'same' or 'one'")
     if BOUNDARY_MARKER not in tex:
         return tex
-    return tex.replace(BOUNDARY_MARKER, _BOUNDARY_LATEX.rstrip(), 1)
+    column_switch = (
+        "\\ifdefined\\onecolumngrid\\onecolumngrid\\else\\onecolumn\\fi\n"
+        if columns == "one"
+        else ""
+    )
+    boundary = _BOUNDARY_LATEX.replace(
+        "% Supplementary material begins here.\n",
+        "% Supplementary material begins here.\n" + column_switch,
+        1,
+    )
+    return tex.replace(BOUNDARY_MARKER, boundary.rstrip(), 1)

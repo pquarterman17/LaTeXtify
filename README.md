@@ -376,9 +376,11 @@ latextify journals
 `127.0.0.1` only — your uploads never leave your machine) and opens a tab.
 Drop your whole submission in at once — **main `.docx`, supplement `.docx`,
 figure files, and a `.bib` reference library together** — then set each
-file's role, pick a journal from the full publisher list, choose options
-(compile PDF, combine supplement, one-column SI, equation audit, project
-`.zip`), and click **Preview**. The compiled PDFs render inline so you can
+file's role, pick a journal from the full publisher list, choose options,
+and click **Preview**. The GUI reads the selected manuscript's figures and
+gives every figure its own **Automatic / 1 column / 2 columns** selector;
+separately uploaded replacements appear under the same document-order number.
+The compiled PDFs render inline so you can
 confirm the conversion worked. A preview is held only in **temporary local
 storage** (a private working directory the app owns) — it is pruned
 automatically about an hour after its last use and deleted when the app shuts
@@ -387,12 +389,20 @@ panel lets you pick a destination folder (a native "Browse…" dialog) and copy
 any subset of the outputs — the LaTeX project, individual PDFs, or the `.zip` —
 to the folder you choose to keep.
 
-For a merged main+supplement Word file, upload it only as **Main text**, turn on
-**Supplement is inside main file**, and do not add a separate Supplement file.
-The recognized heading starts a new page in `main.pdf`; figures, tables,
-equations, and sections after it restart as S1. Use **Figure column widths**
-with entries such as `1=one, 2=two`; these numbers are the document-order
-numbers shown by **What are my figures?**
+For a merged main+supplement Word file, upload it only as **Main text**, do not
+add a separate Supplement file, and choose one **Combined main + supplement
+Word file** layout:
+
+- **Single-column throughout (closest to Word)**
+- **Main two columns; supplement two columns**
+- **Main two columns; supplement one column**
+
+Every combined mode produces one `main.pdf`, starts the recognized
+Supplementary Material/Information heading on a new page, and restarts figures,
+tables, equations, and sections as S1. **Check references online**, **Strip
+figure metadata**, and **Optimize figure placement** are independent toggles.
+The offline launcher disables the online reference check; the other two remain
+available. Manual per-figure column choices override automatic placement.
 
 Output layout per conversion:
 

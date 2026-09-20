@@ -16,6 +16,7 @@ from latextify.emit.inline_supplement import (
     render_inline_supplement,
 )
 from latextify.emit.project import emit_project
+from latextify.emit.submission import DocumentLayout
 from latextify.model import BodyConversionResult
 
 
@@ -34,6 +35,19 @@ def test_inline_supplement_adds_page_break_and_s_numbering():
     assert "\\ifnum\\value{section}=0 S\\arabic{subsection}" in rendered
     assert "\\section*{Supplementary Information}" in rendered
     assert rendered.endswith("SI.")
+
+
+def test_inline_supplement_can_switch_to_one_column_after_page_break():
+    marked = mark_inline_supplement("Main.\n\\section{Supplementary Information}\nSI.")
+    rendered = render_inline_supplement(marked, columns="one")
+
+    assert rendered.index("\\clearpage") < rendered.index("\\onecolumn")
+    assert rendered.index("\\onecolumn") < rendered.index("\\section*{Supplementary")
+
+
+def test_inline_supplement_rejects_unknown_column_mode():
+    with pytest.raises(ValueError, match="columns"):
+        render_inline_supplement(BOUNDARY_MARKER, columns="three")
 
 
 def test_inline_supplement_consumes_and_reattaches_pandoc_label():
@@ -240,6 +254,8 @@ def test_real_merged_docx_with_embedded_emf_and_column_choices(tmp_path):
         "revtex4-2",
         tmp_path / "output",
         inline_supplement=True,
+        inline_supplement_columns="one",
+        main_layout=DocumentLayout(columns="two"),
         figure_placements={("", 1): "one", ("", 2): "two"},
     )
     body = result.body_tex_path.read_text(encoding="utf-8")
@@ -248,6 +264,7 @@ def test_real_merged_docx_with_embedded_emf_and_column_choices(tmp_path):
     assert "\\begin{figure}\n" in body
     assert "\\begin{figure*}\n" in body
     assert "\\clearpage" in body
+    assert "\\onecolumn" in body
     assert len(tuple(result.figures_dir.glob("fig*.*"))) == 2
     tectonic = find_tectonic()
     if tectonic is not None:

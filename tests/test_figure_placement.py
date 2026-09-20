@@ -48,6 +48,21 @@ def test_explicit_placement_overrides_aspect_ratio(tmp_path):
     assert figures[1].wide is False
 
 
+def test_automatic_wide_placement_can_be_disabled(tmp_path):
+    source_dir = tmp_path / "source"
+    output_dir = tmp_path / "figures"
+    source_dir.mkdir()
+    output_dir.mkdir()
+    wide = source_dir / "wide.png"
+    Image.new("RGB", (300, 100), "white").save(wide)
+
+    _files, figures, _warnings = _copy_figures(
+        (_figure(wide, 1),), output_dir, optimize_placement=False
+    )
+
+    assert figures[0].wide is False
+
+
 def test_nonexistent_figure_placement_warns(tmp_path):
     output_dir = tmp_path / "figures"
     output_dir.mkdir()

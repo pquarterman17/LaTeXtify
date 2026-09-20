@@ -43,6 +43,7 @@ def _copy_figures(
     prefix: str = "",
     strip_metadata: bool = True,
     placements: FigurePlacements | None = None,
+    optimize_placement: bool = True,
 ) -> tuple[dict[int, str], tuple[Figure, ...], tuple[EmitWarning, ...]]:
     """Prepare each figure's resolved file for LaTeX inclusion in ``figures_dir``.
 
@@ -106,7 +107,7 @@ def _copy_figures(
         placement = placement_for(placements, prefix, figure.number)
         if outcome.dest_path.is_file() and not figure.in_table:
             wide = placement == "two" or (
-                placement == "auto" and _is_wide_figure(outcome.dest_path)
+                placement == "auto" and optimize_placement and _is_wide_figure(outcome.dest_path)
             )
             figure = replace(figure, wide=wide)
         elif placement == "two":
