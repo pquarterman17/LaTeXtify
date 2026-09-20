@@ -9,7 +9,7 @@ BOUNDARY_MARKER = "%%LATEXTIFY_INLINE_SUPPLEMENT%%"
 _HEADING_RE = re.compile(
     r"\\(?P<level>(?:sub)*section)\*?\{(?P<title>"
     r"supplement(?:ary|al)?\s+(?:material|information)|supporting\s+information"
-    r")\}",
+    r")\}(?:\s*\\label\{(?P<label>[^{}]+)\})?",
     re.IGNORECASE,
 )
 _BARE_HEADING_RE = re.compile(
@@ -32,11 +32,16 @@ _BOUNDARY_LATEX = (
     "\\renewcommand{\\thetable}{S\\arabic{table}}\n"
     "\\renewcommand{\\theequation}{S\\arabic{equation}}\n"
     "\\renewcommand{\\thesection}{S\\arabic{section}}\n"
+    "% Avoid S0.1 when the Word SI title is followed directly by Heading 2.\n"
+    "\\renewcommand{\\thesubsection}{%\n"
+    "  \\ifnum\\value{section}=0 S\\arabic{subsection}%\n"
+    "  \\else\\thesection.\\arabic{subsection}\\fi}\n"
     "% Keep Hyperref destinations distinct from the main document.\n"
     "\\renewcommand{\\theHfigure}{S.\\arabic{figure}}\n"
     "\\renewcommand{\\theHtable}{S.\\arabic{table}}\n"
     "\\renewcommand{\\theHequation}{S.\\arabic{equation}}\n"
     "\\renewcommand{\\theHsection}{S.\\arabic{section}}\n"
+    "\\renewcommand{\\theHsubsection}{S.subsection.\\arabic{section}.\\arabic{subsection}}\n"
 )
 
 
@@ -53,7 +58,12 @@ def mark_inline_supplement(tex: str) -> str:
             "Supporting Information was found"
         )
     title = match.group("title")
-    replacement = f"{BOUNDARY_MARKER}\n\\section*{{{title}}}"
+    # Pandoc appends ``\\label{...}`` directly to a heading. Consume it as
+    # part of the match and deliberately reattach it to the replacement,
+    # rather than leaving it as an accidental orphan from the old section.
+    label = match.groupdict().get("label")
+    label_tex = f"\\label{{{label}}}" if label else ""
+    replacement = f"{BOUNDARY_MARKER}\n\\section*{{{title}}}{label_tex}"
     return tex[: match.start()] + replacement + tex[match.end() :]
 
 

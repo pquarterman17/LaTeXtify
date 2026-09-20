@@ -48,4 +48,5 @@ def test_inline_plaintext_citations_use_each_segments_reference_numbers(monkeypa
     assert "SI cites \\cite{suppkey}." in linked
     assert "Main reference" not in linked
     assert "SI reference" not in linked
-    assert warnings == []
+    assert len(warnings) == 1
+    assert "continuous document-wide numbering" in warnings[0].message

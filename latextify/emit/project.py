@@ -88,6 +88,7 @@ from latextify.emit.bibliography import (
     legacy_bibliography_warning,
 )
 from latextify.emit.citation_resolution import (
+    INLINE_BIBLIOGRAPHY_WARNING,
     link_inline_plaintext_citations,
     link_plaintext_citations,
     run_reference_validation,
@@ -267,8 +268,6 @@ def emit_project(
     output_dir = journal_output_dir(Path(output_root), journal_name)
     generated_dir = output_dir / "generated"
     figures_dir = output_dir / "figures"
-    generated_dir.mkdir(parents=True, exist_ok=True)
-    figures_dir.mkdir(parents=True, exist_ok=True)
 
     # Parse the author's .bib once (if given); shared by the main document and
     # the supplement's plain-text citation paths. Field-coded documents ignore
@@ -294,6 +293,15 @@ def emit_project(
         # by the journal metadata template, so remove it from the body to
         # avoid it appearing twice in the PDF (gap 4).
         body_result = convert_docx_to_body(docx_path, media_dir, strip_front_matter=True)
+        # Validate and protect the inline boundary before the figure stage can
+        # write or prune anything in an existing output tree. A mistyped or
+        # missing SI heading must fail without changing prior output.
+        raw_tex = body_result.tex.replace("\r\n", "\n").replace("\r", "\n")
+        if inline_supplement:
+            raw_tex = mark_inline_supplement(raw_tex)
+
+        generated_dir.mkdir(parents=True, exist_ok=True)
+        figures_dir.mkdir(parents=True, exist_ok=True)
         figures, figure_files, conversion_warnings, gap_plan = run_figure_stage(
             docx_path,
             media_dir,
@@ -309,9 +317,6 @@ def emit_project(
 
     # pandoc's LaTeX writer emits CRLF on Windows; downstream regexes match
     # literal "\n" boundaries, so normalize before resolving anchors.
-    raw_tex = body_result.tex.replace("\r\n", "\n").replace("\r", "\n")
-    if inline_supplement:
-        raw_tex = mark_inline_supplement(raw_tex)
     # A captioned-but-missing figure that WAS supplied is planted where its
     # orphaned caption paragraph sat, and every anchor renumbered to the
     # numbers the captions state. Inert unless a gap was actually filled.
@@ -344,6 +349,8 @@ def emit_project(
         # Field-coded path (Zotero/Mendeley/...): body already carries sentinels
         # /anchors resolved above; keep the extracted, keyed entries verbatim.
         entries: list[RefEntry] = citation_result.entries
+        if inline_supplement:
+            warnings.append(EmitWarning(message=INLINE_BIBLIOGRAPHY_WARNING))
         warnings.extend(citation_linkage_warning(citation_result.citations, resolved_tex))
         citation_count = len(citation_result.citations)
         # A reference manager's Word plugin often drops a FORMATTED bibliography

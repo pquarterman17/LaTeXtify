@@ -31,8 +31,23 @@ def test_inline_supplement_adds_page_break_and_s_numbering():
     assert "\\renewcommand{\\thefigure}{S\\arabic{figure}}" in rendered
     assert "\\renewcommand{\\theHfigure}{S.\\arabic{figure}}" in rendered
     assert "\\setcounter{subsection}{0}" in rendered
+    assert "\\ifnum\\value{section}=0 S\\arabic{subsection}" in rendered
     assert "\\section*{Supplementary Information}" in rendered
     assert rendered.endswith("SI.")
+
+
+def test_inline_supplement_consumes_and_reattaches_pandoc_label():
+    marked = mark_inline_supplement(
+        "\\section{Results}\\label{results}\n"
+        "\\section{Supplementary Information}\\label{supplementary-information}\nSI."
+    )
+
+    assert "\\section{Supplementary Information}" not in marked
+    assert marked.count("\\label{supplementary-information}") == 1
+    assert (
+        "%%LATEXTIFY_INLINE_SUPPLEMENT%%\n"
+        "\\section*{Supplementary Information}\\label{supplementary-information}"
+    ) in marked
 
 
 def test_main_references_are_removed_without_removing_inline_supplement():
@@ -115,6 +130,31 @@ def test_inline_supplement_rejects_figures_at_end_before_writing(tmp_path):
         )
 
     assert not output.exists()
+
+
+def test_missing_inline_heading_does_not_modify_existing_output(tmp_path, monkeypatch):
+    source = Path(__file__).parent / "fixtures" / "clean.docx"
+    docx = tmp_path / "merged.docx"
+    shutil.copy(source, docx)
+    figures = tmp_path / "output" / "revtex4-2" / "figures"
+    figures.mkdir(parents=True)
+    existing = figures / "fig1.png"
+    existing.write_bytes(b"existing figure")
+
+    def fake_convert(_docx_path, media_dir, **_kwargs):
+        return BodyConversionResult(
+            tex="\\section{Results}\nNo supplement heading.",
+            media_dir=media_dir,
+            figure_count=0,
+            citation_count=0,
+        )
+
+    monkeypatch.setattr("latextify.emit.project.convert_docx_to_body", fake_convert)
+
+    with pytest.raises(ValueError, match="no heading named Supplementary"):
+        emit_project(docx, "revtex4-2", tmp_path / "output", inline_supplement=True)
+
+    assert existing.read_bytes() == b"existing figure"
 
 
 def _write_windows_emf(path: Path) -> None:

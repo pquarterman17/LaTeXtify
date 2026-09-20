@@ -580,8 +580,9 @@ def test_metafile_is_not_silently_passed_through(tmp_path, monkeypatch):
 def test_metafile_uses_high_resolution_raster_fallback(tmp_path, monkeypatch):
     monkeypatch.setattr(vector_mod, "_find_metafile_converter", lambda: None)
 
-    def fake_raster(_src, dest, *, dpi=600):
+    def fake_raster(_src, dest, *, dpi=600, crop=None):
         assert dpi == 600
+        assert crop is None
         dest.write_bytes(b"fake png")
 
     monkeypatch.setattr(vector_mod, "_pillow_metafile_convert", fake_raster)
@@ -617,7 +618,7 @@ def test_metafile_pixel_limit_is_checked_before_raster_allocation(tmp_path, monk
     image = HugeMetafile()
     monkeypatch.setattr("PIL.Image.open", lambda _path: image)
 
-    with pytest.raises(OSError, match="150-megapixel"):
+    with pytest.raises(OSError, match="40-megapixel"):
         vector_mod._pillow_metafile_convert(tmp_path / "huge.emf", tmp_path / "out.png")
 
     assert image.loaded is False
@@ -667,6 +668,55 @@ def test_metafile_converts_via_inkscape_when_present(tmp_path, monkeypatch):
     assert outcome.warning is None
     assert "inkscape" in outcome.note
     assert "--export-type=pdf" in calls[0]
+
+
+def test_metafile_converter_has_timeout_and_falls_back(tmp_path, monkeypatch):
+    monkeypatch.setattr(vector_mod, "_find_metafile_converter", lambda: "/usr/bin/inkscape")
+
+    def timeout_run(cmd, **kwargs):
+        assert kwargs["timeout"] == vector_mod._METAFILE_CONVERTER_TIMEOUT_SECONDS
+        raise subprocess.TimeoutExpired(cmd, kwargs["timeout"])
+
+    def fake_raster(_src, dest, *, dpi=600, crop=None):
+        dest.write_bytes(b"fake png")
+
+    monkeypatch.setattr(vector_mod.subprocess, "run", timeout_run)
+    monkeypatch.setattr(vector_mod, "_pillow_metafile_convert", fake_raster)
+    src = tmp_path / "chart.emf"
+    src.write_bytes(b"emf")
+    dest_dir = tmp_path / "figures"
+    dest_dir.mkdir()
+
+    outcome = convert_for_latex(src, dest_dir, 1, strip_metadata=False)
+
+    assert outcome.dest_path.suffix == ".png"
+    assert "timed out" in outcome.warning.lower()
+
+
+def test_metafile_raster_fallback_receives_word_crop(tmp_path, monkeypatch):
+    from latextify.model import CropRect
+
+    crop = CropRect(left=0.25, right=0.25)
+    captured = []
+    monkeypatch.setattr(vector_mod, "_find_metafile_converter", lambda: None)
+
+    def fake_raster(_src, dest, *, dpi=600, crop=None):
+        captured.append(crop)
+        dest.write_bytes(b"fake png")
+
+    monkeypatch.setattr(vector_mod, "_pillow_metafile_convert", fake_raster)
+    src = tmp_path / "chart.emf"
+    src.write_bytes(b"emf")
+    dest_dir = tmp_path / "figures"
+    dest_dir.mkdir()
+
+    outcome = convert_for_latex(
+        src, dest_dir, 1, crop=crop, strip_metadata=False
+    )
+
+    assert captured == [crop]
+    assert "Cropped image to its visible region" in outcome.warning
+    assert "does not crop" not in outcome.warning
 
 
 def test_metafile_renames_libreoffice_output_into_place(tmp_path, monkeypatch):

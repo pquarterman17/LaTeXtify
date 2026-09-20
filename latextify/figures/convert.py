@@ -160,8 +160,11 @@ def _dispatch(
     if ext in EPS_EXTENSIONS:
         return _note_uncroppable(convert_eps(src, dest_dir, number, prefix=prefix), crop, "EPS")
     if ext in METAFILE_EXTENSIONS:
-        return _note_uncroppable(
-            convert_metafile(src, dest_dir, number, prefix=prefix), crop, "EMF/WMF"
+        outcome = convert_metafile(src, dest_dir, number, prefix=prefix, crop=crop)
+        # Pillow's fallback is a raster PNG and applies Word's crop itself.
+        # A successful vector PDF conversion still cannot be physically cropped.
+        return outcome if outcome.dest_path.suffix.lower() == ".png" else _note_uncroppable(
+            outcome, crop, "EMF/WMF"
         )
     if ext in TIFF_EXTENSIONS:
         return convert_tiff(src, dest_dir, number, prefix=prefix, crop=crop)

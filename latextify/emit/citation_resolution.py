@@ -48,6 +48,12 @@ from latextify.model.validate import ValidationReport
 from .anchors import remap_cite_keys_in_text
 from .inline_supplement import BOUNDARY_MARKER
 
+INLINE_BIBLIOGRAPHY_WARNING = (
+    "inline main and supplementary reference lists were combined into one "
+    "bibliography at the end of the PDF; numeric citations use continuous "
+    "document-wide numbering rather than restarting at 1 in the supplement"
+)
+
 
 def link_plaintext_citations(
     docx_path: Path, tex: str, mailto: str | None, bib_entries: list[RefEntry] | None = None
@@ -83,14 +89,14 @@ def link_inline_plaintext_citations(
         result = results[0]
         tex = strip_reference_section(tex, result)
         tex, messages = link_body_markers(tex, result)
-        warnings = [EmitWarning(message=message) for message in messages]
-        warnings.extend(_verify_warnings(result.records))
-        return result.entries, tex, warnings, result.records
+        single_warnings = [EmitWarning(message=message) for message in messages]
+        single_warnings.extend(_verify_warnings(result.records))
+        return result.entries, tex, single_warnings, result.records
 
     main_tex, supplement_tex = tex.split(BOUNDARY_MARKER, 1)
     main_result = next((result for result in results if not result.supplement), None)
     supplement_result = next((result for result in results if result.supplement), None)
-    warnings: list[EmitWarning] = []
+    warnings: list[EmitWarning] = [EmitWarning(message=INLINE_BIBLIOGRAPHY_WARNING)]
     records = list(main_result.records) if main_result is not None else []
     entries: list[RefEntry] = []
 

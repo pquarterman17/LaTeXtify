@@ -309,6 +309,10 @@ latextify convert merged.docx --journal revtex4-2 --inline-supplement --pdf
 
 # Inline supplements cannot be combined with --figures-at-end: delayed floats
 # would cross the numbering boundary. LaTeXtify rejects that combination.
+# If the merged file contains separate main and supplementary reference lists,
+# LaTeXtify combines them into one bibliography at the end of the PDF. Numeric
+# citation numbering is continuous across the whole document and a warning is
+# written to the conversion report so this policy is never implicit.
 
 # ...and staple the main text + supplement into one combined.pdf
 latextify convert paper.docx --journal revtex4-2 --supplement si.docx --pdf --combine-supplement
