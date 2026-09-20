@@ -598,6 +598,51 @@ def test_metafile_uses_high_resolution_raster_fallback(tmp_path, monkeypatch):
     assert "no longer vector" not in outcome.warning  # message explains via vector-quality wording
 
 
+def test_metafile_pixel_limit_is_checked_before_raster_allocation(tmp_path, monkeypatch):
+    class HugeMetafile:
+        width = 10_000
+        height = 10_000
+        info = {"dpi": 72}
+        loaded = False
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return None
+
+        def load(self, **_kwargs):
+            self.loaded = True
+
+    image = HugeMetafile()
+    monkeypatch.setattr("PIL.Image.open", lambda _path: image)
+
+    with pytest.raises(OSError, match="150-megapixel"):
+        vector_mod._pillow_metafile_convert(tmp_path / "huge.emf", tmp_path / "out.png")
+
+    assert image.loaded is False
+
+
+def test_pillow_decompression_bomb_degrades_to_warning(tmp_path, monkeypatch):
+    from PIL import Image
+
+    monkeypatch.setattr(vector_mod, "_find_metafile_converter", lambda: None)
+    monkeypatch.setattr(
+        vector_mod,
+        "_pillow_metafile_convert",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(Image.DecompressionBombError("huge")),
+    )
+    src = tmp_path / "huge.emf"
+    src.write_bytes(b"emf")
+    dest_dir = tmp_path / "figures"
+    dest_dir.mkdir()
+
+    outcome = convert_for_latex(src, dest_dir, 1)
+
+    assert "could not rasterize" in outcome.warning
+    assert not outcome.dest_path.exists()
+
+
 def test_metafile_converts_via_inkscape_when_present(tmp_path, monkeypatch):
     monkeypatch.setattr(
         vector_mod.shutil, "which", lambda name: "/usr/bin/inkscape" if name == "inkscape" else None

@@ -307,6 +307,9 @@ latextify convert paper.docx --journal revtex4-2 --supplement si.docx --pdf
 # Material", or "Supporting Information" at the boundary.
 latextify convert merged.docx --journal revtex4-2 --inline-supplement --pdf
 
+# Inline supplements cannot be combined with --figures-at-end: delayed floats
+# would cross the numbering boundary. LaTeXtify rejects that combination.
+
 # ...and staple the main text + supplement into one combined.pdf
 latextify convert paper.docx --journal revtex4-2 --supplement si.docx --pdf --combine-supplement
 

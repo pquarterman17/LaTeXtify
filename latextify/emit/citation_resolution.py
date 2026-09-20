@@ -33,15 +33,20 @@ flag into the loud, per-reference warning that surfaces the review request.
 
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 
 from latextify.citations.body_markers import link_body_markers, strip_reference_section
 from latextify.citations.crossref import CrossrefClient
-from latextify.citations.plaintext import reconstruct_citations
+from latextify.citations.merge import merge_ref_entries
+from latextify.citations.plaintext import reconstruct_citation_lists, reconstruct_citations
 from latextify.citations.validate import validate_references
 from latextify.model.emit import EmitWarning
 from latextify.model.refs import RefEntry
 from latextify.model.validate import ValidationReport
+
+from .anchors import remap_cite_keys_in_text
+from .inline_supplement import BOUNDARY_MARKER
 
 
 def link_plaintext_citations(
@@ -65,6 +70,60 @@ def link_plaintext_citations(
     warnings = [EmitWarning(message=message) for message in messages]
     warnings.extend(_verify_warnings(result.records))
     return result.entries, tex, warnings, result.records
+
+
+def link_inline_plaintext_citations(
+    docx_path: Path, tex: str, mailto: str | None, bib_entries: list[RefEntry] | None = None
+) -> tuple[list[RefEntry], str, list[EmitWarning], tuple]:
+    """Link main and SI typed citation lists against their own body segments."""
+    results = reconstruct_citation_lists(docx_path, mailto=mailto, bib_entries=bib_entries)
+    if not results:
+        return [], tex, [], ()
+    if len(results) == 1 or BOUNDARY_MARKER not in tex:
+        result = results[0]
+        tex = strip_reference_section(tex, result)
+        tex, messages = link_body_markers(tex, result)
+        warnings = [EmitWarning(message=message) for message in messages]
+        warnings.extend(_verify_warnings(result.records))
+        return result.entries, tex, warnings, result.records
+
+    main_tex, supplement_tex = tex.split(BOUNDARY_MARKER, 1)
+    main_result = next((result for result in results if not result.supplement), None)
+    supplement_result = next((result for result in results if result.supplement), None)
+    warnings: list[EmitWarning] = []
+    records = list(main_result.records) if main_result is not None else []
+    entries: list[RefEntry] = []
+
+    if main_result is not None:
+        main_tex = strip_reference_section(main_tex, main_result)
+        main_tex, messages = link_body_markers(main_tex, main_result)
+        warnings.extend(EmitWarning(message=message) for message in messages)
+        warnings.extend(_verify_warnings(main_result.records))
+        entries = list(main_result.entries)
+
+    if supplement_result is not None:
+        supplement_tex = strip_reference_section(supplement_tex, supplement_result)
+        supplement_tex, messages = link_body_markers(supplement_tex, supplement_result)
+        warnings.extend(EmitWarning(message=f"supplement: {message}") for message in messages)
+        warnings.extend(_verify_warnings(supplement_result.records))
+        merged, key_remap = merge_ref_entries(entries, supplement_result.entries)
+        entries = merged
+        supplement_tex = remap_cite_keys_in_text(supplement_tex, key_remap)
+        records.extend(
+            replace(record, key=key_remap.get(record.key, record.key))
+            for record in supplement_result.records
+        )
+
+    if len(results) > 2:
+        warnings.append(
+            EmitWarning(
+                message=(
+                    "more than one reference list was found in a document segment; "
+                    "only the first main and first supplementary lists were linked"
+                )
+            )
+        )
+    return entries, main_tex + BOUNDARY_MARKER + supplement_tex, warnings, tuple(records)
 
 
 def run_reference_validation(

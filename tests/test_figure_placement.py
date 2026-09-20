@@ -46,3 +46,14 @@ def test_explicit_placement_overrides_aspect_ratio(tmp_path):
 
     assert figures[0].wide is True
     assert figures[1].wide is False
+
+
+def test_nonexistent_figure_placement_warns(tmp_path):
+    output_dir = tmp_path / "figures"
+    output_dir.mkdir()
+
+    _files, _figures, warnings = _copy_figures((), output_dir, placements={("", 99): "two"})
+
+    assert any(
+        "99" in warning.message and "no such figure" in warning.message for warning in warnings
+    )

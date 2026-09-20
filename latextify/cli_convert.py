@@ -230,6 +230,9 @@ def convert(
     if inline_supplement and supplement is not None:
         typer.echo("error: --inline-supplement cannot be used with --supplement", err=True)
         raise typer.Exit(code=1)
+    if inline_supplement and figures_at_end:
+        typer.echo("error: --inline-supplement cannot be used with --figures-at-end", err=True)
+        raise typer.Exit(code=1)
     # --review turns on the online check it reviews.
     check_references = check_references or review
     # Per-document layout overrides (mirrors the GUI's convert-multi wiring in

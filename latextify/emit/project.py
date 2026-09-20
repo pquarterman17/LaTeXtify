@@ -87,7 +87,11 @@ from latextify.emit.bibliography import (
     BIBLIOGRAPHY_LINE,
     legacy_bibliography_warning,
 )
-from latextify.emit.citation_resolution import link_plaintext_citations, run_reference_validation
+from latextify.emit.citation_resolution import (
+    link_inline_plaintext_citations,
+    link_plaintext_citations,
+    run_reference_validation,
+)
 from latextify.emit.figures_stage import run_figure_stage
 from latextify.emit.inline_supplement import mark_inline_supplement, render_inline_supplement
 from latextify.emit.metadata import load_meta, write_metadata_tex
@@ -254,13 +258,9 @@ def emit_project(
     docx_path = Path(docx_path)
     if inline_supplement and supplement_docx_path is not None:
         raise ValueError("inline supplement cannot be combined with a separate supplement file")
+    if inline_supplement and figures_at_end:
+        raise ValueError("inline supplement cannot be combined with figures-at-end")
 
-    # Everything that can REJECT this run happens before anything is created on
-    # disk: the journal must exist, and it must support the requested citation
-    # mode. Loading the journal used to happen after the output tree was made,
-    # so `convert --journal ieeetran --citation-style authoryear` -- which is
-    # correctly refused -- still left an empty output/ieeetran/ behind. A run
-    # that fails should leave the filesystem as it found it.
     journal = templates_loader.load(journal_name, journals_dir=journals_dir)
     journal.resolve_mode(citation_style)
 
@@ -324,12 +324,19 @@ def emit_project(
         journal.figure_env,
         exclude_figures=exclude_figures,
     )
-    # body_result.findings (heading clamps, table-normalization degradations --
-    # item 25) previously never left convert_docx_to_body's own return value;
-    # surfaced here so they reach EmitResult.warnings / the CLI / report.md
-    # like every other stage's findings do.
     body_warnings = [EmitWarning(message=finding.message) for finding in body_result.findings]
     warnings = body_warnings + list(conversion_warnings) + list(anchor_warnings)
+    if supplement_docx_path is None and figure_placements:
+        for (prefix, number), _mode in figure_placements.items():
+            if prefix == "S":
+                reason = (
+                    "merged manuscripts use overall document-order numbers without an S prefix"
+                    if inline_supplement
+                    else "no separate supplement was supplied"
+                )
+                warnings.append(
+                    EmitWarning(message=f"figure column choice for S{number} was ignored: {reason}")
+                )
     warnings.extend(EmitWarning(message=m) for m in non_docx_warnings(docx_path, sidecar_existed))
 
     reconciliation: ReconciliationReport | None = None
@@ -358,7 +365,8 @@ def emit_project(
             )
     else:
         # No field codes anywhere -> plain-text reconstruction safety net (item 14).
-        entries, resolved_tex, plaintext_warnings, plaintext_records = link_plaintext_citations(
+        linker = link_inline_plaintext_citations if inline_supplement else link_plaintext_citations
+        entries, resolved_tex, plaintext_warnings, plaintext_records = linker(
             docx_path, resolved_tex, crossref_mailto, bib_entries
         )
         warnings.extend(plaintext_warnings)

@@ -145,6 +145,7 @@ class ReferenceList:
 
     heading: str | None
     references: list[ReferenceItem] = field(default_factory=list)
+    supplement: bool = False
 
     @property
     def found(self) -> bool:
@@ -161,50 +162,57 @@ def segment_reference_list(docx_path: Path | str) -> ReferenceList:
     ``word/document.xml`` to read) dispatches to
     :mod:`latextify.citations.reflist_nondocx` instead.
     """
+    lists = segment_reference_lists(docx_path)
+    return lists[0] if lists else ReferenceList(heading=None)
+
+
+def segment_reference_lists(docx_path: Path | str) -> tuple[ReferenceList, ...]:
+    """Return each typed reference list, tagged as main or supplementary."""
     if not is_docx(docx_path):
         from .reflist_nondocx import segment_reference_list_from_manuscript
 
-        return segment_reference_list_from_manuscript(Path(docx_path))
+        found = segment_reference_list_from_manuscript(Path(docx_path))
+        return (found,) if found.heading is not None else ()
     root = etree.fromstring(read_document_xml(docx_path))
     paragraphs = list(root.iter(_q("p")))
-
-    heading_index: int | None = None
-    heading_text: str | None = None
-    for index, paragraph in enumerate(paragraphs):
-        text = _paragraph_text(paragraph)
-        if _is_heading_paragraph(text):
-            heading_index = index
-            heading_text = text.strip().rstrip(":").strip()
-            break
-
-    if heading_index is None:
-        return ReferenceList(heading=None)
-
-    references: list[ReferenceItem] = []
-    auto_number = 0
-    for paragraph in paragraphs[heading_index + 1 :]:
-        text = _paragraph_text(paragraph).strip()
-        if not text:
-            continue
-        # A merged manuscript commonly places the SI after the main reference
-        # list. It is a new document section, not another malformed reference.
-        if _SUPPLEMENT_HEADING_RE.match(text):
-            break
-        match = _LIST_NUMBER_RE.match(text)
-        if match:
-            number = int(match.group("br") or match.group("pr") or match.group("dot"))
-            body = text[match.end() :].strip()
-            references.append(ReferenceItem(text=body, number=number))
-        elif _has_list_numbering(paragraph):
-            # Word's own auto-numbering: no typed digits to parse, so assign
-            # sequential numbers in document order (a fresh Word list always
-            # starts at 1 and increments by 1, matching what the reader sees).
-            auto_number += 1
-            references.append(ReferenceItem(text=text, number=auto_number))
-        else:
-            references.append(ReferenceItem(text=text, number=None))
-
-    return ReferenceList(heading=heading_text, references=references)
+    texts = [_paragraph_text(paragraph).strip() for paragraph in paragraphs]
+    supplement_at = next(
+        (index for index, text in enumerate(texts) if _SUPPLEMENT_HEADING_RE.match(text)), None
+    )
+    headings = [index for index, text in enumerate(texts) if _is_heading_paragraph(text)]
+    lists: list[ReferenceList] = []
+    for position, heading_index in enumerate(headings):
+        stops = [len(paragraphs)]
+        if position + 1 < len(headings):
+            stops.append(headings[position + 1])
+        if supplement_at is not None and heading_index < supplement_at:
+            stops.append(supplement_at)
+        references: list[ReferenceItem] = []
+        auto_number = 0
+        for paragraph, text in zip(
+            paragraphs[heading_index + 1 : min(stops)],
+            texts[heading_index + 1 : min(stops)],
+            strict=True,
+        ):
+            if not text:
+                continue
+            match = _LIST_NUMBER_RE.match(text)
+            if match:
+                number = int(match.group("br") or match.group("pr") or match.group("dot"))
+                references.append(ReferenceItem(text=text[match.end() :].strip(), number=number))
+            elif _has_list_numbering(paragraph):
+                auto_number += 1
+                references.append(ReferenceItem(text=text, number=auto_number))
+            else:
+                references.append(ReferenceItem(text=text, number=None))
+        lists.append(
+            ReferenceList(
+                heading=texts[heading_index].rstrip(":").strip(),
+                references=references,
+                supplement=supplement_at is not None and heading_index > supplement_at,
+            )
+        )
+    return tuple(lists)
 
 
 # --- reconstruction ----------------------------------------------------------
@@ -227,6 +235,7 @@ class PlaintextResult:
     author_year_keys: dict[tuple[str, str], list[str]] = field(default_factory=dict)
     heading: str | None = None
     has_reference_list: bool = False
+    supplement: bool = False
 
     @property
     def report(self) -> ReconciliationReport:
@@ -266,6 +275,10 @@ def reconstruct_citations(
         if owns_client:
             client.close()
 
+    return _result_from_outcome(reflist, outcome)
+
+
+def _result_from_outcome(reflist: ReferenceList, outcome) -> PlaintextResult:
     keys_by_number = {
         record.ref_number: record.key for record in outcome.records if record.ref_number is not None
     }
@@ -276,4 +289,33 @@ def reconstruct_citations(
         author_year_keys=build_author_year_index(outcome.entries),
         heading=reflist.heading,
         has_reference_list=True,
+        supplement=reflist.supplement,
     )
+
+
+def reconstruct_citation_lists(
+    docx_path: Path | str,
+    *,
+    mailto: str | None = None,
+    threshold: float = reconcile.DEFAULT_THRESHOLD,
+    client: crossref.CrossrefClient | None = None,
+    bib_entries: list[RefEntry] | None = None,
+) -> tuple[PlaintextResult, ...]:
+    """Reconstruct every typed reference list in a merged main+SI manuscript."""
+    reflists = tuple(item for item in segment_reference_lists(docx_path) if item.found)
+    if not reflists:
+        return ()
+    owns_client = client is None
+    if client is None:
+        client = crossref.CrossrefClient(mailto=mailto)
+    results: list[PlaintextResult] = []
+    try:
+        for reflist in reflists:
+            outcome = reconcile.reconcile_references(
+                reflist.references, client, threshold=threshold, bib_entries=bib_entries
+            )
+            results.append(_result_from_outcome(reflist, outcome))
+    finally:
+        if owns_client:
+            client.close()
+    return tuple(results)

@@ -285,6 +285,18 @@ def test_input_aware_toggle_wiring_present(tmp_path):
     assert re.search(r"optNoFigs[\s\S]{0,120}invalidatePreview", js)
 
 
+def test_inline_supplement_and_figure_column_controls_are_wired(tmp_path):
+    client = _client(tmp_path)
+    html = client.get("/").text
+    js = client.get("/static/app.js").text
+
+    assert 'id="opt-inline-supp"' in html
+    assert 'id="figure-columns"' in html
+    assert 'fd.append("inline_supplement"' in js
+    assert 'fd.append("figure_columns"' in js
+    assert "optFigsEnd.disabled = optInlineSupp.checked" in js
+
+
 def test_index_wires_the_review_panel(tmp_path):
     """The static page carries the reference-review panel + apply wiring."""
     html = _ui_text(_client(tmp_path))

@@ -214,12 +214,16 @@ def _pillow_metafile_convert(src: Path, dest: Path, *, dpi: int = 600) -> None:
     from PIL import Image
 
     with Image.open(src) as image:
-        try:
-            image.load(dpi=dpi)
-        except TypeError:  # defensive for Pillow decoders without the DPI keyword
-            image.load()
-        if image.width * image.height > 150_000_000:
+        source_dpi = image.info.get("dpi", 72)
+        if isinstance(source_dpi, tuple):
+            xdpi, ydpi = source_dpi
+        else:
+            xdpi = ydpi = source_dpi
+        target_width = int(image.width * dpi / xdpi)
+        target_height = int(image.height * dpi / ydpi)
+        if target_width * target_height > 150_000_000:
             raise OSError("rasterized metafile exceeds the 150-megapixel safety limit")
+        image.load(dpi=dpi)
         image.convert("RGBA" if "A" in image.getbands() else "RGB").save(dest, format="PNG")
 
 
@@ -272,8 +276,9 @@ def convert_metafile(
         raster_dest = dest.with_suffix(".png")
         try:
             _pillow_metafile_convert(src, raster_dest)
-        except (OSError, ValueError) as exc:
+        except Exception as exc:  # Pillow decoder failures vary; never crash the emit
             raster_dest.unlink(missing_ok=True)
+            dest.unlink(missing_ok=True)  # never preserve a previous run's vector output
             return ConversionOutcome(
                 dest_path=dest,
                 warning=(
@@ -297,7 +302,7 @@ def convert_metafile(
         raster_dest = dest.with_suffix(".png")
         try:
             _pillow_metafile_convert(src, raster_dest)
-        except (OSError, ValueError):
+        except Exception:  # Pillow decoder failures vary; never crash the emit
             raster_dest.unlink(missing_ok=True)
         else:
             return ConversionOutcome(

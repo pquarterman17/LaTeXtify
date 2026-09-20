@@ -12,6 +12,12 @@ _HEADING_RE = re.compile(
     r")\}",
     re.IGNORECASE,
 )
+_BARE_HEADING_RE = re.compile(
+    r"(?m)^(?:\\textbf\{)?(?P<title>"
+    r"supplement(?:ary|al)?\s+(?:material|information)|supporting\s+information"
+    r")(?:\})?\s*$",
+    re.IGNORECASE,
+)
 
 _BOUNDARY_LATEX = (
     "\\clearpage\n"
@@ -20,16 +26,26 @@ _BOUNDARY_LATEX = (
     "\\setcounter{table}{0}\n"
     "\\setcounter{equation}{0}\n"
     "\\setcounter{section}{0}\n"
+    "\\setcounter{subsection}{0}\n"
+    "\\setcounter{subsubsection}{0}\n"
     "\\renewcommand{\\thefigure}{S\\arabic{figure}}\n"
     "\\renewcommand{\\thetable}{S\\arabic{table}}\n"
     "\\renewcommand{\\theequation}{S\\arabic{equation}}\n"
     "\\renewcommand{\\thesection}{S\\arabic{section}}\n"
+    "% Keep Hyperref destinations distinct from the main document.\n"
+    "\\renewcommand{\\theHfigure}{S.\\arabic{figure}}\n"
+    "\\renewcommand{\\theHtable}{S.\\arabic{table}}\n"
+    "\\renewcommand{\\theHequation}{S.\\arabic{equation}}\n"
+    "\\renewcommand{\\theHsection}{S.\\arabic{section}}\n"
 )
 
 
 def mark_inline_supplement(tex: str) -> str:
     """Replace the first conventional SI heading with a protected marker."""
-    match = _HEADING_RE.search(tex)
+    matches = [
+        match for pattern in (_HEADING_RE, _BARE_HEADING_RE) if (match := pattern.search(tex))
+    ]
+    match = min(matches, key=lambda item: item.start()) if matches else None
     if match is None:
         raise ValueError(
             "inline supplement was requested, but no heading named Supplementary "

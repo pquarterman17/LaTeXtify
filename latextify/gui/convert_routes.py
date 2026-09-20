@@ -241,6 +241,11 @@ def register_convert_routes(
                 status_code=400,
                 detail="inline supplement cannot be combined with a separate supplement file",
             )
+        if inline_supplement and figures_at_end:
+            raise HTTPException(
+                status_code=400,
+                detail="inline supplement cannot be combined with figures-at-end",
+            )
 
         try:
             journal_obj = templates_loader.load(journal)

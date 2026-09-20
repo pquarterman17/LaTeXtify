@@ -241,7 +241,7 @@ def strip_reference_section_to_eof(tex: str) -> str:
         # the supplementary heading. Preserve that protected tail rather than
         # applying the historical "references are always EOF" assumption.
         marker = tex.find("%%LATEXTIFY_INLINE_SUPPLEMENT%%", start)
-        tail = tex[marker:] if marker >= 0 else ""
+        tail = strip_reference_section_to_eof(tex[marker:]) if marker >= 0 else ""
         return tex[:start].rstrip() + "\n" + tail
 
     for match in _REF_SECTION_RE.finditer(tex):

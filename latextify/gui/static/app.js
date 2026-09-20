@@ -240,6 +240,11 @@
     optCombine.disabled = !hasSupp;
     if (!hasSupp) optCombine.checked = false;
     optCombine.title = hasSupp ? "" : "Add a file with the Supplement role to enable.";
+    optInlineSupp.disabled = hasSupp;
+    if (hasSupp) optInlineSupp.checked = false;
+    optInlineSupp.title = hasSupp ? "Remove the separate Supplement file to enable." : "";
+    optFigsEnd.disabled = optInlineSupp.checked;
+    if (optInlineSupp.checked) optFigsEnd.checked = false;
     const figsStaged = entries.some(
       (x) => x.role === "figure" || x.role === "figures_pdf"
     );
@@ -355,6 +360,7 @@
   ].forEach((ctrl) => ctrl.addEventListener("change", invalidatePreview));
   optNoFigs.addEventListener("change", invalidatePreview);
   optNoFigs.addEventListener("change", updateOptionState);
+  optInlineSupp.addEventListener("change", updateOptionState);
   citationSelect.addEventListener("change", onCitationChange);
   crossrefEmail.addEventListener("input", invalidatePreview);
   figureColumns.addEventListener("input", invalidatePreview);

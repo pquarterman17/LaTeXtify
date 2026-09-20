@@ -21,6 +21,7 @@ from latextify.citations.body_markers import (
 from latextify.citations.plaintext import (
     PlaintextResult,
     segment_reference_list,
+    segment_reference_lists,
 )
 
 W = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
@@ -172,6 +173,28 @@ def test_segment_finds_numbered_references(tmp_path):
     assert [r.number for r in reflist.references] == [1, 2]
     assert reflist.references[0].text.startswith("Smith")
     assert "1." not in reflist.references[0].text  # leading number stripped
+
+
+def test_segment_merged_manuscript_returns_main_and_supplement_lists(tmp_path):
+    doc = Document()
+    doc.add_heading("Main", level=1)
+    doc.add_paragraph("Main citation [1].")
+    doc.add_heading("References", level=1)
+    doc.add_paragraph("1. Main, A. Main paper. (2020).")
+    doc.add_heading("Supplementary Information", level=1)
+    doc.add_paragraph("Supplement citation [1].")
+    doc.add_heading("References", level=1)
+    doc.add_paragraph("1. Supplement, B. SI paper. (2021).")
+    path = tmp_path / "merged.docx"
+    doc.save(path)
+
+    lists = segment_reference_lists(path)
+
+    assert len(lists) == 2
+    assert lists[0].supplement is False
+    assert lists[0].references[0].text.startswith("Main")
+    assert lists[1].supplement is True
+    assert lists[1].references[0].text.startswith("Supplement")
 
 
 def test_segment_bibliography_heading(tmp_path):
