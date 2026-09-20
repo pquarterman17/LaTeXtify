@@ -154,8 +154,8 @@ jobs:
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.10"
-      - name: Build an emit-only kit covering Python 3.10 (network ON)
-        run: uv run latextify make-kit --target current --python-versions 3.10 --no-warm-tex --output build
+      - name: Build a GUI-capable emit-only kit covering Python 3.10 (network ON)
+        run: uv run latextify make-kit --target current --python-versions 3.10 --with-gui --no-warm-tex --output build
       - name: Install the kit under Python 3.10, network POISONED
         env:
           # Same reasoning as the Linux offline-kit job: uppercase only, one
@@ -166,6 +166,12 @@ jobs:
         run: |
           & "${{ steps.py310.outputs.python-path }}" "build/latextify-offline-windows-x64/install.py"
           if ($LASTEXITCODE -ne 0) { throw "install.py failed under Python 3.10 (exit $LASTEXITCODE)" }
+          $kit = "build/latextify-offline-windows-x64"
+          & "$kit/.venv/Scripts/python.exe" -c "import fastapi, uvicorn, multipart; import latextify.gui.server"
+          if ($LASTEXITCODE -ne 0) { throw "offline GUI imports failed (exit $LASTEXITCODE)" }
+          if (-not (Test-Path "$kit/Start-LaTeXtify-GUI.bat")) {
+            throw "offline GUI launcher was not generated"
+          }
       - name: Convert a fixture manuscript offline (emit-only, no --pdf)
         env:
           HTTPS_PROXY: http://127.0.0.1:9

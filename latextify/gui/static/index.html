@@ -10,6 +10,7 @@
 <header>
   <h1>LaTeXtify</h1>
   <p>Drop your manuscript, supplement, figures and reference library together — set each file's role, pick options, convert.</p>
+  <p id="offline-notice" class="hint hidden"><strong>Offline package:</strong> conversion and PDF compilation stay on this computer. Crossref checks are disabled.</p>
 </header>
 <main>
   <div class="layout-grid">
@@ -59,6 +60,7 @@
         <div class="field">
           <label for="figure-columns">Figure column widths</label>
           <input id="figure-columns" type="text" placeholder="e.g. 1=one, 2=two" title="Use document-order figure numbers. Omitted figures are placed automatically." />
+          <span class="hint">Works for embedded and uploaded figures. Use “What are my figures?” below to confirm the document-order numbers; leave a figure out to place it automatically.</span>
         </div>
       </div>
       <div id="nofigs-warning" class="hint hidden">“Exclude figures” is on while figure files are staged — those files will be ignored.</div>

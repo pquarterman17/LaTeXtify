@@ -15,8 +15,10 @@ cache (tex-bundle-cache/), the generated launcher points LaTeXtify at both, so
 installs and emits LaTeX offline but needs network the first time it compiles a
 PDF (Tectonic fetches its TeX packages then).
 
-After install, launch with the generated LaTeXtify.bat (Windows) or ./latextify
-(macOS/Linux) — e.g. `LaTeXtify.bat convert paper.docx -j revtex4-2 --pdf`.
+After install, launch the browser GUI with the generated
+Start-LaTeXtify-GUI.bat (Windows) or ./start-latextify-gui (macOS/Linux), when
+the kit includes GUI support. The LaTeXtify.bat / ./latextify command-line
+launcher is always generated as well.
 
 This file is emitted verbatim into every kit by `latextify make-kit`; it must
 stay import-free of the `latextify` package (it runs on the target BEFORE
@@ -126,7 +128,12 @@ def _create_venv(venv_dir: Path, wheelhouse: Path) -> Path:
     return py
 
 
-def _write_launchers(target: Path, venv_dir: Path) -> list[Path]:
+def _package_spec(info: dict) -> str:
+    """Return the project requirement the offline installer must install."""
+    return "latextify[gui]" if info.get("with_gui", False) else "latextify"
+
+
+def _write_launchers(target: Path, venv_dir: Path, *, with_gui: bool) -> list[Path]:
     """Write LaTeXtify.bat / ./latextify that run the venv CLI with the in-kit
     Tectonic binary on PATH and TECTONIC_CACHE_DIR pointed at the warmed cache.
 
@@ -148,6 +155,27 @@ def _write_launchers(target: Path, venv_dir: Path) -> list[Path]:
         lines.append(f'"{venv_dir}\\Scripts\\latextify.exe" %*')
         bat.write_text("\r\n".join(lines) + "\r\n", encoding="ascii", errors="replace")
         made.append(bat)
+        if with_gui:
+            gui_bat = target / "Start-LaTeXtify-GUI.bat"
+            gui_bat.write_text(
+                "\r\n".join(
+                    [
+                        "@echo off",
+                        "title LaTeXtify",
+                        'set "LATEXTIFY_OFFLINE=1"',
+                        'call "%~dp0LaTeXtify.bat" gui %*',
+                        "if not errorlevel 1 exit /b 0",
+                        "echo.",
+                        "echo LaTeXtify could not start.",
+                        "echo Keep this window open and copy the error above.",
+                        "pause",
+                        "exit /b 1",
+                    ]
+                )
+                + "\r\n",
+                encoding="ascii",
+            )
+            made.append(gui_bat)
     else:
         sh = target / "latextify"
         lines = ["#!/bin/sh"]
@@ -159,6 +187,15 @@ def _write_launchers(target: Path, venv_dir: Path) -> list[Path]:
         sh.write_text("\n".join(lines) + "\n", encoding="ascii", errors="replace")
         sh.chmod(0o755)
         made.append(sh)
+        if with_gui:
+            gui_sh = target / "start-latextify-gui"
+            gui_sh.write_text(
+                f'#!/bin/sh\nexport LATEXTIFY_OFFLINE=1\nexec "{target}/latextify" gui "$@"\n',
+                encoding="ascii",
+                errors="replace",
+            )
+            gui_sh.chmod(0o755)
+            made.append(gui_sh)
     return made
 
 
@@ -195,10 +232,18 @@ def main() -> None:
     if any(wheelhouse.glob("pip-*.whl")):
         # a current pip avoids old-ensurepip metadata quirks; best-effort
         subprocess.run(base + ["--upgrade", "--quiet", "pip"])
-    _run(base + ["--upgrade", "latextify"])
+    with_gui = bool(info.get("with_gui", False))
+    package = _package_spec(info)
+    _run(base + ["--upgrade", package])
 
+    imports = "import latextify"
+    if with_gui:
+        # Verify the optional stack explicitly. Importing latextify alone would
+        # let a broken GUI kit report a successful install and fail only when
+        # the user double-clicked its launcher.
+        imports += "; import fastapi, uvicorn, multipart; import latextify.gui.server"
     check = subprocess.run(
-        [str(py), "-c", "import latextify; print(getattr(latextify, '__version__', '?'))"],
+        [str(py), "-c", imports + "; print(getattr(latextify, '__version__', '?'))"],
         capture_output=True,
         text=True,
     )
@@ -206,11 +251,15 @@ def main() -> None:
         _die(f"install verification failed:\n{check.stderr}")
     version = check.stdout.strip()
 
-    launchers = _write_launchers(target, venv_dir)
+    launchers = _write_launchers(target, venv_dir, with_gui=with_gui)
     print(f"\nLaTeXtify {version} installed.")
-    print("Convert a manuscript with, e.g.:")
-    for launcher in launchers:
-        print(f"  {launcher} convert paper.docx -j revtex4-2 --pdf")
+    if with_gui:
+        gui_launcher = next(p for p in launchers if "gui" in p.name.lower())
+        print("Open the browser interface with:")
+        print(f"  {gui_launcher}")
+    cli_launcher = next(p for p in launchers if "gui" not in p.name.lower())
+    print("Or convert from the command line with:")
+    print(f"  {cli_launcher} convert paper.docx -j revtex4-2 --pdf")
     if not (HERE / "tex-bundle-cache").is_dir():
         print(
             "\nNote: this kit has no pre-warmed TeX cache (--no-warm-tex); the first\n"

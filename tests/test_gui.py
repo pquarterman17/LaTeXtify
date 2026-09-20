@@ -16,6 +16,7 @@ from pathlib import Path
 from unittest.mock import Mock
 
 import pytest
+from docx import Document
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from PIL import Image
@@ -295,6 +296,60 @@ def test_inline_supplement_and_figure_column_controls_are_wired(tmp_path):
     assert 'fd.append("inline_supplement"' in js
     assert 'fd.append("figure_columns"' in js
     assert "optFigsEnd.disabled = optInlineSupp.checked" in js
+
+
+def test_offline_launcher_mode_is_visible_and_disables_crossref(tmp_path, monkeypatch):
+    monkeypatch.setenv("LATEXTIFY_OFFLINE", "1")
+    html = _client(tmp_path).get("/").text
+
+    assert 'id="offline-notice" class="hint"' in html
+    assert 'id="opt-checkrefs" type="checkbox" disabled' in html
+    assert 'id="opt-checkrefs" type="checkbox" checked' not in html
+
+
+def test_gui_inline_supplement_produces_one_document_with_page_break(tmp_path):
+    merged = tmp_path / "merged.docx"
+    document = Document(CLEAN_DOCX)
+    document.add_heading("Supplementary Information", level=1)
+    document.add_paragraph("Supplementary result from the merged manuscript.")
+    document.save(merged)
+
+    with merged.open("rb") as fh:
+        response = _client(tmp_path).post(
+            "/api/convert-multi",
+            files={"main": ("merged.docx", fh, "application/octet-stream")},
+            data={
+                "journal": "revtex4-2",
+                "pdf": "false",
+                "inline_supplement": "true",
+            },
+        )
+
+    assert response.status_code == 200, response.text
+    output = Path(response.json()["output_dir"])
+    body = (output / "generated" / "body.tex").read_text(encoding="utf-8")
+    assert "\\clearpage" in body
+    assert "\\section*{Supplementary Information}" in body
+    assert not (output / "supplement.tex").exists()
+
+
+def test_gui_figure_column_choices_reach_emitted_latex(tmp_path):
+    with FIGURES_DOCX.open("rb") as fh:
+        response = _client(tmp_path).post(
+            "/api/convert-multi",
+            files={"main": ("figures.docx", fh, "application/octet-stream")},
+            data={
+                "journal": "revtex4-2",
+                "pdf": "false",
+                "figure_columns": "1=one, 2=two",
+            },
+        )
+
+    assert response.status_code == 200, response.text
+    output = Path(response.json()["output_dir"])
+    body = (output / "generated" / "body.tex").read_text(encoding="utf-8")
+    assert "\\begin{figure}\n" in body
+    assert "\\begin{figure*}\n" in body
 
 
 def test_index_wires_the_review_panel(tmp_path):

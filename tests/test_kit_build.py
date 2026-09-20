@@ -18,7 +18,7 @@ from pathlib import Path
 
 import pytest
 
-from latextify.kit import build, tex_cache
+from latextify.kit import build, install_template, tex_cache
 from latextify.kit import target as kit_target
 from latextify.templates import loader
 
@@ -146,6 +146,29 @@ def test_installer_template_imports_only_stdlib():
     assert "latextify" not in imported_roots
     third_party = {"httpx", "typer", "panflute", "lxml", "jinja2", "pillow", "PIL"}
     assert not (imported_roots & third_party), imported_roots & third_party
+
+
+def test_gui_kit_installs_gui_extra_and_writes_offline_launcher(tmp_path):
+    assert install_template._package_spec({"with_gui": True}) == "latextify[gui]"
+    assert install_template._package_spec({"with_gui": False}) == "latextify"
+    assert install_template._package_spec({}) == "latextify"  # older manifests remain valid
+
+    launchers = install_template._write_launchers(
+        tmp_path, tmp_path / ".venv", with_gui=True
+    )
+    names = {path.name for path in launchers}
+    gui_name = "Start-LaTeXtify-GUI.bat" if os.name == "nt" else "start-latextify-gui"
+    assert gui_name in names
+    gui_text = (tmp_path / gui_name).read_text(encoding="ascii")
+    assert "LATEXTIFY_OFFLINE=1" in gui_text
+    assert " gui " in gui_text
+
+
+def test_command_line_only_kit_does_not_write_gui_launcher(tmp_path):
+    launchers = install_template._write_launchers(
+        tmp_path, tmp_path / ".venv", with_gui=False
+    )
+    assert all("gui" not in path.name.lower() for path in launchers)
 
 
 def test_default_warm_journals_are_the_registered_ones():

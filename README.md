@@ -285,7 +285,26 @@ To start the web GUI without touching a command line, double-click
 **`startup.bat`** (Windows) or run **`./startup.sh`** (macOS/Linux). It installs
 dependencies on first run, opens the GUI in your browser, and — if anything
 goes wrong — writes an easy-to-find `latextify-startup.log` next to the script
-and prints it for you to copy.
+and prints it for you to copy. This source-tree launcher needs internet access
+on its first run.
+
+### Offline / firewalled Windows computer
+
+Do not transfer the repository's source-code ZIP: its `startup.bat` must fetch
+`uv` and Python packages. On a connected computer, download the release asset
+named **`latextify-offline-windows-x64.zip`**, transfer it using an approved
+method, extract it to a short writable path such as `C:\LaTeXtify`, and run:
+
+```bat
+py install.py
+```
+
+Then double-click **`Start-LaTeXtify-GUI.bat`**. The offline package contains
+the GUI, Pandoc, Tectonic, dependencies, and a warmed TeX cache; it does not
+contact GitHub, Astral, PyPI, or Crossref. It requires a supported 64-bit
+Python already present on the work computer. Embedded EMF/WMF figures work,
+but preserving them as vectors requires an offline installation of LibreOffice
+or Inkscape; otherwise Windows attempts a 600-DPI raster fallback.
 
 ## Usage
 

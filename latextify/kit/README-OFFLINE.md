@@ -13,7 +13,7 @@ Everything installs into this folder; nothing else on the system is touched.
 | File | Purpose |
 |---|---|
 | `install.py` | the installer — Python standard library only |
-| `wheelhouse/` | LaTeXtify + every dependency as pre-built wheels (pandoc rides inside `pypandoc-binary`) |
+| `wheelhouse/` | LaTeXtify + every dependency as pre-built wheels, including the browser GUI when `with_gui` is true in `bundle-info.json` (pandoc rides inside `pypandoc-binary`) |
 | `tectonic/` | the Tectonic PDF-compiler binary for this platform |
 | `tex-bundle-cache/` | pre-warmed TeX packages, so `--pdf` compiles offline (absent in an emit-only kit) |
 | `requirements.txt` | the exact pinned versions (for IT / security review) |
@@ -39,7 +39,17 @@ Everything installs into this folder; nothing else on the system is touched.
    macOS/Linux:  python3 install.py
    ```
 
-3. Convert a manuscript with the generated launcher:
+3. If this kit includes the GUI, start the private browser interface with:
+
+   ```
+   Windows:      Start-LaTeXtify-GUI.bat
+   macOS/Linux:  ./start-latextify-gui
+   ```
+
+   On Windows, double-clicking `Start-LaTeXtify-GUI.bat` is enough. Crossref
+   checks are disabled in this offline launch mode.
+
+4. Or convert a manuscript with the generated command-line launcher:
 
    ```
    Windows:      LaTeXtify.bat convert paper.docx -j revtex4-2 --pdf
@@ -86,6 +96,14 @@ and flagged for you to verify; DOIs found in the typed text still hyperlink.
 Citations carried as Zotero/Mendeley/EndNote field codes in the `.docx` are
 resolved from the document itself and are unaffected.
 
+## Embedded EMF/WMF figures
+
+LaTeXtify accepts embedded or separately uploaded `.emf` and `.wmf` figures.
+For vector-preserving PDF conversion, install LibreOffice or Inkscape on the
+target computer (an offline installer is fine). If neither is available,
+Windows attempts a 600-DPI raster fallback and records the result or any
+failure in `report.md`.
+
 ## Update / uninstall
 
 - **Update:** extract a newer kit and run its `install.py` — or copy a newer
@@ -111,7 +129,7 @@ resolved from the document itself and are unaffected.
 On an internet-connected machine, from the LaTeXtify source tree:
 
 ```
-uv run latextify make-kit --target current
+uv run latextify make-kit --target current --with-gui --zip
 ```
 
 That builds the LaTeXtify wheel, downloads the pinned dependency wheels for each
