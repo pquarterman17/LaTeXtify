@@ -710,9 +710,7 @@ def test_metafile_raster_fallback_receives_word_crop(tmp_path, monkeypatch):
     dest_dir = tmp_path / "figures"
     dest_dir.mkdir()
 
-    outcome = convert_for_latex(
-        src, dest_dir, 1, crop=crop, strip_metadata=False
-    )
+    outcome = convert_for_latex(src, dest_dir, 1, crop=crop, strip_metadata=False)
 
     assert captured == [crop]
     assert "Cropped image to its visible region" in outcome.warning
