@@ -5,11 +5,11 @@
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 ![Python](https://img.shields.io/badge/python-3.10%2B-blue)
 
-Convert scientific manuscripts from Word (`.docx`) into journal-ready LaTeX
-projects and PDFs. Pick a journal, point at a manuscript, get a compilable
-LaTeX project with extracted citations, journal-appropriate formatting, and
-a compiled PDF — **no TeX installation required** (the Tectonic engine is
-downloaded and managed automatically).
+Convert scientific manuscripts (`.docx`, `.odt`, `.rtf`, or Markdown) into
+journal-ready LaTeX projects and PDFs. Pick a journal, point at a manuscript,
+and get a compilable LaTeX project with extracted citations,
+journal-appropriate formatting, and a compiled PDF — **no TeX installation
+required** (the Tectonic engine is downloaded and managed automatically).
 
 ```
 latextify convert paper.docx --journal revtex4-2 --pdf
@@ -65,6 +65,15 @@ locally for private, full-speed conversions.
 - **Re-run safe** — `main.tex` is written once and never overwritten; your
   manual LaTeX polish survives re-conversion (regenerated content lives in
   `generated/`).
+- **Submission controls** — choose one/two-column layout, reviewer line
+  numbers, double spacing, double-blind anonymization, figures-at-end, or a
+  text-only build. Main text and supplement have independent layout controls.
+- **Privacy tools** — `latextify inspect` reports metadata and hidden content
+  in Office files, PDFs, and images; `latextify clean` writes a sanitized copy.
+  Figure EXIF/GPS/camera metadata is stripped by default during conversion,
+  and Word image crops are applied before files enter the submission project.
+- **Portable exports** — `latextify export` produces self-contained HTML or
+  plain Markdown using the same citation and figure reconciliation pipeline.
 
 ## Replacing pasted screenshots with vector art
 
@@ -270,6 +279,10 @@ For the drag-and-drop web GUI, add the `gui` extra:
 pip install "latextify[gui]"
 ```
 
+To inspect metadata in legacy `.doc`, `.ppt`, and `.xls` files, add the
+`legacy` extra (`pip install "latextify[legacy]"`). Legacy files can be
+inspected but not safely cleaned; save them in a modern Office format first.
+
 ### From source (development)
 
 ```
@@ -308,6 +321,12 @@ latextify convert paper.docx --journal revtex4-2 --supplement si.docx --pdf --co
 # where formatting rules are looser), keeping the shared bibliography + S-numbers
 latextify convert paper.docx --journal revtex4-2 --supplement si.docx --pdf --supplement-onecolumn
 
+# Reviewer-ready main text: line numbers, double spacing, and figures at end
+latextify convert paper.docx -j revtex4-2 --pdf --line-numbers --double-spacing --figures-at-end
+
+# Double-blind output (placeholder author, no affiliations/acknowledgments)
+latextify convert paper.docx -j revtex4-2 --anonymize
+
 # Validate references online against Crossref (DOIs, titles, authors, years...)
 latextify convert paper.docx --journal revtex4-2 --check-references
 
@@ -326,6 +345,15 @@ latextify batch drafts/ --journal revtex4-2 --pdf
 # Equation conversion audit for equation-heavy papers
 latextify equations paper.docx --pdf
 
+# Inspect a file for metadata/hidden content, then write and verify a clean copy
+latextify inspect manuscript.docx --verbose
+latextify clean manuscript.docx manuscript-clean.docx
+latextify inspect manuscript-clean.docx
+
+# Export without a journal template (self-contained HTML or plain Markdown)
+latextify export paper.docx --format html
+latextify export paper.docx --format markdown --output paper.md
+
 # Local web GUI (drag-and-drop; requires the gui extra: pip install "latextify[gui]")
 latextify gui
 
@@ -337,11 +365,11 @@ latextify journals
 
 `latextify gui` starts a local, browser-based front end (bound to
 `127.0.0.1` only — your uploads never leave your machine) and opens a tab.
-Drop your whole submission in at once — **main `.docx`, supplement `.docx`,
-figure files, and a `.bib` reference library together** — then set each
-file's role, pick a journal from the full publisher list, choose options
-(compile PDF, combine supplement, one-column SI, equation audit, project
-`.zip`), and click **Preview**. The compiled PDFs render inline so you can
+Drop your whole submission in at once — **main/supplement manuscripts**
+(`.docx`, `.odt`, `.rtf`, or `.md`), figure files, and an optional reference
+library (`.bib`, `.ris`, CSL-JSON, EndNote XML, or `.nbib`) — then set each
+file's role, pick a journal, configure per-document layout and global output
+options, and click **Preview**. The compiled PDFs render inline so you can
 confirm the conversion worked. A preview is held only in **temporary local
 storage** (a private working directory the app owns) — it is pruned
 automatically about an hour after its last use and deleted when the app shuts
@@ -349,6 +377,12 @@ down, so nothing lingers unless you keep it. Once it looks good, the **Export**
 panel lets you pick a destination folder (a native "Browse…" dialog) and copy
 any subset of the outputs — the LaTeX project, individual PDFs, or the `.zip` —
 to the folder you choose to keep.
+
+The same page also includes standalone panels to inspect/clean file metadata,
+inventory manuscript figures before assigning replacements, and export a
+manuscript to HTML or Markdown. Reference checking is enabled by default in the
+GUI and opens a review panel when Crossref finds corrections to approve, keep,
+or edit.
 
 Output layout per conversion:
 
@@ -381,15 +415,22 @@ them to a PDF with a single `python run.py`:
 
 ## Input expectations
 
-LaTeXtify targets *manuscripts that use Word styles*: styled headings,
-equation-editor math, inline figures with captions. Unsupported constructs
-(text boxes, SmartArt, tracked changes) are reported by preflight rather
-than silently mangled.
+`.docx` provides the richest conversion: Word styles, equation-editor math,
+embedded figures/captions, citation field codes, tracked-change detection, and
+front-matter inference. `.odt`, `.rtf`, and `.md` are accepted through Pandoc,
+but Word-specific metadata and field-code features naturally do not apply.
+Unsupported or ambiguous constructs are reported by preflight rather than
+silently mangled. Always read `report.md` before submission.
+
+Reference-library input may be BibTeX (`.bib`), RIS, CSL-JSON, EndNote XML, or
+PubMed/MEDLINE `.nbib`. Figure overrides accept common raster/vector formats,
+including PDF, EPS, SVG, EMF, and WMF; EMF/WMF conversion requires a detected
+LibreOffice or Inkscape executable and otherwise produces an actionable warning.
 
 ## Development
 
 ```
-uv run pytest                                     # full suite (~875 tests, real docx→PDF compiles)
+uv run pytest                                     # full suite (~1,450 tests, real docx→PDF compiles)
 uv run pytest -m "not tectonic and not network"   # fast subset
 uv run ruff check .
 ```
