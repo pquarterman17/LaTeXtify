@@ -61,6 +61,7 @@ from latextify.emit.submission import (
     DocumentLayout,
     build_supplement_preamble,
 )
+from latextify.figures.placement import FigurePlacements
 from latextify.ingest.pandoc import convert_docx_to_body
 from latextify.ingest.preflight import run_preflight
 from latextify.model.emit import EmitWarning, SupplementResult
@@ -146,6 +147,7 @@ def emit_supplement(
     figures_at_end: bool = False,
     strip_figure_metadata: bool = True,
     vector_figures: bool = False,
+    figure_placements: FigurePlacements | None = None,
 ) -> tuple[SupplementResult, list[RefEntry]]:
     """Emit the supplementary-material project (plan item 21).
 
@@ -201,6 +203,7 @@ def emit_supplement(
             strip_metadata=strip_figure_metadata,
             vector_figures=vector_figures,
             prefix="S",
+            placements=figure_placements,
         )
 
     si_raw_tex = si_body_result.tex.replace("\r\n", "\n").replace("\r", "\n")

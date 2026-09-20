@@ -113,6 +113,12 @@ def is_reference_heading_text(text: str) -> bool:
     return _is_heading_paragraph(text)
 
 
+_SUPPLEMENT_HEADING_RE = re.compile(
+    r"^(?:supplement(?:ary|al)?\s+(?:material|information)|supporting\s+information)\s*:?$",
+    re.IGNORECASE,
+)
+
+
 def _has_list_numbering(paragraph) -> bool:
     """True when a paragraph carries real Word list numbering (``w:numPr``).
 
@@ -180,6 +186,10 @@ def segment_reference_list(docx_path: Path | str) -> ReferenceList:
         text = _paragraph_text(paragraph).strip()
         if not text:
             continue
+        # A merged manuscript commonly places the SI after the main reference
+        # list. It is a new document section, not another malformed reference.
+        if _SUPPLEMENT_HEADING_RE.match(text):
+            break
         match = _LIST_NUMBER_RE.match(text)
         if match:
             number = int(match.group("br") or match.group("pr") or match.group("dot"))

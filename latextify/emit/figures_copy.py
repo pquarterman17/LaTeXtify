@@ -23,6 +23,7 @@ from pathlib import Path
 
 from latextify.figures.convert import convert_for_latex
 from latextify.figures.inventory import is_wide as _is_wide_figure
+from latextify.figures.placement import FigurePlacements, placement_for
 from latextify.model.emit import EmitWarning
 from latextify.model.figure import Figure, FigureSource
 
@@ -41,6 +42,7 @@ def _copy_figures(
     *,
     prefix: str = "",
     strip_metadata: bool = True,
+    placements: FigurePlacements | None = None,
 ) -> tuple[dict[int, str], tuple[Figure, ...], tuple[EmitWarning, ...]]:
     """Prepare each figure's resolved file for LaTeX inclusion in ``figures_dir``.
 
@@ -100,8 +102,21 @@ def _copy_figures(
         files[figure.number] = f"figures/{outcome.dest_path.name}"
         if outcome.note is not None:
             figure = replace(figure, conversion_note=outcome.note)
-        if not figure.in_table and _is_wide_figure(outcome.dest_path):
-            figure = replace(figure, wide=True)
+        placement = placement_for(placements, prefix, figure.number)
+        if not figure.in_table:
+            wide = placement == "two" or (
+                placement == "auto" and _is_wide_figure(outcome.dest_path)
+            )
+            figure = replace(figure, wide=wide)
+        elif placement == "two":
+            warnings.append(
+                EmitWarning(
+                    message=(
+                        f"figure {figure.number}: two-column placement was ignored "
+                        "because the image is inside a table"
+                    )
+                )
+            )
         if outcome.warning is not None:
             warnings.append(EmitWarning(message=f"figure {figure.number}: {outcome.warning}"))
         updated.append(figure)

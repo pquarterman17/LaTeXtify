@@ -89,6 +89,7 @@ from latextify.emit.bibliography import (
 )
 from latextify.emit.citation_resolution import link_plaintext_citations, run_reference_validation
 from latextify.emit.figures_stage import run_figure_stage
+from latextify.emit.inline_supplement import mark_inline_supplement, render_inline_supplement
 from latextify.emit.metadata import load_meta, write_metadata_tex
 from latextify.emit.output_dir import journal_output_dir
 from latextify.emit.submission import (
@@ -100,6 +101,7 @@ from latextify.emit.submission import (
 from latextify.emit.supplement import emit_supplement
 from latextify.figures.gap_fill import apply_to_body as apply_gap_fill
 from latextify.figures.override import OverrideSources
+from latextify.figures.placement import FigurePlacements
 from latextify.ingest.formats import non_docx_warnings
 from latextify.ingest.metadata_guess import sidecar_path_for
 from latextify.ingest.pandoc import convert_docx_to_body
@@ -142,6 +144,8 @@ def emit_project(
     anonymize: bool = False,
     figures_at_end: bool = False,
     strip_figure_metadata: bool = True,
+    inline_supplement: bool = False,
+    figure_placements: FigurePlacements | None = None,
 ) -> EmitResult:
     """Convert ``docx_path`` into a journal-ready LaTeX project.
 
@@ -248,6 +252,8 @@ def emit_project(
         ``None`` unless ``supplement_docx_path`` was given.
     """
     docx_path = Path(docx_path)
+    if inline_supplement and supplement_docx_path is not None:
+        raise ValueError("inline supplement cannot be combined with a separate supplement file")
 
     # Everything that can REJECT this run happens before anything is created on
     # disk: the journal must exist, and it must support the requested citation
@@ -296,6 +302,7 @@ def emit_project(
             strip_metadata=strip_figure_metadata,
             vector_figures=vector_figures,
             sources=figure_sources,
+            placements=figure_placements,
         )
 
     citation_result = extract_field_citations(docx_path)
@@ -303,6 +310,8 @@ def emit_project(
     # pandoc's LaTeX writer emits CRLF on Windows; downstream regexes match
     # literal "\n" boundaries, so normalize before resolving anchors.
     raw_tex = body_result.tex.replace("\r\n", "\n").replace("\r", "\n")
+    if inline_supplement:
+        raw_tex = mark_inline_supplement(raw_tex)
     # A captioned-but-missing figure that WAS supplied is planted where its
     # orphaned caption paragraph sat, and every anchor renumbered to the
     # numbers the captions state. Inert unless a gap was actually filled.
@@ -367,6 +376,9 @@ def emit_project(
             note += "; acknowledgments section removed"
         warnings.append(EmitWarning(message=note + " (double-blind review)."))
 
+    if inline_supplement:
+        resolved_tex = render_inline_supplement(resolved_tex)
+
     preamble_text = build_main_preamble(
         journal.render_preamble(mode=citation_style),
         document_class=journal.document_class,
@@ -417,6 +429,7 @@ def emit_project(
             figures_at_end=figures_at_end,
             strip_figure_metadata=strip_figure_metadata,
             vector_figures=vector_figures,
+            figure_placements=figure_placements,
         )
         # references.bib is shared by main.tex and supplement.tex; rewrite it
         # with the merged set now that any new SI-only references were

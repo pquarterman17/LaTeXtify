@@ -577,6 +577,27 @@ def test_metafile_is_not_silently_passed_through(tmp_path, monkeypatch):
     assert outcome.warning is not None, "a metafile figure must never fail silently"
 
 
+def test_metafile_uses_high_resolution_raster_fallback(tmp_path, monkeypatch):
+    monkeypatch.setattr(vector_mod, "_find_metafile_converter", lambda: None)
+
+    def fake_raster(_src, dest, *, dpi=600):
+        assert dpi == 600
+        dest.write_bytes(b"fake png")
+
+    monkeypatch.setattr(vector_mod, "_pillow_metafile_convert", fake_raster)
+    src = tmp_path / "chart.emf"
+    src.write_bytes(b"emf")
+    dest_dir = tmp_path / "figures"
+    dest_dir.mkdir()
+
+    outcome = convert_for_latex(src, dest_dir, 1, strip_metadata=False)
+
+    assert outcome.dest_path == dest_dir / "fig1.png"
+    assert outcome.dest_path.exists()
+    assert "600 DPI" in outcome.warning
+    assert "no longer vector" not in outcome.warning  # message explains via vector-quality wording
+
+
 def test_metafile_converts_via_inkscape_when_present(tmp_path, monkeypatch):
     monkeypatch.setattr(
         vector_mod.shutil, "which", lambda name: "/usr/bin/inkscape" if name == "inkscape" else None

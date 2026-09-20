@@ -13,6 +13,7 @@ depending on what the machine running them happens to have installed.
 
 from __future__ import annotations
 
+import os
 import shutil
 import subprocess
 from pathlib import Path
@@ -186,7 +187,40 @@ def _find_metafile_converter() -> str | None:
         found = shutil.which(name)
         if found:
             return found
+    # GUI launches on Windows commonly do not inherit the installer's PATH.
+    # Probe the normal application locations before falling back to raster.
+    roots = [
+        os.environ.get("ProgramFiles"),
+        os.environ.get("ProgramFiles(x86)"),
+        os.environ.get("LOCALAPPDATA"),
+    ]
+    relatives = (
+        Path("LibreOffice/program/soffice.exe"),
+        Path("Inkscape/bin/inkscape.exe"),
+        Path("Programs/Inkscape/bin/inkscape.exe"),
+    )
+    for root in roots:
+        if not root:
+            continue
+        for relative in relatives:
+            candidate = Path(root) / relative
+            if candidate.is_file():
+                return str(candidate)
     return None
+
+
+def _pillow_metafile_convert(src: Path, dest: Path, *, dpi: int = 600) -> None:
+    """Rasterize a Windows metafile through Pillow's native WMF/EMF decoder."""
+    from PIL import Image
+
+    with Image.open(src) as image:
+        try:
+            image.load(dpi=dpi)
+        except TypeError:  # defensive for Pillow decoders without the DPI keyword
+            image.load()
+        if image.width * image.height > 150_000_000:
+            raise OSError("rasterized metafile exceeds the 150-megapixel safety limit")
+        image.convert("RGBA" if "A" in image.getbands() else "RGB").save(dest, format="PNG")
 
 
 def _metafile_convert(binary: str, src: Path, dest: Path) -> None:
@@ -235,19 +269,44 @@ def convert_metafile(
     dest = dest_dir / f"fig{prefix}{number}.pdf"
     binary = _find_metafile_converter()
     if binary is None:
+        raster_dest = dest.with_suffix(".png")
+        try:
+            _pillow_metafile_convert(src, raster_dest)
+        except (OSError, ValueError) as exc:
+            raster_dest.unlink(missing_ok=True)
+            return ConversionOutcome(
+                dest_path=dest,
+                warning=(
+                    f"{_METAFILE_UNSUPPORTED_NOTE} No LibreOffice or Inkscape converter "
+                    f"was found, and Pillow could not rasterize {src.name} ({exc}); "
+                    "export it as PDF/PNG, supply it via figures.yaml, or install a converter."
+                ),
+            )
         return ConversionOutcome(
-            dest_path=dest,
+            dest_path=raster_dest,
             warning=(
-                f"{_METAFILE_UNSUPPORTED_NOTE} No converter (LibreOffice or Inkscape) was "
-                f"found on PATH to convert {src.name}, so nothing was written to "
-                f"figures/{dest.name}. Install one, or export the figure as PDF/PNG and "
-                "supply it via figures.yaml or a folder override."
+                f"{src.name} was rasterized to PNG at 600 DPI because no vector EMF/WMF "
+                "converter was found. Install LibreOffice/Inkscape or supply PDF for "
+                "vector-quality output; verify the rendered figure."
             ),
         )
     try:
         _metafile_convert(binary, src, dest)
     except (subprocess.CalledProcessError, OSError) as exc:
         dest.unlink(missing_ok=True)  # discard any partial/failed write
+        raster_dest = dest.with_suffix(".png")
+        try:
+            _pillow_metafile_convert(src, raster_dest)
+        except (OSError, ValueError):
+            raster_dest.unlink(missing_ok=True)
+        else:
+            return ConversionOutcome(
+                dest_path=raster_dest,
+                warning=(
+                    f"{Path(binary).name} could not convert {src.name} to vector PDF "
+                    f"({exc}); it was rasterized to PNG at 600 DPI instead. Verify it."
+                ),
+            )
         return ConversionOutcome(
             dest_path=dest,
             warning=(

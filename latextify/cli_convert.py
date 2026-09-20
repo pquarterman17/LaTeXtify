@@ -28,6 +28,7 @@ from latextify.compile.tectonic import compile_document, ensure_tectonic
 from latextify.emit.project import emit_project
 from latextify.emit.submission import parse_layout_form
 from latextify.figures.override import build_sources
+from latextify.figures.placement import parse_figure_placements
 from latextify.model.emit import EmitResult
 from latextify.report.render import write_report
 from latextify.templates.loader import ManifestError, load
@@ -186,6 +187,19 @@ def convert(
         "figures/fig<N>.pdf file to supply instead. Run `latextify figures` on the "
         "manuscript first to see which number is which. Off by default.",
     ),
+    figure_column: list[str] = typer.Option(
+        [],
+        "--figure-column",
+        metavar="N=one|two|auto",
+        help="Force a figure to one or two columns, e.g. --figure-column 2=two. "
+        "Repeatable; omitted figures use automatic aspect-ratio placement.",
+    ),
+    inline_supplement: bool = typer.Option(
+        False,
+        "--inline-supplement",
+        help="Treat a Supplementary Material/Information heading in the main file "
+        "as a page-break boundary and continue in the same PDF with S-numbering.",
+    ),
     check_references: bool = typer.Option(
         False,
         "--check-references",
@@ -213,6 +227,9 @@ def convert(
     if supplement_onecolumn and supplement is None:
         typer.echo("error: --supplement-onecolumn requires --supplement", err=True)
         raise typer.Exit(code=1)
+    if inline_supplement and supplement is not None:
+        typer.echo("error: --inline-supplement cannot be used with --supplement", err=True)
+        raise typer.Exit(code=1)
     # --review turns on the online check it reviews.
     check_references = check_references or review
     # Per-document layout overrides (mirrors the GUI's convert-multi wiring in
@@ -223,6 +240,7 @@ def convert(
         supplement_layout = parse_layout_form(
             supplement_columns, supplement_line_numbers, supplement_double_spacing
         )
+        figure_placements = parse_figure_placements(figure_column)
     except ValueError as exc:
         typer.echo(f"error: {exc}", err=True)
         raise typer.Exit(code=1) from exc
@@ -252,6 +270,8 @@ def convert(
                 vector_figures=vector_figures,
                 figure_sources=figure_sources,
                 strip_figure_metadata=not keep_figure_metadata,
+                inline_supplement=inline_supplement,
+                figure_placements=figure_placements,
             )
     except ManifestError as exc:
         typer.echo(f"error: {exc}", err=True)

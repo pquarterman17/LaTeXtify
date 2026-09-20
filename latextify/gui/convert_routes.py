@@ -33,6 +33,7 @@ from latextify.audit.equations import write_equation_audit
 from latextify.compile.pdf import staple_pdfs
 from latextify.compile.tectonic import compile_document, ensure_tectonic
 from latextify.emit.project import emit_project
+from latextify.figures.placement import parse_figure_placements
 from latextify.gui.convert_inputs import stage_multi_uploads, validate_multi_form
 from latextify.gui.demo import require_demo_rate_limit
 from latextify.gui.downloads import _issue_token, _register_session, _rmtree
@@ -202,6 +203,8 @@ def register_convert_routes(
         supplement_double_spacing: bool = Form(False),
         anonymize: bool = Form(False),
         figures_at_end: bool = Form(False),
+        inline_supplement: bool = Form(False),
+        figure_columns: str | None = Form(None),
     ) -> ConvertMultiResponse:
         """Convert a main manuscript plus optional supplement/figures/.bib in one call.
 
@@ -229,6 +232,15 @@ def register_convert_routes(
             supplement_line_numbers=supplement_line_numbers,
             supplement_double_spacing=supplement_double_spacing,
         )
+        try:
+            figure_placements = parse_figure_placements([figure_columns or ""])
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        if inline_supplement and supplement is not None:
+            raise HTTPException(
+                status_code=400,
+                detail="inline supplement cannot be combined with a separate supplement file",
+            )
 
         try:
             journal_obj = templates_loader.load(journal)
@@ -268,6 +280,8 @@ def register_convert_routes(
                 supplement_layout=supplement_layout,
                 anonymize=anonymize,
                 figures_at_end=figures_at_end,
+                inline_supplement=inline_supplement,
+                figure_placements=figure_placements,
             )
         except ValueError as exc:
             _rmtree(session_dir)  # a failed emit leaves the upload behind otherwise

@@ -235,12 +235,21 @@ def strip_reference_section_to_eof(tex: str) -> str:
     (:mod:`latextify.emit.project`) strips the reference manager's own
     formatted bibliography, which duplicates the generated ``\\bibliography``.
     """
+
+    def cut(start: int) -> str:
+        # A merged main+SI manuscript can put its main reference list before
+        # the supplementary heading. Preserve that protected tail rather than
+        # applying the historical "references are always EOF" assumption.
+        marker = tex.find("%%LATEXTIFY_INLINE_SUPPLEMENT%%", start)
+        tail = tex[marker:] if marker >= 0 else ""
+        return tex[:start].rstrip() + "\n" + tail
+
     for match in _REF_SECTION_RE.finditer(tex):
         if is_reference_heading_text(match.group(1).strip()):
-            return tex[: match.start()].rstrip() + "\n"
+            return cut(match.start())
     offset = _find_bare_reference_heading(tex)
     if offset is not None:
-        return tex[:offset].rstrip() + "\n"
+        return cut(offset)
     return tex
 
 

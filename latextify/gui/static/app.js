@@ -29,7 +29,8 @@
   const crossrefEmail = el("crossref-email");
   const optPdf = el("opt-pdf"), optCombine = el("opt-combine"), optZip = el("opt-zip"),
     optNoFigs = el("opt-nofigs"), optAudit = el("opt-audit"), optCheckRefs = el("opt-checkrefs"),
-    optAnon = el("opt-anonymize"), optFigsEnd = el("opt-figsend");
+    optAnon = el("opt-anonymize"), optFigsEnd = el("opt-figsend"),
+    optInlineSupp = el("opt-inline-supp"), figureColumns = el("figure-columns");
   const convertBtn = el("convert-btn");
   const statusEl = el("status");
   const errorBox = el("error-box");
@@ -349,12 +350,14 @@
   // Changing any option makes an earlier preview stale (opt-nofigs included:
   // it changes what the conversion emits, so a prior preview no longer applies).
   [
-    citationSelect, optPdf, optCombine, optZip, optNoFigs,
-    optAudit, optCheckRefs, optAnon, optFigsEnd,
+    citationSelect, optPdf, optCombine, optZip,
+    optAudit, optCheckRefs, optAnon, optFigsEnd, optInlineSupp,
   ].forEach((ctrl) => ctrl.addEventListener("change", invalidatePreview));
+  optNoFigs.addEventListener("change", invalidatePreview);
   optNoFigs.addEventListener("change", updateOptionState);
   citationSelect.addEventListener("change", onCitationChange);
   crossrefEmail.addEventListener("input", invalidatePreview);
+  figureColumns.addEventListener("input", invalidatePreview);
 
   function buildFormData() {
     const fd = new FormData();
@@ -396,6 +399,8 @@
     fd.append("check_references", optCheckRefs.checked ? "true" : "false");
     fd.append("anonymize", optAnon.checked ? "true" : "false");
     fd.append("figures_at_end", optFigsEnd.checked ? "true" : "false");
+    fd.append("inline_supplement", optInlineSupp.checked ? "true" : "false");
+    if (figureColumns.value.trim()) fd.append("figure_columns", figureColumns.value.trim());
     // Preview never exports — the Export button copies the previewed result via
     // its export_token (see /api/export).
     return fd;

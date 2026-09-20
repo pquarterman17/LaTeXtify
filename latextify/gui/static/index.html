@@ -53,6 +53,13 @@
         <label class="checkbox-row" title="Emit a text-only project: embedded and dropped-in figure files are skipped and figure anchors are removed from the LaTeX."><input id="opt-nofigs" type="checkbox" /> Exclude figures (text only)</label>
         <label class="checkbox-row" title="Double-blind review copy: the author/affiliation block is replaced with a placeholder and the acknowledgments section is removed from the body. The paper.yaml sidecar keeps the real authors for later."><input id="opt-anonymize" type="checkbox" /> Anonymize (double-blind)</label>
         <label class="checkbox-row" title="Gather figure and table floats after the references (endfloat package), as several publishers require at submission."><input id="opt-figsend" type="checkbox" /> Figures &amp; tables at end</label>
+        <label class="checkbox-row" title="The main Word file contains its Supplementary Material after a matching heading. Start it on a new page in the same PDF and switch to S-numbering."><input id="opt-inline-supp" type="checkbox" /> Supplement is inside main file</label>
+      </div>
+      <div class="controls">
+        <div class="field">
+          <label for="figure-columns">Figure column widths</label>
+          <input id="figure-columns" type="text" placeholder="e.g. 1=one, 2=two" title="Use document-order figure numbers. Omitted figures are placed automatically." />
+        </div>
       </div>
       <div id="nofigs-warning" class="hint hidden">“Exclude figures” is on while figure files are staged — those files will be ignored.</div>
       <p class="hint">Per-document layout (columns, line numbers, spacing) is set on each uploaded Main/Supplement file in the list above.</p>
