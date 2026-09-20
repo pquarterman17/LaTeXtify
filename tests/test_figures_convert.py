@@ -544,7 +544,7 @@ def test_tectonic_rejects_raw_eps_includegraphics(tmp_path):
 
 @pytest.mark.parametrize("ext", [".emf", ".wmf"])
 def test_metafile_without_a_converter_writes_nothing_and_warns(tmp_path, monkeypatch, ext):
-    monkeypatch.setattr(vector_mod.shutil, "which", lambda name: None)
+    monkeypatch.setattr(vector_mod, "_find_metafile_converter", lambda: None)
     src = tmp_path / f"chart{ext}"
     src.write_bytes(b"\x01\x00\x00\x00" + b"\x00" * 64)
     dest_dir = tmp_path / "figures"
@@ -565,7 +565,7 @@ def test_metafile_without_a_converter_writes_nothing_and_warns(tmp_path, monkeyp
 def test_metafile_is_not_silently_passed_through(tmp_path, monkeypatch):
     """The regression this item fixes: before it, an .emf reached the output
     tree unchanged, with no warning, and broke the compile."""
-    monkeypatch.setattr(vector_mod.shutil, "which", lambda name: None)
+    monkeypatch.setattr(vector_mod, "_find_metafile_converter", lambda: None)
     src = tmp_path / "chart.emf"
     src.write_bytes(b"\x01\x00\x00\x00")
     dest_dir = tmp_path / "figures"
