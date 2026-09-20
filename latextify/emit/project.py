@@ -87,8 +87,14 @@ from latextify.emit.bibliography import (
     BIBLIOGRAPHY_LINE,
     legacy_bibliography_warning,
 )
-from latextify.emit.citation_resolution import link_plaintext_citations, run_reference_validation
+from latextify.emit.citation_resolution import (
+    INLINE_BIBLIOGRAPHY_WARNING,
+    link_inline_plaintext_citations,
+    link_plaintext_citations,
+    run_reference_validation,
+)
 from latextify.emit.figures_stage import run_figure_stage
+from latextify.emit.inline_supplement import mark_inline_supplement, render_inline_supplement
 from latextify.emit.metadata import load_meta, write_metadata_tex
 from latextify.emit.output_dir import journal_output_dir
 from latextify.emit.submission import (
@@ -100,6 +106,7 @@ from latextify.emit.submission import (
 from latextify.emit.supplement import emit_supplement
 from latextify.figures.gap_fill import apply_to_body as apply_gap_fill
 from latextify.figures.override import OverrideSources
+from latextify.figures.placement import FigurePlacements
 from latextify.ingest.formats import non_docx_warnings
 from latextify.ingest.metadata_guess import sidecar_path_for
 from latextify.ingest.pandoc import convert_docx_to_body
@@ -142,6 +149,8 @@ def emit_project(
     anonymize: bool = False,
     figures_at_end: bool = False,
     strip_figure_metadata: bool = True,
+    inline_supplement: bool = False,
+    figure_placements: FigurePlacements | None = None,
 ) -> EmitResult:
     """Convert ``docx_path`` into a journal-ready LaTeX project.
 
@@ -248,21 +257,17 @@ def emit_project(
         ``None`` unless ``supplement_docx_path`` was given.
     """
     docx_path = Path(docx_path)
+    if inline_supplement and supplement_docx_path is not None:
+        raise ValueError("inline supplement cannot be combined with a separate supplement file")
+    if inline_supplement and figures_at_end:
+        raise ValueError("inline supplement cannot be combined with figures-at-end")
 
-    # Everything that can REJECT this run happens before anything is created on
-    # disk: the journal must exist, and it must support the requested citation
-    # mode. Loading the journal used to happen after the output tree was made,
-    # so `convert --journal ieeetran --citation-style authoryear` -- which is
-    # correctly refused -- still left an empty output/ieeetran/ behind. A run
-    # that fails should leave the filesystem as it found it.
     journal = templates_loader.load(journal_name, journals_dir=journals_dir)
     journal.resolve_mode(citation_style)
 
     output_dir = journal_output_dir(Path(output_root), journal_name)
     generated_dir = output_dir / "generated"
     figures_dir = output_dir / "figures"
-    generated_dir.mkdir(parents=True, exist_ok=True)
-    figures_dir.mkdir(parents=True, exist_ok=True)
 
     # Parse the author's .bib once (if given); shared by the main document and
     # the supplement's plain-text citation paths. Field-coded documents ignore
@@ -288,6 +293,13 @@ def emit_project(
         # by the journal metadata template, so remove it from the body to
         # avoid it appearing twice in the PDF (gap 4).
         body_result = convert_docx_to_body(docx_path, media_dir, strip_front_matter=True)
+        # Validate before the figure stage can write or prune existing output.
+        raw_tex = body_result.tex.replace("\r\n", "\n").replace("\r", "\n")
+        if inline_supplement:
+            raw_tex = mark_inline_supplement(raw_tex)
+
+        generated_dir.mkdir(parents=True, exist_ok=True)
+        figures_dir.mkdir(parents=True, exist_ok=True)
         figures, figure_files, conversion_warnings, gap_plan = run_figure_stage(
             docx_path,
             media_dir,
@@ -296,13 +308,13 @@ def emit_project(
             strip_metadata=strip_figure_metadata,
             vector_figures=vector_figures,
             sources=figure_sources,
+            placements=figure_placements,
         )
 
     citation_result = extract_field_citations(docx_path)
 
     # pandoc's LaTeX writer emits CRLF on Windows; downstream regexes match
     # literal "\n" boundaries, so normalize before resolving anchors.
-    raw_tex = body_result.tex.replace("\r\n", "\n").replace("\r", "\n")
     # A captioned-but-missing figure that WAS supplied is planted where its
     # orphaned caption paragraph sat, and every anchor renumbered to the
     # numbers the captions state. Inert unless a gap was actually filled.
@@ -315,12 +327,19 @@ def emit_project(
         journal.figure_env,
         exclude_figures=exclude_figures,
     )
-    # body_result.findings (heading clamps, table-normalization degradations --
-    # item 25) previously never left convert_docx_to_body's own return value;
-    # surfaced here so they reach EmitResult.warnings / the CLI / report.md
-    # like every other stage's findings do.
     body_warnings = [EmitWarning(message=finding.message) for finding in body_result.findings]
     warnings = body_warnings + list(conversion_warnings) + list(anchor_warnings)
+    if supplement_docx_path is None and figure_placements:
+        for (prefix, number), _mode in figure_placements.items():
+            if prefix == "S":
+                reason = (
+                    "merged manuscripts use overall document-order numbers without an S prefix"
+                    if inline_supplement
+                    else "no separate supplement was supplied"
+                )
+                warnings.append(
+                    EmitWarning(message=f"figure column choice for S{number} was ignored: {reason}")
+                )
     warnings.extend(EmitWarning(message=m) for m in non_docx_warnings(docx_path, sidecar_existed))
 
     reconciliation: ReconciliationReport | None = None
@@ -328,6 +347,8 @@ def emit_project(
         # Field-coded path (Zotero/Mendeley/...): body already carries sentinels
         # /anchors resolved above; keep the extracted, keyed entries verbatim.
         entries: list[RefEntry] = citation_result.entries
+        if inline_supplement:
+            warnings.append(EmitWarning(message=INLINE_BIBLIOGRAPHY_WARNING))
         warnings.extend(citation_linkage_warning(citation_result.citations, resolved_tex))
         citation_count = len(citation_result.citations)
         # A reference manager's Word plugin often drops a FORMATTED bibliography
@@ -349,7 +370,8 @@ def emit_project(
             )
     else:
         # No field codes anywhere -> plain-text reconstruction safety net (item 14).
-        entries, resolved_tex, plaintext_warnings, plaintext_records = link_plaintext_citations(
+        linker = link_inline_plaintext_citations if inline_supplement else link_plaintext_citations
+        entries, resolved_tex, plaintext_warnings, plaintext_records = linker(
             docx_path, resolved_tex, crossref_mailto, bib_entries
         )
         warnings.extend(plaintext_warnings)
@@ -366,6 +388,9 @@ def emit_project(
         if ack_removed:
             note += "; acknowledgments section removed"
         warnings.append(EmitWarning(message=note + " (double-blind review)."))
+
+    if inline_supplement:
+        resolved_tex = render_inline_supplement(resolved_tex)
 
     preamble_text = build_main_preamble(
         journal.render_preamble(mode=citation_style),
@@ -417,6 +442,7 @@ def emit_project(
             figures_at_end=figures_at_end,
             strip_figure_metadata=strip_figure_metadata,
             vector_figures=vector_figures,
+            figure_placements=figure_placements,
         )
         # references.bib is shared by main.tex and supplement.tex; rewrite it
         # with the merged set now that any new SI-only references were

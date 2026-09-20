@@ -206,8 +206,9 @@ holds real vector for anything drawn:
   Metafile)*. That lands as EMF, which is vector. A plain Ctrl+V usually gives
   you a bitmap.
 - **LaTeXtify converts EMF and WMF to PDF** when LibreOffice or Inkscape is on
-  your PATH. Neither is a dependency — without one, the figure is skipped and
-  the warning names the fix.
+  your PATH or in its usual Windows install directory. If neither is available,
+  it tries a 600-DPI PNG fallback and warns that the result is no longer vector;
+  a metafile it cannot safely decode is skipped with an actionable warning.
 - **Export from the plotting tool.** Saving directly to PDF or SVG and dropping
   it in as `figures/fig<N>.pdf` skips Word entirely and is the most reliable
   route.
@@ -301,6 +302,18 @@ latextify convert paper.docx --journal elsarticle --citation-style authoryear
 # Supplementary material: S-numbered second document sharing the bibliography
 latextify convert paper.docx --journal revtex4-2 --supplement si.docx --pdf
 
+# Main text + supplement in ONE Word file and ONE main.pdf. Put a heading named
+# "Supplementary Material", "Supplementary Information", "Supplemental
+# Material", or "Supporting Information" at the boundary.
+latextify convert merged.docx --journal revtex4-2 --inline-supplement --pdf
+
+# Inline supplements cannot be combined with --figures-at-end: delayed floats
+# would cross the numbering boundary. LaTeXtify rejects that combination.
+# If the merged file contains separate main and supplementary reference lists,
+# LaTeXtify combines them into one bibliography at the end of the PDF. Numeric
+# citation numbering is continuous across the whole document and a warning is
+# written to the conversion report so this policy is never implicit.
+
 # ...and staple the main text + supplement into one combined.pdf
 latextify convert paper.docx --journal revtex4-2 --supplement si.docx --pdf --combine-supplement
 
@@ -319,6 +332,11 @@ latextify figures paper.docx
 
 # Convert, reporting every figure that is still a screenshot rather than vector
 latextify convert paper.docx --journal revtex4-2 --pdf --vector-figures
+
+# Force selected embedded or external figures to one/two columns. Numbers are
+# document order as shown by `latextify figures`; all others stay automatic.
+latextify convert paper.docx --journal revtex4-2 --pdf \
+  --figure-column 1=one --figure-column 2=two
 
 # A folder of manuscripts at once (continue-on-error + summary)
 latextify batch drafts/ --journal revtex4-2 --pdf
@@ -349,6 +367,13 @@ down, so nothing lingers unless you keep it. Once it looks good, the **Export**
 panel lets you pick a destination folder (a native "Browse…" dialog) and copy
 any subset of the outputs — the LaTeX project, individual PDFs, or the `.zip` —
 to the folder you choose to keep.
+
+For a merged main+supplement Word file, upload it only as **Main text**, turn on
+**Supplement is inside main file**, and do not add a separate Supplement file.
+The recognized heading starts a new page in `main.pdf`; figures, tables,
+equations, and sections after it restart as S1. Use **Figure column widths**
+with entries such as `1=one, 2=two`; these numbers are the document-order
+numbers shown by **What are my figures?**
 
 Output layout per conversion:
 

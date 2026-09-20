@@ -544,7 +544,7 @@ def test_tectonic_rejects_raw_eps_includegraphics(tmp_path):
 
 @pytest.mark.parametrize("ext", [".emf", ".wmf"])
 def test_metafile_without_a_converter_writes_nothing_and_warns(tmp_path, monkeypatch, ext):
-    monkeypatch.setattr(vector_mod.shutil, "which", lambda name: None)
+    monkeypatch.setattr(vector_mod, "_find_metafile_converter", lambda: None)
     src = tmp_path / f"chart{ext}"
     src.write_bytes(b"\x01\x00\x00\x00" + b"\x00" * 64)
     dest_dir = tmp_path / "figures"
@@ -565,7 +565,7 @@ def test_metafile_without_a_converter_writes_nothing_and_warns(tmp_path, monkeyp
 def test_metafile_is_not_silently_passed_through(tmp_path, monkeypatch):
     """The regression this item fixes: before it, an .emf reached the output
     tree unchanged, with no warning, and broke the compile."""
-    monkeypatch.setattr(vector_mod.shutil, "which", lambda name: None)
+    monkeypatch.setattr(vector_mod, "_find_metafile_converter", lambda: None)
     src = tmp_path / "chart.emf"
     src.write_bytes(b"\x01\x00\x00\x00")
     dest_dir = tmp_path / "figures"
@@ -575,6 +575,73 @@ def test_metafile_is_not_silently_passed_through(tmp_path, monkeypatch):
 
     assert not (dest_dir / "fig1.emf").exists(), "a raw metafile must never reach figures/"
     assert outcome.warning is not None, "a metafile figure must never fail silently"
+
+
+def test_metafile_uses_high_resolution_raster_fallback(tmp_path, monkeypatch):
+    monkeypatch.setattr(vector_mod, "_find_metafile_converter", lambda: None)
+
+    def fake_raster(_src, dest, *, dpi=600, crop=None):
+        assert dpi == 600
+        assert crop is None
+        dest.write_bytes(b"fake png")
+
+    monkeypatch.setattr(vector_mod, "_pillow_metafile_convert", fake_raster)
+    src = tmp_path / "chart.emf"
+    src.write_bytes(b"emf")
+    dest_dir = tmp_path / "figures"
+    dest_dir.mkdir()
+
+    outcome = convert_for_latex(src, dest_dir, 1, strip_metadata=False)
+
+    assert outcome.dest_path == dest_dir / "fig1.png"
+    assert outcome.dest_path.exists()
+    assert "600 DPI" in outcome.warning
+    assert "no longer vector" not in outcome.warning  # message explains via vector-quality wording
+
+
+def test_metafile_pixel_limit_is_checked_before_raster_allocation(tmp_path, monkeypatch):
+    class HugeMetafile:
+        width = 10_000
+        height = 10_000
+        info = {"dpi": 72}
+        loaded = False
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return None
+
+        def load(self, **_kwargs):
+            self.loaded = True
+
+    image = HugeMetafile()
+    monkeypatch.setattr("PIL.Image.open", lambda _path: image)
+
+    with pytest.raises(OSError, match="40-megapixel"):
+        vector_mod._pillow_metafile_convert(tmp_path / "huge.emf", tmp_path / "out.png")
+
+    assert image.loaded is False
+
+
+def test_pillow_decompression_bomb_degrades_to_warning(tmp_path, monkeypatch):
+    from PIL import Image
+
+    monkeypatch.setattr(vector_mod, "_find_metafile_converter", lambda: None)
+    monkeypatch.setattr(
+        vector_mod,
+        "_pillow_metafile_convert",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(Image.DecompressionBombError("huge")),
+    )
+    src = tmp_path / "huge.emf"
+    src.write_bytes(b"emf")
+    dest_dir = tmp_path / "figures"
+    dest_dir.mkdir()
+
+    outcome = convert_for_latex(src, dest_dir, 1)
+
+    assert "could not rasterize" in outcome.warning
+    assert not outcome.dest_path.exists()
 
 
 def test_metafile_converts_via_inkscape_when_present(tmp_path, monkeypatch):
@@ -601,6 +668,53 @@ def test_metafile_converts_via_inkscape_when_present(tmp_path, monkeypatch):
     assert outcome.warning is None
     assert "inkscape" in outcome.note
     assert "--export-type=pdf" in calls[0]
+
+
+def test_metafile_converter_has_timeout_and_falls_back(tmp_path, monkeypatch):
+    monkeypatch.setattr(vector_mod, "_find_metafile_converter", lambda: "/usr/bin/inkscape")
+
+    def timeout_run(cmd, **kwargs):
+        assert kwargs["timeout"] == vector_mod._METAFILE_CONVERTER_TIMEOUT_SECONDS
+        raise subprocess.TimeoutExpired(cmd, kwargs["timeout"])
+
+    def fake_raster(_src, dest, *, dpi=600, crop=None):
+        dest.write_bytes(b"fake png")
+
+    monkeypatch.setattr(vector_mod.subprocess, "run", timeout_run)
+    monkeypatch.setattr(vector_mod, "_pillow_metafile_convert", fake_raster)
+    src = tmp_path / "chart.emf"
+    src.write_bytes(b"emf")
+    dest_dir = tmp_path / "figures"
+    dest_dir.mkdir()
+
+    outcome = convert_for_latex(src, dest_dir, 1, strip_metadata=False)
+
+    assert outcome.dest_path.suffix == ".png"
+    assert "timed out" in outcome.warning.lower()
+
+
+def test_metafile_raster_fallback_receives_word_crop(tmp_path, monkeypatch):
+    from latextify.model import CropRect
+
+    crop = CropRect(left=0.25, right=0.25)
+    captured = []
+    monkeypatch.setattr(vector_mod, "_find_metafile_converter", lambda: None)
+
+    def fake_raster(_src, dest, *, dpi=600, crop=None):
+        captured.append(crop)
+        dest.write_bytes(b"fake png")
+
+    monkeypatch.setattr(vector_mod, "_pillow_metafile_convert", fake_raster)
+    src = tmp_path / "chart.emf"
+    src.write_bytes(b"emf")
+    dest_dir = tmp_path / "figures"
+    dest_dir.mkdir()
+
+    outcome = convert_for_latex(src, dest_dir, 1, crop=crop, strip_metadata=False)
+
+    assert captured == [crop]
+    assert "Cropped image to its visible region" in outcome.warning
+    assert "does not crop" not in outcome.warning
 
 
 def test_metafile_renames_libreoffice_output_into_place(tmp_path, monkeypatch):

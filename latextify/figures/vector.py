@@ -13,11 +13,14 @@ depending on what the machine running them happens to have installed.
 
 from __future__ import annotations
 
+import os
 import shutil
 import subprocess
 from pathlib import Path
 
+from latextify.figures.crop import CROP_NOTE, apply_crop, wants_crop
 from latextify.figures.outcome import ConversionOutcome
+from latextify.model.figure import CropRect
 
 #: Ghostscript executable names to probe for, in order (Windows ships
 #: `gswin64c`/`gswin32c`; POSIX systems ship `gs`).
@@ -173,6 +176,8 @@ def convert_eps(src: Path, dest_dir: Path, number: int, *, prefix: str = "") -> 
 #: most Linux distributions; Inkscape handles EMF/WMF too and is the more
 #: common install on a figure-drawing workstation.
 _METAFILE_CONVERTERS = ("soffice", "libreoffice", "inkscape")
+_METAFILE_CONVERTER_TIMEOUT_SECONDS = 60
+_MAX_METAFILE_RASTER_PIXELS = 40_000_000
 
 _METAFILE_UNSUPPORTED_NOTE = (
     "Tectonic cannot include Windows metafiles (EMF/WMF); its xdvipdfmx PDF "
@@ -186,7 +191,48 @@ def _find_metafile_converter() -> str | None:
         found = shutil.which(name)
         if found:
             return found
+    # GUI launches on Windows commonly do not inherit the installer's PATH.
+    # Probe the normal application locations before falling back to raster.
+    roots = [
+        os.environ.get("ProgramFiles"),
+        os.environ.get("ProgramFiles(x86)"),
+        os.environ.get("LOCALAPPDATA"),
+    ]
+    relatives = (
+        Path("LibreOffice/program/soffice.exe"),
+        Path("Inkscape/bin/inkscape.exe"),
+        Path("Programs/Inkscape/bin/inkscape.exe"),
+    )
+    for root in roots:
+        if not root:
+            continue
+        for relative in relatives:
+            candidate = Path(root) / relative
+            if candidate.is_file():
+                return str(candidate)
     return None
+
+
+def _pillow_metafile_convert(
+    src: Path, dest: Path, *, dpi: int = 600, crop: CropRect | None = None
+) -> None:
+    """Rasterize a Windows metafile through Pillow's native WMF/EMF decoder."""
+    from PIL import Image
+
+    with Image.open(src) as image:
+        source_dpi = image.info.get("dpi", 72)
+        if isinstance(source_dpi, tuple):
+            xdpi, ydpi = source_dpi
+        else:
+            xdpi = ydpi = source_dpi
+        target_width = int(image.width * dpi / xdpi)
+        target_height = int(image.height * dpi / ydpi)
+        if target_width * target_height > _MAX_METAFILE_RASTER_PIXELS:
+            raise OSError("rasterized metafile exceeds the 40-megapixel safety limit")
+        image.load(dpi=dpi)
+        if crop is not None and crop.is_effective():
+            image = apply_crop(image, crop)
+        image.convert("RGBA" if "A" in image.getbands() else "RGB").save(dest, format="PNG")
 
 
 def _metafile_convert(binary: str, src: Path, dest: Path) -> None:
@@ -204,6 +250,7 @@ def _metafile_convert(binary: str, src: Path, dest: Path) -> None:
             check=True,
             capture_output=True,
             text=True,
+            timeout=_METAFILE_CONVERTER_TIMEOUT_SECONDS,
         )
         return
 
@@ -212,6 +259,7 @@ def _metafile_convert(binary: str, src: Path, dest: Path) -> None:
         check=True,
         capture_output=True,
         text=True,
+        timeout=_METAFILE_CONVERTER_TIMEOUT_SECONDS,
     )
     produced = dest.parent / f"{src.stem}.pdf"
     if produced != dest:
@@ -221,7 +269,12 @@ def _metafile_convert(binary: str, src: Path, dest: Path) -> None:
 
 
 def convert_metafile(
-    src: Path, dest_dir: Path, number: int, *, prefix: str = ""
+    src: Path,
+    dest_dir: Path,
+    number: int,
+    *,
+    prefix: str = "",
+    crop: CropRect | None = None,
 ) -> ConversionOutcome:
     """Convert ``src`` (a .emf/.wmf) to PDF via whichever converter is present.
 
@@ -235,19 +288,48 @@ def convert_metafile(
     dest = dest_dir / f"fig{prefix}{number}.pdf"
     binary = _find_metafile_converter()
     if binary is None:
+        raster_dest = dest.with_suffix(".png")
+        try:
+            _pillow_metafile_convert(src, raster_dest, crop=crop)
+        except Exception as exc:  # Pillow decoder failures vary; never crash the emit
+            raster_dest.unlink(missing_ok=True)
+            dest.unlink(missing_ok=True)  # never preserve a previous run's vector output
+            return ConversionOutcome(
+                dest_path=dest,
+                warning=(
+                    f"{_METAFILE_UNSUPPORTED_NOTE} No LibreOffice or Inkscape converter "
+                    f"was found, and Pillow could not rasterize {src.name} ({exc}); "
+                    "export it as PDF/PNG, supply it via figures.yaml, or install a converter."
+                ),
+            )
+        crop_note = f" {CROP_NOTE}" if wants_crop(crop) else ""
         return ConversionOutcome(
-            dest_path=dest,
+            dest_path=raster_dest,
             warning=(
-                f"{_METAFILE_UNSUPPORTED_NOTE} No converter (LibreOffice or Inkscape) was "
-                f"found on PATH to convert {src.name}, so nothing was written to "
-                f"figures/{dest.name}. Install one, or export the figure as PDF/PNG and "
-                "supply it via figures.yaml or a folder override."
+                f"{src.name} was rasterized to PNG at 600 DPI because no vector EMF/WMF "
+                "converter was found. Install LibreOffice/Inkscape or supply PDF for "
+                f"vector-quality output; verify the rendered figure.{crop_note}"
             ),
         )
     try:
         _metafile_convert(binary, src, dest)
-    except (subprocess.CalledProcessError, OSError) as exc:
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired, OSError) as exc:
         dest.unlink(missing_ok=True)  # discard any partial/failed write
+        raster_dest = dest.with_suffix(".png")
+        try:
+            _pillow_metafile_convert(src, raster_dest, crop=crop)
+        except Exception:  # Pillow decoder failures vary; never crash the emit
+            raster_dest.unlink(missing_ok=True)
+        else:
+            crop_note = f" {CROP_NOTE}" if wants_crop(crop) else ""
+            return ConversionOutcome(
+                dest_path=raster_dest,
+                warning=(
+                    f"{Path(binary).name} could not convert {src.name} to vector PDF "
+                    f"({exc}); it was rasterized to PNG at 600 DPI instead. Verify it."
+                    f"{crop_note}"
+                ),
+            )
         return ConversionOutcome(
             dest_path=dest,
             warning=(

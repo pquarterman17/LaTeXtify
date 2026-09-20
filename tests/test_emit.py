@@ -817,6 +817,27 @@ def test_duplicate_figure_numbers_warn_instead_of_silently_collapsing(tmp_path):
     assert any("figure number 2" in w.message and "duplicate" in w.message for w in warnings)
 
 
+def test_failed_conversion_prunes_stale_file_and_does_not_link_it(tmp_path, monkeypatch):
+    source = tmp_path / "source.emf"
+    source.write_bytes(b"broken emf")
+    figures_dir = tmp_path / "figures"
+    figures_dir.mkdir()
+    stale = figures_dir / "fig1.pdf"
+    stale.write_bytes(b"old wrong figure")
+    figure = Figure(number=1, caption="figure", embedded_path=source)
+
+    monkeypatch.setattr("latextify.figures.vector._find_metafile_converter", lambda: None)
+    monkeypatch.setattr(
+        "latextify.figures.vector._pillow_metafile_convert",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(OSError("conversion failed")),
+    )
+    files, _figures, warnings = _copy_figures((figure,), figures_dir)
+
+    assert files == {}
+    assert not stale.exists()
+    assert any("conversion failed" in warning.message for warning in warnings)
+
+
 def test_output_path_with_spaces_and_unicode(tmp_path):
     # Emit into an output tree whose path has spaces and non-ASCII characters.
     docx = _copy_fixture(tmp_path, CLEAN_DOCX)

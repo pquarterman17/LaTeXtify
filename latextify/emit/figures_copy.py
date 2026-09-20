@@ -23,6 +23,7 @@ from pathlib import Path
 
 from latextify.figures.convert import convert_for_latex
 from latextify.figures.inventory import is_wide as _is_wide_figure
+from latextify.figures.placement import FigurePlacements, placement_for
 from latextify.model.emit import EmitWarning
 from latextify.model.figure import Figure, FigureSource
 
@@ -41,6 +42,7 @@ def _copy_figures(
     *,
     prefix: str = "",
     strip_metadata: bool = True,
+    placements: FigurePlacements | None = None,
 ) -> tuple[dict[int, str], tuple[Figure, ...], tuple[EmitWarning, ...]]:
     """Prepare each figure's resolved file for LaTeX inclusion in ``figures_dir``.
 
@@ -96,15 +98,41 @@ def _copy_figures(
             crop=crop,
             strip_metadata=strip_metadata,
         )
-        kept.add(outcome.dest_path.name)
-        files[figure.number] = f"figures/{outcome.dest_path.name}"
+        if outcome.dest_path.is_file():
+            kept.add(outcome.dest_path.name)
+            files[figure.number] = f"figures/{outcome.dest_path.name}"
         if outcome.note is not None:
             figure = replace(figure, conversion_note=outcome.note)
-        if not figure.in_table and _is_wide_figure(outcome.dest_path):
-            figure = replace(figure, wide=True)
+        placement = placement_for(placements, prefix, figure.number)
+        if outcome.dest_path.is_file() and not figure.in_table:
+            wide = placement == "two" or (
+                placement == "auto" and _is_wide_figure(outcome.dest_path)
+            )
+            figure = replace(figure, wide=wide)
+        elif placement == "two":
+            warnings.append(
+                EmitWarning(
+                    message=(
+                        f"figure {figure.number}: two-column placement was ignored "
+                        "because the image is inside a table"
+                    )
+                )
+            )
         if outcome.warning is not None:
             warnings.append(EmitWarning(message=f"figure {figure.number}: {outcome.warning}"))
         updated.append(figure)
+    known_numbers = {figure.number for figure in figures}
+    if placements:
+        for (placement_prefix, number), _mode in placements.items():
+            if placement_prefix == prefix and number not in known_numbers:
+                warnings.append(
+                    EmitWarning(
+                        message=(
+                            f"figure column choice for {prefix}{number} was ignored: "
+                            "no such figure exists"
+                        )
+                    )
+                )
     # Re-running into an existing tree can leave last run's generated figures
     # behind (fewer figures now, or a format change PNG->PDF). Those stale files
     # would ride along into an exported project/ZIP though nothing references

@@ -38,6 +38,7 @@ from latextify.figures.extract import extract_figures
 from latextify.figures.gap_fill import GapFillPlan, plan_gap_fill
 from latextify.figures.inventory import describe, raster_warnings
 from latextify.figures.override import OverrideSources, resolve_overrides
+from latextify.figures.placement import FigurePlacements
 from latextify.model.emit import EmitWarning
 from latextify.model.figure import Figure
 
@@ -52,6 +53,7 @@ def run_figure_stage(
     vector_figures: bool = False,
     prefix: str = "",
     sources: OverrideSources | None = None,
+    placements: FigurePlacements | None = None,
 ) -> tuple[tuple[Figure, ...], dict[int, str], tuple[EmitWarning, ...], GapFillPlan]:
     """Resolve, copy and report this document's figures.
 
@@ -115,7 +117,7 @@ def run_figure_stage(
         )
 
     figure_files, figures, conversion_warnings = _copy_figures(
-        figures, figures_dir, prefix=prefix, strip_metadata=strip_metadata
+        figures, figures_dir, prefix=prefix, strip_metadata=strip_metadata, placements=placements
     )
     warnings.extend(conversion_warnings)
 
