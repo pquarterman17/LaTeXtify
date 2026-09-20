@@ -293,9 +293,7 @@ def emit_project(
         # by the journal metadata template, so remove it from the body to
         # avoid it appearing twice in the PDF (gap 4).
         body_result = convert_docx_to_body(docx_path, media_dir, strip_front_matter=True)
-        # Validate and protect the inline boundary before the figure stage can
-        # write or prune anything in an existing output tree. A mistyped or
-        # missing SI heading must fail without changing prior output.
+        # Validate before the figure stage can write or prune existing output.
         raw_tex = body_result.tex.replace("\r\n", "\n").replace("\r", "\n")
         if inline_supplement:
             raw_tex = mark_inline_supplement(raw_tex)
