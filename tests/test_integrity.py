@@ -21,6 +21,10 @@ def test_manifest_detects_missing_changed_and_ignores_runtime_files(tmp_path: Pa
     formats = tmp_path / "tex-bundle-cache" / "formats"
     formats.mkdir(parents=True)
     (formats / "generated.fmt").write_text("generated", encoding="utf-8")
+    nested_formats = tmp_path / ".offline-kit" / "tex-bundle-cache" / "formats"
+    nested_formats.mkdir(parents=True)
+    (nested_formats / "generated.fmt").write_text("generated", encoding="utf-8")
+    (tmp_path / "LaTeXtify.bat").write_text("generated", encoding="utf-8")
 
     result = verify_manifest(tmp_path)
     assert not result.ok

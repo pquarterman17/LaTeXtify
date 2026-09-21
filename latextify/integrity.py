@@ -8,7 +8,12 @@ from dataclasses import dataclass
 from pathlib import Path
 
 MANIFEST_NAME = "INSTALL-MANIFEST.sha256"
-_IGNORED_NAMES = {MANIFEST_NAME, "latextify-startup.log"}
+_IGNORED_NAMES = {
+    MANIFEST_NAME,
+    "LaTeXtify.bat",
+    "Start-LaTeXtify-GUI.bat",
+    "latextify-startup.log",
+}
 _IGNORED_PARTS = {".venv", "__pycache__", ".pytest_cache", ".mypy_cache", ".ruff_cache"}
 
 
@@ -38,7 +43,11 @@ def _included(relative: Path) -> bool:
 
 def _generated_runtime_file(relative: Path) -> bool:
     """Return whether an unmanifested file is expected to appear during normal use."""
-    return len(relative.parts) >= 2 and relative.parts[:2] == ("tex-bundle-cache", "formats")
+    parts = relative.parts
+    return any(
+        parts[index : index + 2] == ("tex-bundle-cache", "formats")
+        for index in range(len(parts) - 1)
+    )
 
 
 def write_manifest(root: Path, *, manifest_path: Path | None = None) -> Path:
