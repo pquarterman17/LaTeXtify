@@ -16,9 +16,10 @@ from pathlib import Path
 from unittest.mock import Mock
 
 import pytest
+from docx import Document
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-from PIL import Image
+from PIL import Image, PngImagePlugin
 from typer.testing import CliRunner
 
 from latextify.cli import app
@@ -289,12 +290,147 @@ def test_inline_supplement_and_figure_column_controls_are_wired(tmp_path):
     client = _client(tmp_path)
     html = client.get("/").text
     js = client.get("/static/app.js").text
+    placement_js = client.get("/static/figure-placement.js").text
 
-    assert 'id="opt-inline-supp"' in html
-    assert 'id="figure-columns"' in html
+    assert 'id="merged-layout"' in html
+    assert 'value="wordlike"' in html
+    assert 'value="two_two"' in html
+    assert 'value="two_one"' in html
+    assert 'id="figure-placement-body"' in html
+    assert 'id="opt-strip-metadata"' in html
+    assert 'id="opt-optimize-figures"' in html
+    assert 'fetch("/api/figures"' in placement_js
     assert 'fd.append("inline_supplement"' in js
+    assert 'fd.append("inline_supplement_columns"' in js
     assert 'fd.append("figure_columns"' in js
-    assert "optFigsEnd.disabled = optInlineSupp.checked" in js
+    assert 'fd.append("strip_figure_metadata"' in js
+    assert 'fd.append("optimize_figure_placement"' in js
+    assert "optFigsEnd.disabled = inlineSupplement" in js
+
+
+def test_offline_launcher_mode_is_visible_and_disables_crossref(tmp_path, monkeypatch):
+    monkeypatch.setenv("LATEXTIFY_OFFLINE", "1")
+    html = _client(tmp_path).get("/").text
+
+    assert 'id="offline-notice" class="hint"' in html
+    assert 'id="opt-checkrefs" type="checkbox" disabled' in html
+    assert 'id="opt-checkrefs" type="checkbox" checked' not in html
+
+
+def test_gui_inline_supplement_produces_one_document_with_page_break(tmp_path):
+    merged = tmp_path / "merged.docx"
+    document = Document(CLEAN_DOCX)
+    document.add_heading("Supplementary Information", level=1)
+    document.add_paragraph("Supplementary result from the merged manuscript.")
+    document.save(merged)
+
+    with merged.open("rb") as fh:
+        response = _client(tmp_path).post(
+            "/api/convert-multi",
+            files={"main": ("merged.docx", fh, "application/octet-stream")},
+            data={
+                "journal": "revtex4-2",
+                "pdf": "false",
+                "inline_supplement": "true",
+            },
+        )
+
+    assert response.status_code == 200, response.text
+    output = Path(response.json()["output_dir"])
+    body = (output / "generated" / "body.tex").read_text(encoding="utf-8")
+    assert "\\clearpage" in body
+    assert "\\section*{Supplementary Information}" in body
+    assert not (output / "supplement.tex").exists()
+
+
+@pytest.mark.parametrize(
+    ("main_columns", "supplement_columns", "expected_class", "switches_to_one"),
+    [
+        ("one", "same", "preprint", False),
+        ("two", "same", "reprint", False),
+        ("two", "one", "reprint", True),
+    ],
+)
+def test_gui_combined_document_layout_modes(
+    tmp_path, main_columns, supplement_columns, expected_class, switches_to_one
+):
+    merged = tmp_path / "merged.docx"
+    document = Document(CLEAN_DOCX)
+    document.add_heading("Supplementary Information", level=1)
+    document.add_paragraph("Supplementary result.")
+    document.save(merged)
+
+    with merged.open("rb") as fh:
+        response = _client(tmp_path).post(
+            "/api/convert-multi",
+            files={"main": ("merged.docx", fh, "application/octet-stream")},
+            data={
+                "journal": "revtex4-2",
+                "pdf": "false",
+                "inline_supplement": "true",
+                "main_columns": main_columns,
+                "inline_supplement_columns": supplement_columns,
+            },
+        )
+
+    assert response.status_code == 200, response.text
+    output = Path(response.json()["output_dir"])
+    preamble = (output / "generated" / "preamble.tex").read_text(encoding="utf-8")
+    body = (output / "generated" / "body.tex").read_text(encoding="utf-8")
+    assert expected_class in preamble
+    assert ("\\onecolumn" in body) is switches_to_one
+
+
+def test_gui_figure_column_choices_reach_emitted_latex(tmp_path):
+    with FIGURES_DOCX.open("rb") as fh:
+        response = _client(tmp_path).post(
+            "/api/convert-multi",
+            files={"main": ("figures.docx", fh, "application/octet-stream")},
+            data={
+                "journal": "revtex4-2",
+                "pdf": "false",
+                "figure_columns": "1=one, 2=two",
+            },
+        )
+
+    assert response.status_code == 200, response.text
+    output = Path(response.json()["output_dir"])
+    body = (output / "generated" / "body.tex").read_text(encoding="utf-8")
+    assert "\\begin{figure}\n" in body
+    assert "\\begin{figure*}\n" in body
+
+
+def test_gui_figure_optimization_and_metadata_toggles_reach_emitter(tmp_path):
+    image = tmp_path / "wide.png"
+    metadata = PngImagePlugin.PngInfo()
+    metadata.add_text("comment", "private lab note")
+    Image.new("RGB", (900, 200), "white").save(image, pnginfo=metadata)
+    manuscript = tmp_path / "wide.docx"
+    document = Document()
+    document.add_heading("Results", level=1)
+    document.add_picture(str(image))
+    document.add_paragraph("Figure 1. Wide result")
+    document.save(manuscript)
+
+    with manuscript.open("rb") as fh:
+        response = _client(tmp_path).post(
+            "/api/convert-multi",
+            files={"main": ("wide.docx", fh, "application/octet-stream")},
+            data={
+                "journal": "revtex4-2",
+                "pdf": "false",
+                "optimize_figure_placement": "false",
+                "strip_figure_metadata": "false",
+            },
+        )
+
+    assert response.status_code == 200, response.text
+    output = Path(response.json()["output_dir"])
+    body = (output / "generated" / "body.tex").read_text(encoding="utf-8")
+    assert "\\begin{figure}\n" in body
+    assert "\\begin{figure*}\n" not in body
+    with Image.open(output / "figures" / "fig1.png") as emitted:
+        assert emitted.info["comment"] == "private lab note"
 
 
 def test_index_wires_the_review_panel(tmp_path):

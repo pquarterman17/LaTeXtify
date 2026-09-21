@@ -58,6 +58,7 @@ and every upload is written under a fresh per-session subdirectory of
 
 from __future__ import annotations
 
+import os
 import re
 import tempfile
 import uuid
@@ -206,6 +207,14 @@ def create_app(
     # Hosted-demo hardening (see latextify.gui.demo). A None limiter makes the
     # rate-limit dependency a no-op, so the local tool is untouched.
     app.state.demo_mode = demo
+    # Offline-kit launchers set this flag. It prevents the GUI's default
+    # Crossref checkbox from causing a doomed network attempt on an air-gapped
+    # workstation while leaving ordinary source/PyPI installs unchanged.
+    app.state.offline_mode = os.environ.get("LATEXTIFY_OFFLINE", "").lower() in {
+        "1",
+        "true",
+        "yes",
+    }
     app.state.rate_limiter = RateLimiter() if demo else None
     max_upload_bytes = DEMO_MAX_UPLOAD_BYTES if demo else _MAX_UPLOAD_BYTES
     # A fresh token per process start: appended to every served /static/*.css
@@ -221,6 +230,14 @@ def create_app(
         html = _INDEX_HTML.read_text(encoding="utf-8")
         if demo:
             html = inject_demo_banner(html)
+        if app.state.offline_mode:
+            html = html.replace(
+                'id="offline-notice" class="hint hidden"', 'id="offline-notice" class="hint"'
+            )
+            html = html.replace(
+                'id="opt-checkrefs" type="checkbox" checked',
+                'id="opt-checkrefs" type="checkbox" disabled',
+            )
         html = _STATIC_ASSET_RE.sub(rf'\1?v={app.state.cache_bust}"', html)
         response = HTMLResponse(inject_gui_secret(html, app.state.gui_secret))
         response.headers["Cache-Control"] = "no-cache"

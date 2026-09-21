@@ -56,6 +56,7 @@ from .bib import csl_type_to_bibtex
 #: Placeholder contact address; override with a real one in production use.
 DEFAULT_MAILTO = "latextify@example.com"
 _MAILTO_ENV = "LATEXTIFY_CROSSREF_MAILTO"
+_OFFLINE_ENV = "LATEXTIFY_OFFLINE"
 
 DEFAULT_BASE_URL = "https://api.crossref.org"
 _USER_AGENT_PRODUCT = "LaTeXtify/0.1 (https://github.com/latextify/latextify)"
@@ -313,6 +314,8 @@ class CrossrefClient:
         consecutive calls have failed, further calls raise immediately so a
         full outage costs a few timeouts, not one per remaining reference.
         """
+        if os.environ.get(_OFFLINE_ENV, "").lower() in {"1", "true", "yes"}:
+            raise CrossrefUnavailable("Crossref disabled by LATEXTIFY_OFFLINE")
         if self._consecutive_failures >= _BREAKER_THRESHOLD:
             raise CrossrefUnavailable(
                 f"skipped after {self._consecutive_failures} consecutive Crossref failures"

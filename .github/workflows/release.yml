@@ -54,7 +54,7 @@ jobs:
       - name: Build native Linux kit (warms the shared, portable TeX cache)
         env:
           GITHUB_TOKEN: ${{ github.token }}
-        run: uv run latextify make-kit --target linux-x64 -o build
+        run: uv run latextify make-kit --target linux-x64 --with-gui -o build
 
       # NOTE -- native-build preference: this workflow cross-builds the
       # win-x64 (and macos-arm64) kits from a single Linux runner, on a
@@ -80,7 +80,7 @@ jobs:
           # and reuse it for the cross targets rather than re-downloading the
           # whole TeX bundle two more times.
           for tgt in win-x64 macos-arm64; do
-            uv run latextify make-kit --target "$tgt" --no-warm-tex -o build
+            uv run latextify make-kit --target "$tgt" --with-gui --no-warm-tex -o build
           done
           uv run python - <<'PY'
           import json

@@ -148,6 +148,19 @@ def test_query_bibliographic_empty_text_makes_no_request():
     client.close()
 
 
+def test_offline_environment_never_touches_transport(monkeypatch):
+    def forbidden_request(_request):
+        raise AssertionError("offline mode must not attempt a Crossref request")
+
+    monkeypatch.setenv("LATEXTIFY_OFFLINE", "1")
+    with CrossrefClient(transport=httpx.MockTransport(forbidden_request)) as client:
+        assert client.query_bibliographic("A typed reference") == []
+        with pytest.raises(CrossrefUnavailable, match="LATEXTIFY_OFFLINE"):
+            client.query_bibliographic_checked("A typed reference")
+        with pytest.raises(CrossrefUnavailable, match="LATEXTIFY_OFFLINE"):
+            client.get_by_doi("10.1000/example")
+
+
 def _erroring_client(handler):
     """Client for error-path tests: zero backoff so retries are instant."""
     return CrossrefClient(

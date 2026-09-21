@@ -54,6 +54,7 @@ def run_figure_stage(
     prefix: str = "",
     sources: OverrideSources | None = None,
     placements: FigurePlacements | None = None,
+    optimize_placement: bool = True,
 ) -> tuple[tuple[Figure, ...], dict[int, str], tuple[EmitWarning, ...], GapFillPlan]:
     """Resolve, copy and report this document's figures.
 
@@ -77,6 +78,8 @@ def run_figure_stage(
             ``--figures-pdf`` directories. Empty by default, in which case
             resolution is the manifest and the folder beside the manuscript,
             exactly as before.
+        optimize_placement: allow measured wide figures with no manual
+            placement choice to use the journal's two-column float.
 
     Returns ``(figures, figure_files, warnings, gap_plan)``. The plan says
     whether a captioned-but-missing figure was supplied and therefore whether
@@ -117,7 +120,12 @@ def run_figure_stage(
         )
 
     figure_files, figures, conversion_warnings = _copy_figures(
-        figures, figures_dir, prefix=prefix, strip_metadata=strip_metadata, placements=placements
+        figures,
+        figures_dir,
+        prefix=prefix,
+        strip_metadata=strip_metadata,
+        placements=placements,
+        optimize_placement=optimize_placement,
     )
     warnings.extend(conversion_warnings)
 

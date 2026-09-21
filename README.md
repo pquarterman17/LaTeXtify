@@ -285,7 +285,26 @@ To start the web GUI without touching a command line, double-click
 **`startup.bat`** (Windows) or run **`./startup.sh`** (macOS/Linux). It installs
 dependencies on first run, opens the GUI in your browser, and — if anything
 goes wrong — writes an easy-to-find `latextify-startup.log` next to the script
-and prints it for you to copy.
+and prints it for you to copy. This source-tree launcher needs internet access
+on its first run.
+
+### Offline / firewalled Windows computer
+
+Do not transfer the repository's source-code ZIP: its `startup.bat` must fetch
+`uv` and Python packages. On a connected computer, download the release asset
+named **`latextify-offline-windows-x64.zip`**, transfer it using an approved
+method, extract it to a short writable path such as `C:\LaTeXtify`, and run:
+
+```bat
+py install.py
+```
+
+Then double-click **`Start-LaTeXtify-GUI.bat`**. The offline package contains
+the GUI, Pandoc, Tectonic, dependencies, and a warmed TeX cache; it does not
+contact GitHub, Astral, PyPI, or Crossref. It requires a supported 64-bit
+Python already present on the work computer. Embedded EMF/WMF figures work,
+but preserving them as vectors requires an offline installation of LibreOffice
+or Inkscape; otherwise Windows attempts a 600-DPI raster fallback.
 
 ## Usage
 
@@ -357,9 +376,11 @@ latextify journals
 `127.0.0.1` only — your uploads never leave your machine) and opens a tab.
 Drop your whole submission in at once — **main `.docx`, supplement `.docx`,
 figure files, and a `.bib` reference library together** — then set each
-file's role, pick a journal from the full publisher list, choose options
-(compile PDF, combine supplement, one-column SI, equation audit, project
-`.zip`), and click **Preview**. The compiled PDFs render inline so you can
+file's role, pick a journal from the full publisher list, choose options,
+and click **Preview**. The GUI reads the selected manuscript's figures and
+gives every figure its own **Automatic / 1 column / 2 columns** selector;
+separately uploaded replacements appear under the same document-order number.
+The compiled PDFs render inline so you can
 confirm the conversion worked. A preview is held only in **temporary local
 storage** (a private working directory the app owns) — it is pruned
 automatically about an hour after its last use and deleted when the app shuts
@@ -368,12 +389,20 @@ panel lets you pick a destination folder (a native "Browse…" dialog) and copy
 any subset of the outputs — the LaTeX project, individual PDFs, or the `.zip` —
 to the folder you choose to keep.
 
-For a merged main+supplement Word file, upload it only as **Main text**, turn on
-**Supplement is inside main file**, and do not add a separate Supplement file.
-The recognized heading starts a new page in `main.pdf`; figures, tables,
-equations, and sections after it restart as S1. Use **Figure column widths**
-with entries such as `1=one, 2=two`; these numbers are the document-order
-numbers shown by **What are my figures?**
+For a merged main+supplement Word file, upload it only as **Main text**, do not
+add a separate Supplement file, and choose one **Combined main + supplement
+Word file** layout:
+
+- **Single-column throughout (closest to Word)**
+- **Main two columns; supplement two columns**
+- **Main two columns; supplement one column**
+
+Every combined mode produces one `main.pdf`, starts the recognized
+Supplementary Material/Information heading on a new page, and restarts figures,
+tables, equations, and sections as S1. **Check references online**, **Strip
+figure metadata**, and **Optimize figure placement** are independent toggles.
+The offline launcher disables the online reference check; the other two remain
+available. Manual per-figure column choices override automatic placement.
 
 Output layout per conversion:
 
