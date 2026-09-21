@@ -133,6 +133,13 @@ def _package_spec(info: dict) -> str:
     return "latextify[gui]" if info.get("with_gui", False) else "latextify"
 
 
+def _install_requirements(base: list[str]) -> None:
+    """Install the exact exported dependency set before the project wheel."""
+    requirements = HERE / "requirements.txt"
+    if requirements.is_file():
+        _run(base + ["-r", str(requirements)])
+
+
 def _write_launchers(target: Path, venv_dir: Path, *, with_gui: bool) -> list[Path]:
     """Write LaTeXtify.bat / ./latextify that run the venv CLI with the in-kit
     Tectonic binary on PATH and TECTONIC_CACHE_DIR pointed at the warmed cache.
@@ -234,6 +241,7 @@ def main() -> None:
         subprocess.run(base + ["--upgrade", "--quiet", "pip"])
     with_gui = bool(info.get("with_gui", False))
     package = _package_spec(info)
+    _install_requirements(base)
     _run(base + ["--upgrade", package])
 
     imports = "import latextify"

@@ -84,12 +84,11 @@ def _build_project_wheel(wheelhouse: Path) -> str:
     return wheels[-1].name.split("-")[1]
 
 
-def _export_requirements(req: Path, *, with_gui: bool) -> None:
+def _export_requirements(req: Path, *, with_gui: bool, with_dev: bool = False) -> None:
     cmd = [
         "uv",
         "export",
         "--frozen",
-        "--no-dev",
         "--no-emit-project",
         "--no-hashes",
         "--format",
@@ -97,6 +96,10 @@ def _export_requirements(req: Path, *, with_gui: bool) -> None:
         "-o",
         str(req),
     ]
+    if not with_dev:
+        cmd += ["--no-dev"]
+    else:
+        cmd += ["--group", "dev"]
     if with_gui:
         cmd += ["--extra", "gui"]
     _run(cmd, cwd=str(REPO_ROOT))
@@ -243,13 +246,15 @@ def make_kit(
     warm_tex: bool = True,
     journals: list[str] | None = None,
     with_gui: bool = False,
+    with_dev: bool = False,
     make_zip: bool = False,
 ) -> Path:
     """Build an offline kit for ``target_name`` under ``output_dir``; return the kit dir.
 
     ``journals`` limits TeX-cache warming (default: every registered journal).
     ``warm_tex=False`` produces a smaller emit-only kit (no ``tex-bundle-cache/``).
-    ``with_gui`` adds the optional GUI dependency wheels.
+    ``with_gui`` adds the optional GUI dependency wheels. ``with_dev`` also
+    bundles the development/test dependency group for an editable offline checkout.
     """
     _require_uv()
     target = resolve_target(target_name)
@@ -263,7 +268,7 @@ def make_kit(
     wheelhouse.mkdir(parents=True)
 
     version = _build_project_wheel(wheelhouse)
-    _export_requirements(kit_dir / "requirements.txt", with_gui=with_gui)
+    _export_requirements(kit_dir / "requirements.txt", with_gui=with_gui, with_dev=with_dev)
     _download_deps(wheelhouse, kit_dir / "requirements.txt", python_versions, target)
 
     _fetch_tectonic(target, kit_dir / "tectonic")
@@ -282,6 +287,7 @@ def make_kit(
                 list(python_versions),
                 warm_tex=warm_tex,
                 with_gui=with_gui,
+                with_dev=with_dev,
                 journals=warmed,
             ),
             indent=2,

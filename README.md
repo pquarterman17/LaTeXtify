@@ -285,8 +285,10 @@ To start the web GUI without touching a command line, double-click
 **`startup.bat`** (Windows) or run **`./startup.sh`** (macOS/Linux). It installs
 dependencies on first run, opens the GUI in your browser, and — if anything
 goes wrong — writes an easy-to-find `latextify-startup.log` next to the script
-and prints it for you to copy. This source-tree launcher needs internet access
-on its first run.
+and prints it for you to copy. On Windows, `startup.bat` is offline-first and
+never downloads missing software. A connected source checkout can explicitly
+opt into the old online bootstrap by running **`startup-online.bat`** instead.
+The macOS/Linux source launcher still needs internet access on its first run.
 
 ### Offline / firewalled Windows computer
 
@@ -313,6 +315,25 @@ contact GitHub, Astral, PyPI, or Crossref. It requires a supported 64-bit
 Python already present on the work computer. Embedded EMF/WMF figures work,
 but preserving them as vectors requires an offline installation of LibreOffice
 or Inkscape; otherwise Windows attempts a 600-DPI raster fallback.
+
+For an **editable source checkout** on an air-gapped Windows computer, use
+**`LaTeXtify-Windows-Offline-Repo.zip`**. It contains the complete tracked
+repository, a portable Python 3.13 runtime, pinned runtime and development
+dependencies, Pandoc, Tectonic, and the warmed TeX cache. Extract the whole
+folder and double-click `startup.bat`; its first launch creates `.venv` from
+the local wheelhouse without contacting any service. Code changes under
+`latextify\` are used on the next launch, and the bundled environment can run
+the offline test, lint, and type-check commands described in
+`README-OFFLINE-REPO.txt`.
+
+These packages serve different purposes:
+
+| Release asset | Intended use | Python required |
+|---|---|---|
+| `LaTeXtify-Windows-Portable.zip` | Normal GUI use | No |
+| `LaTeXtify-Windows-Offline-Repo.zip` | Editable/debuggable/testable source | No |
+| `latextify-offline-windows-x64.zip` | Inspectable installed Python package | Yes |
+| GitHub/source ZIP | Connected development | Yes |
 
 ## Usage
 

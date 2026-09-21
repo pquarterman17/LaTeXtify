@@ -19,6 +19,10 @@ Everything installs into this folder; nothing else on the system is touched.
 | `requirements.txt` | the exact pinned versions (for IT / security review) |
 | `bundle-info.json` | which OS, CPU, and Python versions this kit covers |
 
+When `with_dev` is true in `bundle-info.json`, `requirements.txt` and the
+wheelhouse also contain the pinned test, lint, and type-check dependencies used
+by the editable offline repository release.
+
 ## Requirements
 
 - The OS and CPU this kit was built for — see `bundle-info.json` (the folder

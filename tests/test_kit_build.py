@@ -92,6 +92,7 @@ def test_bundle_info_manifest_shape():
         ["3.10", "3.11"],
         warm_tex=True,
         with_gui=False,
+        with_dev=False,
         journals=["revtex4-2", "iopart"],
     )
     assert info["name"] == "latextify"
@@ -99,6 +100,7 @@ def test_bundle_info_manifest_shape():
     assert info["target"] == "linux-x64"
     assert info["python_versions"] == ["3.10", "3.11"]
     assert info["warm_tex"] is True
+    assert info["with_dev"] is False
     assert info["warmed_journals"] == ["iopart", "revtex4-2"]  # sorted
 
 
@@ -109,11 +111,13 @@ def test_bundle_info_emit_only_lists_no_warmed_journals():
         ["3.12"],
         warm_tex=False,
         with_gui=True,
+        with_dev=True,
         journals=["revtex4-2"],
     )
     assert info["warm_tex"] is False
     assert info["warmed_journals"] == []
     assert info["with_gui"] is True
+    assert info["with_dev"] is True
 
 
 # --------------------------------------------------------------------------- #
@@ -165,6 +169,30 @@ def test_gui_kit_installs_gui_extra_and_writes_offline_launcher(tmp_path):
 def test_command_line_only_kit_does_not_write_gui_launcher(tmp_path):
     launchers = install_template._write_launchers(tmp_path, tmp_path / ".venv", with_gui=False)
     assert all("gui" not in path.name.lower() for path in launchers)
+
+
+def test_installer_installs_pinned_requirements(monkeypatch, tmp_path):
+    requirements = tmp_path / "requirements.txt"
+    requirements.write_text("pytest==9.0.0\n")
+    calls = []
+    monkeypatch.setattr(install_template, "HERE", tmp_path)
+    monkeypatch.setattr(install_template, "_run", calls.append)
+
+    install_template._install_requirements(["python", "-m", "pip", "install"])
+
+    assert calls == [["python", "-m", "pip", "install", "-r", str(requirements)]]
+
+
+def test_dev_requirements_export_includes_dev_group(monkeypatch, tmp_path):
+    calls = []
+    monkeypatch.setattr(build, "_run", lambda command, **kwargs: calls.append(command))
+
+    build._export_requirements(tmp_path / "requirements.txt", with_gui=True, with_dev=True)
+
+    command = calls[0]
+    assert "--no-dev" not in command
+    assert command[command.index("--group") + 1] == "dev"
+    assert command[command.index("--extra") + 1] == "gui"
 
 
 def test_default_warm_journals_are_the_registered_ones():
