@@ -53,9 +53,9 @@ exit /b 0
 >> "%LOG%" echo.
 >> "%LOG%" echo This is the SOURCE launcher and its first run requires internet access.
 >> "%LOG%" echo For a firewalled or air-gapped computer, use the release asset named
->> "%LOG%" echo latextify-offline-windows-x64.zip instead of the source-code zip.
->> "%LOG%" echo Transfer that zip from a connected computer, extract it, run
->> "%LOG%" echo "py install.py", then double-click Start-LaTeXtify-GUI.bat.
+>> "%LOG%" echo LaTeXtify-Windows-Portable.zip instead of the source-code zip.
+>> "%LOG%" echo Transfer that zip from a connected computer, extract the whole
+>> "%LOG%" echo folder, then double-click LaTeXtify.exe. No Python or install is needed.
 >> "%LOG%" echo.
 >> "%LOG%" echo On a connected computer, install uv from https://docs.astral.sh/uv/
 >> "%LOG%" echo and run this launcher again.

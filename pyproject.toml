@@ -1,6 +1,6 @@
 [project]
 name = "latextify"
-version = "0.3.1"
+version = "0.3.2"
 description = "Convert Word manuscripts to journal-ready LaTeX projects and PDFs"
 readme = "README.md"
 license = "Apache-2.0"
@@ -81,6 +81,11 @@ dev = [
     "fastapi>=0.115",  # gui extra, installed for dev/test so tests/test_gui.py runs (item 19)
     "uvicorn>=0.30",
     "python-multipart>=0.0.9",
+]
+portable = [
+    # Build-only dependency for the native Windows, no-install application.
+    # It is not shipped as a runtime package or installed by ordinary users.
+    "pyinstaller>=6.16,<7",
 ]
 
 [project.urls]
