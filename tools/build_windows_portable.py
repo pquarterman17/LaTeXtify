@@ -46,6 +46,10 @@ def _copy_runtime_assets(kit: Path, app_dir: Path) -> None:
         ROOT / "examples" / "04-combined-emf" / "README.txt",
         sample_dir / "README.txt",
     )
+    shutil.copy2(
+        ROOT / "examples" / "04-combined-emf" / "paper.yaml",
+        sample_dir / "paper.yaml",
+    )
     info = json.loads((kit / "bundle-info.json").read_text(encoding="utf-8"))
     (app_dir / "portable-info.json").write_text(
         json.dumps(

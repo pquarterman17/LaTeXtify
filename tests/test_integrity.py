@@ -18,6 +18,9 @@ def test_manifest_detects_missing_changed_and_ignores_runtime_files(tmp_path: Pa
     (tmp_path / "extra.txt").write_text("extra", encoding="utf-8")
     (tmp_path / ".venv").mkdir()
     (tmp_path / ".venv" / "ignored.txt").write_text("ignored", encoding="utf-8")
+    formats = tmp_path / "tex-bundle-cache" / "formats"
+    formats.mkdir(parents=True)
+    (formats / "generated.fmt").write_text("generated", encoding="utf-8")
 
     result = verify_manifest(tmp_path)
     assert not result.ok

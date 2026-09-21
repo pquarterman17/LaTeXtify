@@ -36,6 +36,11 @@ def _included(relative: Path) -> bool:
     return relative.name not in _IGNORED_NAMES and not (_IGNORED_PARTS & set(relative.parts))
 
 
+def _generated_runtime_file(relative: Path) -> bool:
+    """Return whether an unmanifested file is expected to appear during normal use."""
+    return len(relative.parts) >= 2 and relative.parts[:2] == ("tex-bundle-cache", "formats")
+
+
 def write_manifest(root: Path, *, manifest_path: Path | None = None) -> Path:
     """Hash every shipped file beneath ``root`` using portable relative paths."""
     root = root.resolve()
@@ -84,7 +89,9 @@ def verify_manifest(root: Path, *, manifest_path: Path | None = None) -> Integri
     actual = {
         path.relative_to(root).as_posix()
         for path in root.rglob("*")
-        if path.is_file() and _included(path.relative_to(root))
+        if path.is_file()
+        and _included(path.relative_to(root))
+        and not _generated_runtime_file(path.relative_to(root))
     }
     unexpected = sorted(actual - set(expected))
     return IntegrityResult(

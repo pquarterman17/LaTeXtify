@@ -113,10 +113,17 @@ def self_test(root: Path) -> None:
         from latextify.emit.submission import DocumentLayout
 
         with tempfile.TemporaryDirectory(prefix="latextify-combined-emf-check-") as temp:
+            source_dir = Path(temp) / "input"
+            source_dir.mkdir()
+            sample_copy = source_dir / sample.name
+            sample_copy.write_bytes(sample.read_bytes())
+            sample_sidecar = sample.with_name("paper.yaml")
+            if sample_sidecar.is_file():
+                (source_dir / "paper.yaml").write_bytes(sample_sidecar.read_bytes())
             result = emit_project(
-                sample,
+                sample_copy,
                 "revtex4-2",
-                Path(temp),
+                Path(temp) / "output",
                 inline_supplement=True,
                 inline_supplement_columns="one",
                 main_layout=DocumentLayout(columns="two"),
