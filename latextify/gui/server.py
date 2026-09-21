@@ -80,6 +80,7 @@ from latextify.gui.demo import (
     inject_demo_banner,
     require_demo_rate_limit,
 )
+from latextify.gui.diagnostics_routes import register_diagnostics_routes
 from latextify.gui.downloads import (
     _issue_token,
     _rmtree,
@@ -281,6 +282,7 @@ def create_app(
     # size-ratchet pin.
     register_upload_routes(app, root=root, max_upload_bytes=max_upload_bytes)
     register_download_routes(app)
+    register_diagnostics_routes(app, workdir=root, demo=demo)
     # Tab-heartbeat routes (always registered; only start_client_monitor
     # above, gated on auto_shutdown, ever acts on them).
     register_lifecycle(app)

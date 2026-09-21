@@ -51,3 +51,12 @@ def test_online_bootstrap_requires_explicit_wrapper() -> None:
     wrapper = (offline_repo.ROOT / "startup-online.bat").read_text(encoding="utf-8")
     assert 'set "LATEXTIFY_ALLOW_DOWNLOADS=1"' in wrapper
     assert 'call "%~dp0startup.bat" %*' in wrapper
+
+
+def test_offline_repo_builder_adds_integrity_tools() -> None:
+    source = (offline_repo.ROOT / "tools" / "build_windows_offline_repo.py").read_text(
+        encoding="utf-8"
+    )
+    assert "Verify-LaTeXtify.bat" in source
+    assert "verify_installation.py" in source
+    assert "write_manifest(bundle_dir)" in source

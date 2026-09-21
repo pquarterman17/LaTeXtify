@@ -1,16 +1,17 @@
 # LaTeXtify usage examples
 
-Three self-contained, runnable examples covering the input shapes a real user
-hits, from the simplest to the full journal submission. Each folder has a
-`make_manuscript.py` that **generates** its Word document(s) (no binary files
-are committed — the same python-docx / hand-assembled-OOXML approach the test
-suite uses) and a `run.py` that generates + converts to a PDF in one step.
+Four self-contained examples cover the input shapes a real user hits, from the
+simplest to the full journal submission. Examples 01–03 generate their inputs
+on demand. Example 04 intentionally includes a ready-to-use synthetic Word
+file with real embedded Windows EMFs so an offline machine can be checked
+without first installing development tools.
 
 | # | Example | Scenario | Highlights |
 |---|---------|----------|------------|
 | 01 | [all-embedded](01-all-embedded/) | One `.docx` with everything inside | embedded figures · metadata guessing · typed references → **Crossref** reconstruction |
 | 02 | [word-plus-figures](02-word-plus-figures/) | `.docx` + separate figure files | `figures/` folder convention · `figures.yaml` manifest · override precedence |
 | 03 | [multipart-refmanager](03-multipart-refmanager/) | Main + supplement + reference manager | Zotero/Mendeley **field codes** · `--supplement` · shared/de-duplicated `references.bib` · `paper.yaml` metadata |
+| 04 | [combined-emf](04-combined-emf/) | One merged main+supplement `.docx` with embedded EMFs | page-break boundary · S-numbering · manual one-/two-column figures · offline acceptance sample |
 
 ## Quick start
 
@@ -45,6 +46,9 @@ warmed TeX cache.
   document as reference-manager field codes (a clean, offline bibliography);
   `--supplement` emits the SI into the same project with a shared, de-duplicated
   bibliography.
+- **"My main text and supplement are one Word file and the figures are EMFs."**
+  → [Example 04](04-combined-emf/). Use the committed sample directly in the
+  GUI; its README lists the expected layout choices and output.
 
 ## How references get in — at a glance
 
@@ -56,4 +60,4 @@ ingest a standalone `.bib`, `.ris`, or reference-manager library file.
 | Inserted by a Zotero/Mendeley/EndNote **Word plugin** (field codes) | metadata read straight from the field codes | No — DOIs and all metadata are embedded |
 | Word's **built-in** citation manager | read from the document's citation sources | No |
 | A **typed** reference list + `[1]`/`(Smith 2020)` markers | reconstructed via **Crossref**, low-confidence entries flagged `verify` | Yes (offline → raw verify-flagged entries) |
-| A separate exported **library file** (`.bib`/`.ris`/CSL-JSON) | **not supported** — insert citations with the Word plugin instead | — |
+| A separate exported **library file** (`.bib`/`.ris`/CSL-JSON/EndNote XML/`.nbib`) | upload it with the References role or pass `--references` | No for matched entries |

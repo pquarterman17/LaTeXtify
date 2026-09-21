@@ -107,7 +107,45 @@ def self_test(root: Path) -> None:
         if not compiled.success:
             raise RuntimeError(f"the packaged offline PDF check failed:\n{compiled.raw_log}")
     create_app(auto_shutdown=False)
+    sample = root / "sample" / "Combined-Manuscript-with-EMF.docx"
+    if sample.is_file():
+        from latextify.emit.project import emit_project
+        from latextify.emit.submission import DocumentLayout
+
+        with tempfile.TemporaryDirectory(prefix="latextify-combined-emf-check-") as temp:
+            source_dir = Path(temp) / "input"
+            source_dir.mkdir()
+            sample_copy = source_dir / sample.name
+            sample_copy.write_bytes(sample.read_bytes())
+            sample_sidecar = sample.with_name("paper.yaml")
+            if sample_sidecar.is_file():
+                (source_dir / "paper.yaml").write_bytes(sample_sidecar.read_bytes())
+            result = emit_project(
+                sample_copy,
+                "revtex4-2",
+                Path(temp) / "output",
+                inline_supplement=True,
+                inline_supplement_columns="one",
+                main_layout=DocumentLayout(columns="two"),
+                figure_placements={("", 1): "one", ("", 2): "two"},
+            )
+            body = result.body_tex_path.read_text(encoding="utf-8")
+            required = ("\\begin{figure}\n", "\\begin{figure*}\n", "\\clearpage", "\\onecolumn")
+            if not all(marker in body for marker in required):
+                raise RuntimeError("the combined Word/EMF layout check produced incorrect LaTeX")
+            compiled = compile_document(result.main_tex_path, tectonic_path=tectonic, timeout=90)
+            if not compiled.success:
+                raise RuntimeError(f"the combined Word/EMF PDF check failed:\n{compiled.raw_log}")
     print("portable self-test passed")
+
+
+def verify_installation(root: Path) -> None:
+    from latextify.integrity import format_result, verify_manifest
+
+    result = verify_manifest(root)
+    print(format_result(result))
+    if not result.ok:
+        raise RuntimeError("installation integrity verification failed")
 
 
 def run_gui() -> None:
@@ -144,13 +182,15 @@ def main() -> None:
         try:
             print("\n=== LaTeXtify portable startup ===")
             print(f"application directory: {root}")
-            if "--self-test" in sys.argv:
+            if "--verify-installation" in sys.argv:
+                verify_installation(root)
+            elif "--self-test" in sys.argv:
                 self_test(root)
             else:
                 run_gui()
         except BaseException:  # a windowed executable has nowhere else to show this
             traceback.print_exc(file=log)
-            if "--self-test" in sys.argv:
+            if "--self-test" in sys.argv or "--verify-installation" in sys.argv:
                 log.flush()
                 os._exit(1)
             _error_dialog(f"LaTeXtify could not start.\n\nThe diagnostic log is here:\n{log_path}")

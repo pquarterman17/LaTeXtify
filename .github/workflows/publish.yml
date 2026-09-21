@@ -1,10 +1,9 @@
 name: Publish to PyPI
 
-# Publishes the sdist + wheel to PyPI. Triggers ONLY on a published GitHub
-# Release -- never on a plain push, a pull request, or even a tag push (tag
-# pushes drive release.yml's offline-kit build instead). This is the
-# machinery only: it cannot fire a real publish until an OWNER completes the
-# two one-time setup steps below.
+# Publishes the sdist + wheel to PyPI. Normally dispatched by release.yml only
+# after every offline artifact has built and passed its acceptance tests. The
+# published-release trigger remains as a backwards-compatible/manual path.
+# Neither a plain branch push nor a pull request can publish a package.
 #
 # ---------------------------------------------------------------------------
 # OWNER SETUP REQUIRED before the first real publish (both are one-time,
@@ -21,17 +20,25 @@ name: Publish to PyPI
 #      successful publish from this trusted publisher -- no manual project
 #      creation needed.)
 #
-#   2. Publish a GitHub Release (e.g. tag v0.1.0). The `release: published`
-#      event below is what triggers the `publish` job -- nothing publishes
-#      before that happens.
+#   2. Push a version tag (e.g. v0.1.0). release.yml builds and verifies all
+#      artifacts, creates a draft GitHub release, dispatches this workflow for
+#      that exact tag, and publishes the GitHub release only after PyPI passes.
 # ---------------------------------------------------------------------------
 
 on:
   release:
     types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Exact version tag to build and publish"
+        required: true
+        type: string
+
+run-name: Publish ${{ inputs.tag || github.event.release.tag_name }} to PyPI
 
 concurrency:
-  group: publish-${{ github.ref }}
+  group: publish-${{ inputs.tag || github.event.release.tag_name }}
   cancel-in-progress: false
 
 permissions:
@@ -42,6 +49,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ inputs.tag || github.event.release.tag_name }}
       - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
         # No python-version here on purpose: setup-uv reads .python-version,
         # so the repo file is the single declaration (toolchain-version rule).
@@ -70,3 +79,5 @@ jobs:
           name: dist
           path: dist/
       - uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # v1.14.2
+        with:
+          skip-existing: true

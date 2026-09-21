@@ -12,6 +12,8 @@ from pathlib import Path
 
 import PyInstaller.__main__
 
+from latextify.integrity import write_manifest
+
 ROOT = Path(__file__).resolve().parents[1]
 APP_NAME = "LaTeXtify-Windows-Portable"
 
@@ -30,6 +32,24 @@ def _copy_runtime_assets(kit: Path, app_dir: Path) -> None:
     shutil.copy2(ROOT / "LICENSE", app_dir / "LICENSE.txt")
     shutil.copy2(ROOT / "NOTICE", app_dir / "NOTICE.txt")
     shutil.copy2(ROOT / "packaging" / "README-WINDOWS-PORTABLE.txt", app_dir / "README-FIRST.txt")
+    shutil.copy2(
+        ROOT / "packaging" / "Verify-LaTeXtify-Portable.bat",
+        app_dir / "Verify-LaTeXtify.bat",
+    )
+    sample_dir = app_dir / "sample"
+    sample_dir.mkdir(exist_ok=True)
+    shutil.copy2(
+        ROOT / "examples" / "04-combined-emf" / "Combined-Manuscript-with-EMF.docx",
+        sample_dir / "Combined-Manuscript-with-EMF.docx",
+    )
+    shutil.copy2(
+        ROOT / "examples" / "04-combined-emf" / "README.txt",
+        sample_dir / "README.txt",
+    )
+    shutil.copy2(
+        ROOT / "examples" / "04-combined-emf" / "paper.yaml",
+        sample_dir / "paper.yaml",
+    )
     info = json.loads((kit / "bundle-info.json").read_text(encoding="utf-8"))
     (app_dir / "portable-info.json").write_text(
         json.dumps(
@@ -113,6 +133,7 @@ def build(kit: Path, output: Path) -> Path:
         _die("PyInstaller did not produce LaTeXtify.exe")
     frozen_dir.rename(app_dir)
     _copy_runtime_assets(kit, app_dir)
+    write_manifest(app_dir)
 
     archive = output / f"{APP_NAME}.zip"
     archive.unlink(missing_ok=True)

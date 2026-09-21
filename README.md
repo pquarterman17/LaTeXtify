@@ -326,6 +326,18 @@ the local wheelhouse without contacting any service. Code changes under
 the offline test, lint, and type-check commands described in
 `README-OFFLINE-REPO.txt`.
 
+Both Windows downloads include `Verify-LaTeXtify.bat` and a file-level
+integrity manifest. Run it after transfer/extraction if antivirus, endpoint
+security, or an incomplete unzip may have removed a component. The GUI also
+has a **System check** panel that tests Pandoc, Tectonic, the TeX cache,
+writable storage, offline PDF compilation, and the available EMF/WMF path,
+then saves a content-free report suitable for IT.
+
+The downloads also include the synthetic combined Word+EMF acceptance sample.
+It is the same merged main-text + supplement scenario exercised by the release
+gate and can be used to check a work computer before opening an unpublished
+manuscript.
+
 These packages serve different purposes:
 
 | Release asset | Intended use | Python required |
@@ -354,6 +366,10 @@ latextify convert paper.docx --journal revtex4-2 --supplement si.docx --pdf
 # "Supplementary Material", "Supplementary Information", "Supplemental
 # Material", or "Supporting Information" at the boundary.
 latextify convert merged.docx --journal revtex4-2 --inline-supplement --pdf
+
+# Switch the inline supplement to one column after the page break
+latextify convert merged.docx --journal revtex4-2 --inline-supplement \
+  --columns two --inline-supplement-columns one --pdf
 
 # Inline supplements cannot be combined with --figures-at-end: delayed floats
 # would cross the numbering boundary. LaTeXtify rejects that combination.

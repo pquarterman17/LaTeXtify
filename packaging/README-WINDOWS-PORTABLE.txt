@@ -15,6 +15,17 @@ uv, pip, an installed copy of Python, administrator rights, GitHub, Astral,
 or PyPI. Crossref reference checking is disabled because it needs internet;
 the other GUI options continue to work.
 
+VERIFY AND TEST
+---------------
+Double-click Verify-LaTeXtify.bat after transferring or extracting the ZIP.
+It checks every required shipped file against the package's internal SHA-256
+manifest and reports missing or changed files.
+
+The GUI's System check panel tests the conversion tools and writes a
+content-free report suitable for IT. The sample folder contains a synthetic
+combined main+supplement Word document with two embedded EMF figures; use it
+to test the exact offline workflow without exposing research data.
+
 The interface is private to this computer and opens in your normal browser at
 an address beginning with http://127.0.0.1/. Close the browser tab to stop it.
 

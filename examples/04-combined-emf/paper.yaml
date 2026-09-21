@@ -1,0 +1,11 @@
+title: A Combined Manuscript Acceptance Sample
+# CHECK: no superscript affiliation markers found on the author line; affiliation assignment could not be inferred — verify manually.
+authors:
+- name: Example Author
+  affiliations: []
+# CHECK: no affiliation lines found; affiliations left empty.
+affiliations: []
+abstract: This synthetic document verifies offline conversion without containing research
+  data.
+# CHECK: no 'Keywords:' line found in the scanned range; keywords left empty.
+keywords: []
