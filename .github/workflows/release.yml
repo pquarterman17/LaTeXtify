@@ -231,6 +231,11 @@ jobs:
       - name: Add the Windows packages to checksums
         run: |
           cd build
+          # upload-artifact preserves the common `build/`-relative directory
+          # structure when given files from two different subdirectories.
+          # Flatten those two known assets before checksumming/uploading them.
+          mv portable/LaTeXtify-Windows-Portable.zip .
+          mv offline-repo/LaTeXtify-Windows-Offline-Repo.zip .
           sha256sum LaTeXtify-Windows-Portable.zip >> SHA256SUMS.txt
           sha256sum LaTeXtify-Windows-Offline-Repo.zip >> SHA256SUMS.txt
           cat SHA256SUMS.txt
