@@ -284,14 +284,15 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.event.inputs.tag || github.ref_name }}
         run: |
+          tag_sha=$(git rev-parse "$TAG^{commit}")
           previous_id=$(gh run list --workflow publish.yml --event workflow_dispatch \
-            --branch "$TAG" --limit 1 --json databaseId \
+            --commit "$tag_sha" --limit 1 --json databaseId \
             --jq '.[0].databaseId // empty')
           gh workflow run publish.yml --ref "$TAG" -f tag="$TAG"
           run_id=""
           for attempt in $(seq 1 30); do
             candidate=$(gh run list --workflow publish.yml --event workflow_dispatch \
-              --branch "$TAG" --limit 1 --json databaseId \
+              --commit "$tag_sha" --limit 1 --json databaseId \
               --jq '.[0].databaseId // empty')
             if [ -n "$candidate" ] && [ "$candidate" != "$previous_id" ]; then
               run_id="$candidate"

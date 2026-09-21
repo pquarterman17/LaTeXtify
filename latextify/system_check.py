@@ -43,9 +43,9 @@ def run_system_check(workdir: Path) -> dict[str, object]:
 
     def writable() -> str:
         workdir.mkdir(parents=True, exist_ok=True)
-        probe = workdir / ".latextify-write-check"
-        probe.write_text("ok", encoding="ascii")
-        probe.unlink()
+        descriptor, name = tempfile.mkstemp(prefix=".latextify-write-check-", dir=workdir)
+        os.close(descriptor)
+        Path(name).unlink()
         return "temporary working folder is writable"
 
     checks.append(_check("Working folder", writable))

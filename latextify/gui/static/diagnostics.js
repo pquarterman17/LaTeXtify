@@ -39,6 +39,6 @@
     link.href = URL.createObjectURL(new Blob([reportText], { type: "text/plain" }));
     link.download = "latextify-system-check.txt";
     link.click();
-    setTimeout(() => URL.revokeObjectURL(link.href), 0);
+    setTimeout(() => URL.revokeObjectURL(link.href), 1000);
   });
 })();
