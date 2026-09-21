@@ -8,6 +8,7 @@ paper.yaml sidecar beside whatever docx path it's given).
 from __future__ import annotations
 
 import shutil
+import sys
 from pathlib import Path
 
 import pytest
@@ -24,6 +25,10 @@ CLEAN_DOCX = FIXTURES / "clean.docx"
 METADATA_TITLEPAGE_DOCX = FIXTURES / "metadata_titlepage.docx"
 
 runner = CliRunner()
+
+COMBINED_EMF_DOCX = (
+    Path(__file__).parents[1] / "examples" / "04-combined-emf" / "Combined-Manuscript-with-EMF.docx"
+)
 
 
 def _invoke_convert(docx: Path, journal: str, output: Path):
@@ -609,6 +614,53 @@ def test_convert_columns_two_on_generic_class_adds_twocolumn_option(tmp_path):
     preamble = (output / "elsarticle" / "generated" / "preamble.tex").read_text(encoding="utf-8")
     class_line = next(line for line in preamble.splitlines() if line.startswith("\\documentclass"))
     assert "twocolumn" in class_line
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="acceptance sample contains Windows EMFs")
+def test_combined_emf_cli_can_switch_inline_supplement_to_one_column(tmp_path):
+    output = tmp_path / "output"
+    result = runner.invoke(
+        app,
+        [
+            "convert",
+            str(COMBINED_EMF_DOCX),
+            "--journal",
+            "revtex4-2",
+            "--output",
+            str(output),
+            "--inline-supplement",
+            "--columns",
+            "two",
+            "--inline-supplement-columns",
+            "one",
+            "--figure-column",
+            "1=one",
+            "--figure-column",
+            "2=two",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    body = (output / "revtex4-2" / "generated" / "body.tex").read_text(encoding="utf-8")
+    for marker in ("\\begin{figure}\n", "\\begin{figure*}\n", "\\clearpage", "\\onecolumn"):
+        assert marker in body
+
+
+def test_inline_supplement_columns_requires_inline_mode(tmp_path):
+    result = runner.invoke(
+        app,
+        [
+            "convert",
+            str(CLEAN_DOCX),
+            "--journal",
+            "revtex4-2",
+            "--output",
+            str(tmp_path / "output"),
+            "--inline-supplement-columns",
+            "one",
+        ],
+    )
+    assert result.exit_code == 1
+    assert "requires --inline-supplement" in result.output
 
 
 def test_convert_double_spacing_appends_setspace_to_preamble(tmp_path):

@@ -74,6 +74,7 @@ def _ui_text(client: TestClient) -> str:
         + client.get("/static/export.js").text
         + client.get("/static/review.js").text
         + client.get("/static/figures.js").text
+        + client.get("/static/diagnostics.js").text
     )
 
 
@@ -112,6 +113,31 @@ def test_index_wires_the_multifile_ui(tmp_path):
         "opt-checkrefs",
     ):
         assert f'id="{toggle}"' in html, toggle
+
+
+def test_index_wires_system_check(tmp_path):
+    html = _ui_text(_client(tmp_path))
+    assert 'id="system-check-btn"' in html
+    assert "/api/system-check" in html
+    assert "latextify-system-check.txt" in html
+
+
+def test_system_check_endpoint_returns_content_free_report(tmp_path, monkeypatch):
+    expected = {
+        "overall": "pass",
+        "checks": [{"name": "Pandoc", "status": "pass", "detail": "available"}],
+        "report": "LaTeXtify system check\nNo manuscript content included.\n",
+    }
+    monkeypatch.setattr("latextify.gui.diagnostics_routes.run_system_check", lambda _path: expected)
+    response = _client(tmp_path).post("/api/system-check")
+    assert response.status_code == 200
+    assert response.json() == expected
+
+
+def test_system_check_is_disabled_in_hosted_demo(tmp_path):
+    application = create_app(workdir=tmp_path, gui_secret=_TEST_SECRET, demo=True)
+    response = _client_for(application).post("/api/system-check")
+    assert response.status_code == 403
 
 
 def test_index_citation_styles_have_labels(tmp_path):

@@ -200,6 +200,11 @@ def convert(
         help="Treat a Supplementary Material/Information heading in the main file "
         "as a page-break boundary and continue in the same PDF with S-numbering.",
     ),
+    inline_supplement_columns: str = typer.Option(
+        "same",
+        "--inline-supplement-columns",
+        help="Columns after the inline supplement boundary: same|one. Needs --inline-supplement.",
+    ),
     check_references: bool = typer.Option(
         False,
         "--check-references",
@@ -232,6 +237,12 @@ def convert(
         raise typer.Exit(code=1)
     if inline_supplement and figures_at_end:
         typer.echo("error: --inline-supplement cannot be used with --figures-at-end", err=True)
+        raise typer.Exit(code=1)
+    if inline_supplement_columns not in {"same", "one"}:
+        typer.echo("error: --inline-supplement-columns must be same or one", err=True)
+        raise typer.Exit(code=1)
+    if inline_supplement_columns != "same" and not inline_supplement:
+        typer.echo("error: --inline-supplement-columns requires --inline-supplement", err=True)
         raise typer.Exit(code=1)
     # --review turns on the online check it reviews.
     check_references = check_references or review
@@ -274,6 +285,7 @@ def convert(
                 figure_sources=figure_sources,
                 strip_figure_metadata=not keep_figure_metadata,
                 inline_supplement=inline_supplement,
+                inline_supplement_columns=inline_supplement_columns,
                 figure_placements=figure_placements,
             )
     except ManifestError as exc:

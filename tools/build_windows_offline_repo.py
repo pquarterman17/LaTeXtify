@@ -19,6 +19,8 @@ import sys
 import zipfile
 from pathlib import Path
 
+from latextify.integrity import write_manifest
+
 ROOT = Path(__file__).resolve().parents[1]
 BUNDLE_NAME = "LaTeXtify-Windows-Offline-Repo"
 
@@ -118,6 +120,14 @@ def build(kit: Path, python_runtime: Path, output: Path) -> Path:
         ROOT / "packaging" / "README-WINDOWS-OFFLINE-REPO.txt",
         bundle_dir / "README-OFFLINE-REPO.txt",
     )
+    shutil.copy2(
+        ROOT / "packaging" / "verify_installation.py",
+        bundle_dir / "verify_installation.py",
+    )
+    shutil.copy2(
+        ROOT / "packaging" / "Verify-LaTeXtify-Repo.bat",
+        bundle_dir / "Verify-LaTeXtify.bat",
+    )
 
     commit = subprocess.run(
         ["git", "-C", str(ROOT), "rev-parse", "HEAD"],
@@ -142,6 +152,7 @@ def build(kit: Path, python_runtime: Path, output: Path) -> Path:
         + "\n",
         encoding="utf-8",
     )
+    write_manifest(bundle_dir)
 
     archive = output / f"{BUNDLE_NAME}.zip"
     archive.unlink(missing_ok=True)

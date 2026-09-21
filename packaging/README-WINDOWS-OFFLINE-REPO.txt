@@ -18,6 +18,18 @@ Pandoc, Tectonic, the warmed TeX package cache, and the complete tracked source
 checkout. The GUI and command line run the files in this folder, so edits to
 latextify\ take effect on the next launch.
 
+VERIFY AND TEST
+---------------
+Double-click Verify-LaTeXtify.bat after transfer/extraction and before making
+source edits. It checks the original shipped files against the internal
+SHA-256 manifest. Intentional source edits will subsequently be reported as
+changed, while .venv and normal tool caches are ignored.
+
+The GUI's System check panel tests Pandoc, Tectonic, the TeX cache, writable
+storage, offline PDF compilation, and the available EMF/WMF conversion path.
+Its saved report contains no manuscript content. The synthetic acceptance
+document is examples\04-combined-emf\Combined-Manuscript-with-EMF.docx.
+
 OFFLINE DEVELOPMENT
 -------------------
 Run the test suite:

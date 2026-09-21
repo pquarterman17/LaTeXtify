@@ -201,6 +201,8 @@ jobs:
             Get-Content "build/portable/LaTeXtify-Windows-Portable/latextify-startup.log" -ErrorAction SilentlyContinue
             throw "portable self-test failed (exit $($selfTest.ExitCode))"
           }
+          $verify = Start-Process -FilePath $app -ArgumentList "--verify-installation" -PassThru -Wait -WindowStyle Hidden
+          if ($verify.ExitCode -ne 0) { throw "portable integrity verification failed" }
           $env:LATEXTIFY_NO_BROWSER = "1"
           $env:LATEXTIFY_PORT = "8765"
           $process = Start-Process -FilePath $app -PassThru -WindowStyle Hidden
@@ -248,6 +250,18 @@ jobs:
             if ($LASTEXITCODE -ne 0) { throw "offline repository did not import editable source" }
             & ".venv/Scripts/python.exe" -m pytest -q tests/test_portable.py
             if ($LASTEXITCODE -ne 0) { throw "offline repository test command failed" }
+            & ".runtime/python/python.exe" "verify_installation.py"
+            if ($LASTEXITCODE -ne 0) { throw "offline repository integrity verification failed" }
+            & ".venv/Scripts/python.exe" -m latextify convert `
+              examples/04-combined-emf/Combined-Manuscript-with-EMF.docx `
+              -j revtex4-2 -o offline-repo-demo --pdf --inline-supplement `
+              --columns two --inline-supplement-columns one `
+              --figure-column 1=one --figure-column 2=two
+            if ($LASTEXITCODE -ne 0) { throw "combined Word/EMF scenario failed" }
+            $body = Get-Content "offline-repo-demo/revtex4-2/generated/body.tex" -Raw
+            foreach ($marker in @("\begin{figure}", "\begin{figure*}", "\clearpage", "\onecolumn")) {
+              if (-not $body.Contains($marker)) { throw "combined Word/EMF output is missing $marker" }
+            }
           } finally {
             Pop-Location
           }

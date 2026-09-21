@@ -186,6 +186,19 @@
 
   <div class="tools-row">
   <section class="panel">
+    <h2>System check</h2>
+    <p class="hint">Test this computer's offline conversion components without reading any
+      manuscript. The downloadable report contains runtime status only and is suitable for IT or
+      troubleshooting.</p>
+    <div class="actions">
+      <button id="system-check-btn" type="button">Run system check</button>
+      <button id="system-check-save" type="button" class="secondary" disabled>Save report</button>
+    </div>
+    <div id="system-check-status" class="status"></div>
+    <pre id="system-check-report" class="report hidden"></pre>
+  </section>
+
+  <section class="panel">
     <h2>Check &amp; clean a file (strip metadata)</h2>
     <p class="hint">Standalone tool, independent of the conversion above. <strong>Check</strong>
       reports what a file exposes without changing it; <strong>Clean</strong> returns a copy with
@@ -271,5 +284,6 @@
 <script src="/static/figures.js"></script>
 <script src="/static/alt-export.js"></script>
 <script src="/static/lifecycle.js"></script>
+<script src="/static/diagnostics.js"></script>
 </body>
 </html>

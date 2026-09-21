@@ -8,11 +8,15 @@ the archived `OFFLINE_PORTABILITY_PLAN.md`); this plan closes the gap between
 "declared to work" and "proven to work" for that machine, and decides the
 distribution channels.
 
-**Status:** Active
+**Status:** Completed and superseded by the shipped v0.3.4 distribution
 **Created:** 2026-07-12
-**Updated:** 2026-08-09 — Tiers 1 + 2 fully shipped (items 1–6, 9); only Tier 3
-7/8 remain (both gated on need/audience). `pip install latextify` is **live** —
-both owner steps landed on 2026-07-19 (see #6).
+**Updated:** 2026-09-20 — the earlier assumptions below are retained as
+decision history, but are no longer current. The project now ships a
+no-install frozen Windows GUI and an editable offline repository containing a
+portable Python runtime. Release artifacts carry internal integrity manifests,
+an exact combined-DOCX/EMF acceptance sample, and GUI diagnostics. Tagging a
+release now builds, verifies, publishes to PyPI, and publishes the GitHub
+release without a manual draft toggle.
 
 ---
 
@@ -20,18 +24,23 @@ both owner steps landed on 2026-07-19 (see #6).
 
 ### How the pieces fit together
 
-The offline story is one artifact — the LaTeXtify wheel — packaged two ways, not
-two products:
+The current distribution has one codebase and several delivery formats:
 
 - **Offline kit** (`latextify make-kit`, `latextify/kit/build.py`): a
   self-contained folder with `wheelhouse/` (LaTeXtify + every dependency as
   wheels for each covered Python version), `tectonic/` (PDF binary),
   `tex-bundle-cache/` (pre-warmed TeX packages so `--pdf` compiles offline),
   and a stdlib-only `install.py`. Installs with no internet and no admin.
-  `release.yml` already builds win/linux/mac kits on a version tag and attaches
-  them to a GitHub Release with checksums.
-- **Online channel** (does not exist yet): `pip install latextify` from PyPI —
-  the same wheel, for users who have internet.
+  `release.yml` builds win/linux/mac kits on a version tag and attaches them to
+  a GitHub Release with checksums.
+- **Portable Windows GUI** (`LaTeXtify-Windows-Portable.zip`): the recommended
+  work-machine package. It includes Python, Pandoc, Tectonic, the warmed TeX
+  cache, an integrity verifier, and the combined Word/EMF acceptance sample.
+- **Editable offline repository** (`LaTeXtify-Windows-Offline-Repo.zip`): the
+  complete source tree, portable Python, development dependencies, runtime
+  assets, integrity verifier, and startup scripts for offline development.
+- **Online channel**: `pip install latextify` from PyPI installs the same
+  application for users who have internet.
 
 ### The load-bearing constraint (read this first)
 
@@ -55,17 +64,19 @@ Consequence for a locked-down box:
 ### Data / control flow
 
 ```
-ONLINE build machine (Windows, has internet)     TARGET (offline, has Python 3.10+)
-────────────────────────────────────────────     ──────────────────────────────────
-latextify make-kit --target win-x64          →    copy folder via USB
-  wheelhouse/ + pandoc + tectonic + TeX cache      py install.py   (venv + pip --no-index)
-                                                    LaTeXtify.bat convert paper.docx -j ... [--pdf]
-                                                      docx --pandoc--> LaTeX  [--tectonic--> PDF]
+GITHUB RELEASE                                  TARGET (offline Windows machine)
+────────────────────────────────────────────    ───────────────────────────────────
+Portable GUI ZIP                           →     extract, verify, run LaTeXtify.exe
+  app + Python + Pandoc + Tectonic + cache         choose DOCX/options in the GUI
+Editable repository ZIP                    →     extract, verify, run startup.bat
+  source + portable Python + wheelhouse + tools     edit/test/run entirely offline
+Conventional offline kit                   →     run install.py with Python 3.10+
+  wheels + Pandoc + Tectonic + TeX cache          use GUI or command line
 ```
 
 ### Resolved decisions
 
-- (2026-07-12) **Do not bundle a Python runtime.** Assume Python is present on
+- (2026-07-12, superseded 2026-09-20) **Do not bundle a Python runtime.** Assume Python is present on
   the target; if it isn't, the case is out of scope ("we're hosed"). This keeps
   the existing multi-version wheelhouse (3.10–3.14) rather than collapsing to a
   single bundled interpreter.
@@ -74,7 +85,7 @@ latextify make-kit --target win-x64          →    copy folder via USB
   3.11+/3.12+-only features are used.
 - (2026-07-12) **One wheel, two channels** (PyPI + offline kit). No bespoke
   "online installer", no forked codebase.
-- (2026-07-12) **No single-.exe freeze (PyInstaller/Nuitka).** It does not
+- (2026-07-12, superseded 2026-09-20) **No single-.exe freeze (PyInstaller/Nuitka).** It does not
   remove the pandoc/Tectonic/TeX dependency, and unsigned exes trip the very
   AV/allow-listing found on locked-down machines — it trades a solved problem
   for an unsolved one. Reconsider only with code-signing in hand.
@@ -97,7 +108,7 @@ latextify make-kit --target win-x64          →    copy folder via USB
 
 *(All shipped — see Completed.)*
 
-## Tier 3 — Nice-to-Have
+## Remaining optional work
 
 7. **Evaluate a full Tectonic bundle file vs. the warmed cache.** The warmed
    cache only covers packages the warmed journals used, so an uncovered package
@@ -105,9 +116,10 @@ latextify make-kit --target win-x64          →    copy folder via USB
    deletes the warming logic — more robust, fixed size, less maintenance.
    Evaluate sizes/flags before committing.
 
-8. **One-click self-extractor / installer** (extract + run `install.py` + drop a
-   shortcut) — only if a non-technical or broad audience materializes. Not for
-   the current known, semi-technical use case.
+8. ~~**No-install Windows GUI**~~ — shipped as
+   `LaTeXtify-Windows-Portable.zip`; no system Python, admin access, uv, pip, or
+   network access is required. A separate editable repository ZIP provides the
+   full source and development tooling.
 
 ---
 
