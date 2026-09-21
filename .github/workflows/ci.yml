@@ -138,9 +138,8 @@ jobs:
     # OLDEST supported Python (3.10, our documented floor -- see
     # requires-python in pyproject.toml) on the platform most kit users
     # actually run: Windows. A future dependency bump could silently break
-    # the 3.10 floor without this catching it. Kept fast: emit-only
-    # (--no-warm-tex, no --pdf) -- the PDF/Tectonic offline path is already
-    # covered by the `offline-kit` job above.
+    # the 3.10 floor without this catching it. This job also freezes and boots
+    # the no-Python portable application while the network is poisoned.
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -148,14 +147,14 @@ jobs:
         with:
           python-version: "3.13"
       - name: Install
-        run: uv sync --locked
+        run: uv sync --locked --group portable
       - name: Set up the TARGET Python 3.10 (what install.py will run under)
         id: py310
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.10"
-      - name: Build a GUI-capable emit-only kit covering Python 3.10 (network ON)
-        run: uv run latextify make-kit --target current --python-versions 3.10 --with-gui --no-warm-tex --output build
+      - name: Build a GUI kit covering Python 3.10 and warm one journal (network ON)
+        run: uv run latextify make-kit --target current --python-versions 3.10 --with-gui --journals revtex4-2 --output build
       - name: Install the kit under Python 3.10, network POISONED
         env:
           # Same reasoning as the Linux offline-kit job: uppercase only, one
@@ -184,3 +183,40 @@ jobs:
             throw "Python 3.10 kit did not produce demo-out/revtex4-2/main.tex"
           }
           Write-Host "offline (Python 3.10, Windows): produced demo-out/revtex4-2/main.tex"
+      - name: Build the no-install portable Windows application
+        run: uv run --group portable python tools/build_windows_portable.py --kit build/latextify-offline-windows-x64 --output build/portable
+      - name: Exercise the frozen application with the network poisoned
+        env:
+          HTTPS_PROXY: http://127.0.0.1:9
+          HTTP_PROXY: http://127.0.0.1:9
+          ALL_PROXY: http://127.0.0.1:9
+        run: |
+          $app = Resolve-Path "build/portable/LaTeXtify-Windows-Portable/LaTeXtify.exe"
+          $selfTest = Start-Process -FilePath $app -ArgumentList "--self-test" -PassThru -Wait -WindowStyle Hidden
+          if ($selfTest.ExitCode -ne 0) {
+            Get-Content "build/portable/LaTeXtify-Windows-Portable/latextify-startup.log" -ErrorAction SilentlyContinue
+            throw "portable self-test failed (exit $($selfTest.ExitCode))"
+          }
+          $env:LATEXTIFY_NO_BROWSER = "1"
+          $env:LATEXTIFY_PORT = "8765"
+          $process = Start-Process -FilePath $app -PassThru -WindowStyle Hidden
+          try {
+            $ready = $false
+            foreach ($attempt in 1..30) {
+              Start-Sleep -Seconds 1
+              try {
+                $response = Invoke-WebRequest "http://127.0.0.1:8765/" -UseBasicParsing -NoProxy
+                if ($response.StatusCode -eq 200 -and $response.Content -match "LaTeXtify") {
+                  $ready = $true
+                  break
+                }
+              } catch {}
+              if ($process.HasExited) { break }
+            }
+            if (-not $ready) {
+              Get-Content "build/portable/LaTeXtify-Windows-Portable/latextify-startup.log" -ErrorAction SilentlyContinue
+              throw "portable GUI did not answer on loopback"
+            }
+          } finally {
+            if (-not $process.HasExited) { Stop-Process -Id $process.Id -Force }
+          }

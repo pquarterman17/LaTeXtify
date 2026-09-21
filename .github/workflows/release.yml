@@ -27,7 +27,50 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  build-windows-portable:
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref_name }}
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
+        with:
+          python-version: "3.13"
+      - name: Cache Tectonic binary and package bundle
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: |
+            ~/.cache/latextify
+            ~/.cache/Tectonic
+          key: tectonic-${{ runner.os }}-v1
+      - name: Install build dependencies
+        run: uv sync --locked --no-dev --extra gui --group portable
+      - name: Build native Windows runtime assets
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: uv run latextify make-kit --target current --python-versions 3.13 --with-gui -o build
+      - name: Freeze and verify the portable application
+        env:
+          HTTPS_PROXY: http://127.0.0.1:9
+          HTTP_PROXY: http://127.0.0.1:9
+          ALL_PROXY: http://127.0.0.1:9
+        run: |
+          uv run --group portable python tools/build_windows_portable.py --kit build/latextify-offline-windows-x64 --output build/portable
+          $app = Resolve-Path "build/portable/LaTeXtify-Windows-Portable/LaTeXtify.exe"
+          $selfTest = Start-Process -FilePath $app -ArgumentList "--self-test" -PassThru -Wait -WindowStyle Hidden
+          if ($selfTest.ExitCode -ne 0) {
+            Get-Content "build/portable/LaTeXtify-Windows-Portable/latextify-startup.log" -ErrorAction SilentlyContinue
+            throw "portable self-test failed (exit $($selfTest.ExitCode))"
+          }
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: windows-portable
+          path: build/portable/LaTeXtify-Windows-Portable.zip
+          if-no-files-found: error
+
   build-kits:
+    needs: build-windows-portable
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
@@ -116,6 +159,17 @@ jobs:
           ls -lh *.zip SHA256SUMS.txt
           cat SHA256SUMS.txt
 
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: windows-portable
+          path: build
+
+      - name: Add the portable Windows application to checksums
+        run: |
+          cd build
+          sha256sum LaTeXtify-Windows-Portable.zip >> SHA256SUMS.txt
+          cat SHA256SUMS.txt
+
       - name: Create release (if missing) and upload assets
         env:
           GH_TOKEN: ${{ github.token }}
@@ -126,6 +180,7 @@ jobs:
             latextify-offline-windows-x64.zip
             latextify-offline-linux-x64.zip
             latextify-offline-macos-arm64.zip
+            LaTeXtify-Windows-Portable.zip
             latextify-source.zip
             SHA256SUMS.txt
           )

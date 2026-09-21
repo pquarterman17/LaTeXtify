@@ -307,6 +307,10 @@ def ensure_tectonic() -> Path:
     found = find_tectonic()
     if found is not None:
         return found
+    if os.environ.get("LATEXTIFY_OFFLINE", "").lower() in {"1", "true", "yes", "on"}:
+        raise TectonicNotAvailableError(
+            "Tectonic is not present in this offline package; network download is disabled."
+        )
     return download_tectonic()
 
 

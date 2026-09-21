@@ -290,16 +290,24 @@ on its first run.
 
 ### Offline / firewalled Windows computer
 
-Do not transfer the repository's source-code ZIP: its `startup.bat` must fetch
-`uv` and Python packages. On a connected computer, download the release asset
-named **`latextify-offline-windows-x64.zip`**, transfer it using an approved
-method, extract it to a short writable path such as `C:\LaTeXtify`, and run:
+Do not transfer GitHub's automatically generated source-code ZIP or
+`latextify-source.zip`: their `startup.bat` must fetch `uv` and Python packages.
+For a locked-down work computer, download the release asset named
+**`LaTeXtify-Windows-Portable.zip`**, transfer it using an approved method,
+extract the whole folder to a short writable path such as `C:\LaTeXtify`, and
+double-click **`LaTeXtify.exe`**. It carries its own Python runtime, GUI,
+Pandoc, Tectonic, and warmed TeX cache. It performs no installation and needs
+no administrator rights, Python, `uv`, `pip`, GitHub, Astral, or PyPI access.
+
+The older **`latextify-offline-windows-x64.zip`** remains available for users
+who prefer a conventional, inspectable Python environment. It requires a
+supported 64-bit Python already present. Extract it and run:
 
 ```bat
 py install.py
 ```
 
-Then double-click **`Start-LaTeXtify-GUI.bat`**. The offline package contains
+Then double-click **`Start-LaTeXtify-GUI.bat`**. That offline package contains
 the GUI, Pandoc, Tectonic, dependencies, and a warmed TeX cache; it does not
 contact GitHub, Astral, PyPI, or Crossref. It requires a supported 64-bit
 Python already present on the work computer. Embedded EMF/WMF figures work,
