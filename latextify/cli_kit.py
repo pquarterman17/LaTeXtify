@@ -43,6 +43,11 @@ def make_kit_cmd(
     with_gui: bool = typer.Option(
         False, "--with-gui", help="Also bundle the optional web-GUI dependency wheels."
     ),
+    with_dev: bool = typer.Option(
+        False,
+        "--with-dev",
+        help="Also bundle development/test dependencies for an offline source checkout.",
+    ),
     zip_kit: bool = typer.Option(
         False, "--zip", help="Also produce a .zip of the kit folder for distribution."
     ),
@@ -67,6 +72,7 @@ def make_kit_cmd(
             warm_tex=warm_tex,
             journals=journal_list,
             with_gui=with_gui,
+            with_dev=with_dev,
             make_zip=zip_kit,
         )
     except KitBuildError as exc:

@@ -128,6 +128,7 @@ def build_bundle_info(
     *,
     warm_tex: bool,
     with_gui: bool,
+    with_dev: bool = False,
     journals: list[str],
 ) -> dict:
     """Shape the ``bundle-info.json`` manifest (pure)."""
@@ -140,5 +141,6 @@ def build_bundle_info(
         "python_versions": list(py_versions),
         "warm_tex": warm_tex,
         "with_gui": with_gui,
+        "with_dev": with_dev,
         "warmed_journals": sorted(journals) if warm_tex else [],
     }

@@ -147,14 +147,18 @@ jobs:
         with:
           python-version: "3.13"
       - name: Install
-        run: uv sync --locked --group portable
+        run: |
+          uv sync --locked --group portable
+          # setup-uv may select GitHub's hosted interpreter, which is not a
+          # relocatable payload. Install an explicit uv-managed copy to bundle.
+          uv python install 3.13 --no-bin --no-registry
       - name: Set up the TARGET Python 3.10 (what install.py will run under)
         id: py310
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.10"
-      - name: Build a GUI kit covering Python 3.10 and warm one journal (network ON)
-        run: uv run latextify make-kit --target current --python-versions 3.10 --with-gui --journals revtex4-2 --output build
+      - name: Build a GUI/dev kit covering Python 3.10 and 3.13 (network ON)
+        run: uv run latextify make-kit --target current --python-versions 3.10 --python-versions 3.13 --with-gui --with-dev --journals revtex4-2 --output build
       - name: Install the kit under Python 3.10, network POISONED
         env:
           # Same reasoning as the Linux offline-kit job: uppercase only, one
@@ -219,4 +223,31 @@ jobs:
             }
           } finally {
             if (-not $process.HasExited) { Stop-Process -Id $process.Id -Force }
+          }
+      - name: Build and exercise the editable offline repository
+        env:
+          HTTPS_PROXY: http://127.0.0.1:9
+          HTTP_PROXY: http://127.0.0.1:9
+          ALL_PROXY: http://127.0.0.1:9
+        run: |
+          $python = uv python find --managed-python 3.13
+          uv run --group portable python tools/build_windows_offline_repo.py `
+            --kit build/latextify-offline-windows-x64 `
+            --python-runtime $python `
+            --output build/offline-repo
+          if ($LASTEXITCODE -ne 0) { throw "offline repository build failed" }
+          $repo = Resolve-Path "build/offline-repo/LaTeXtify-Windows-Offline-Repo"
+          & "$repo/.runtime/python/python.exe" "$repo/.offline-kit/install.py" --dir $repo
+          if ($LASTEXITCODE -ne 0) { throw "offline repository setup failed" }
+          Push-Location $repo
+          try {
+            $env:LATEXTIFY_OFFLINE = "1"
+            $env:PATH = "$repo/.offline-kit/tectonic;$env:PATH"
+            $env:TECTONIC_CACHE_DIR = "$repo/.offline-kit/tex-bundle-cache"
+            & ".venv/Scripts/python.exe" -c "import pathlib, latextify; assert pathlib.Path(latextify.__file__).resolve().is_relative_to(pathlib.Path.cwd())"
+            if ($LASTEXITCODE -ne 0) { throw "offline repository did not import editable source" }
+            & ".venv/Scripts/python.exe" -m pytest -q tests/test_portable.py
+            if ($LASTEXITCODE -ne 0) { throw "offline repository test command failed" }
+          } finally {
+            Pop-Location
           }
